@@ -31,8 +31,7 @@ public:
 class EBTKSNullSD {
 public:
   bool begin(int, EBTKSNullSPI &) { return false; }
-  File open(const char *, uint8_t = FILE_READ) { return File(); }
-  File open(const char *, const char *) { return File(); }
+  File open(const char *, const char * = FILE_READ) { return File(); }
 };
 
 EBTKSNullSPI sdSPI;
