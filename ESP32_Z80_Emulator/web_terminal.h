@@ -50,8 +50,10 @@ inline void webTerminalRegister(AsyncWebServer &server) {
   });
 
   server.on("/z80/status", HTTP_GET, [](AsyncWebServerRequest *r){
-    String s="{\"target\":\"ESP32-D0WD-V3\",\"milestone\":1,\"z80_running\":";
+    String s="{\"target\":\"ESP32-D0WD-V3\",\"milestone\":2,\"z80_running\":";
     s+=RUN?"true":"false";
+    s+=",\"teensy_storage\":";
+    s+=sdfound?"true":"false";
     s+="}";
     r->send(200,"application/json",s);
   });
