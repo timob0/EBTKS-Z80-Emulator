@@ -20,6 +20,29 @@ WiFiServer telnetServer(23);
 WiFiClient serverClient;
 const char *hostName = "ebtks-z80";
 
+// Milestone 1 has no ESP32-attached SD card.  Keep the upstream disk code
+// compilable, but route all SD calls to a null backend so no EBTKS GPIOs are
+// touched.  Milestone 2 will replace this with Teensy-backed storage.
+class EBTKSNullSPI {
+public:
+  void begin(int, int, int, int) {}
+};
+
+class EBTKSNullSD {
+public:
+  bool begin(int, EBTKSNullSPI &) { return false; }
+  File open(const char *, uint8_t = FILE_READ) { return File(); }
+  File open(const char *, const char *) { return File(); }
+};
+
+EBTKSNullSPI sdSPI;
+EBTKSNullSD ebtksNullSD;
+#define SD ebtksNullSD
+#define SS   (-1)
+#define MOSI (-1)
+#define MISO (-1)
+#define SCK  (-1)
+
 int PortA[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 int PortB[8] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 
