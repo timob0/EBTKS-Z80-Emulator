@@ -53,7 +53,7 @@ inline void ebtksQueueWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   AwsFrameInfo *info = static_cast<AwsFrameInfo *>(arg);
   if (!info || !info->final || info->index != 0 || info->len != len || info->opcode != WS_TEXT) return;
-  if (!ebtksBrowserRequestQueue || len >= sizeof(EBTKSBrowserRequest::text)) return;
+  if (!ebtksBrowserRequestQueue || len >= 512) return;
 
   EBTKSBrowserRequest request = {};
   memcpy(request.text, data, len);
