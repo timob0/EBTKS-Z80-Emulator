@@ -98,10 +98,18 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
   if (!src || len == 0) return 0;
   if (len > EBTKS_WRITE_CHUNK) len = EBTKS_WRITE_CHUNK;
 
+  // mbedtls_base64_encode() requires room for the trailing NUL in addition
+  // to the Base64 payload.  For a full 192-byte chunk the payload is exactly
+  // 256 bytes, so passing sizeof(encoded)-1 made every full write chunk fail
+  // with MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL before it ever reached Teensy.
   unsigned char encoded[4 * ((EBTKS_WRITE_CHUNK + 2) / 3) + 1];
   size_t encodedLen = 0;
-  int rc = mbedtls_base64_encode(encoded, sizeof(encoded) - 1, &encodedLen, src, len);
-  if (rc != 0) return -1;
+  int rc = mbedtls_base64_encode(encoded, sizeof(encoded), &encodedLen, src, len);
+  if (rc != 0) {
+    Serial.printf("EBTKS storage Base64 encode error rc=%d input=%u required=%u\n",
+                  rc, (unsigned)len, (unsigned)encodedLen);
+    return -1;
+  }
   encoded[encodedLen] = 0;
 
   JsonDocument request;
