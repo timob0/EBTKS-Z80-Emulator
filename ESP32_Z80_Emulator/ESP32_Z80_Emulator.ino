@@ -9,11 +9,13 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPAsyncWiFiManager.h>
 #include <Update.h>
+#include <ArduinoJson.h>
 
 #include "globals.h"
 #include "ebtks_link.h"
 #include "web_terminal.h"
 #include "ebtks_web.h"
+#include "ebtks_storage.h"
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
@@ -29,7 +31,7 @@ void setup() {
   ebtksLinkBegin();
   delay(100);
 
-  Serial.println("\nEBTKS Z80 Emulator - Milestone 1");
+  Serial.println("\nEBTKS Z80 Emulator - Milestone 2");
   Serial.println("Target: ESP32-D0WD-V3 / EBTKS v3.x");
   for(int i=0;i<11;++i) Serial.println(banner[i]);
 
@@ -42,6 +44,13 @@ void setup() {
     ESP.restart();
   }
 
+  // Milestone 2: verify that the Teensy SD card contains /boot.txt.  The
+  // upstream CPU task still performs its virtual disk-controller init, but
+  // all actual file traffic is now serviced over UART1 by the Teensy.
+  Serial.print("Probing Teensy-backed Z80 storage... ");
+  sdfound = ebtksStorageProbe();
+  Serial.println(sdfound ? "ready" : "not available (BASIC fallback)");
+
   RUN=false;
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
@@ -52,13 +61,14 @@ void setup() {
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
 
-  Serial.println("Milestone 1 services started");
+  Serial.println("Milestone 2 services started");
   Serial.print("EBTKS home: http://"); Serial.println(WiFi.localIP());
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");
 }
 
 void loop() {
-  // With no ESP-attached SD card, bootstrap() falls back to loadBasic().
+  // With Teensy storage available, /boot.txt selects CP/M or another remote
+  // boot image.  If storage is absent, bootstrap() uses the built-in BASIC.
   bootstrap();
   PC=0;
   SingleStep=false;
