@@ -24,6 +24,27 @@ The Teensy UART is reserved by `ebtks_link.h` and is not used as the Z80/CP/M co
 - Wi-Fi uses credentials already stored in ESP32 NVS.
 - ArduinoOTA remains available for development updates.
 
+## PlatformIO build
+
+The repository root is now a PlatformIO project. Open the repository folder itself in VSCode/PlatformIO and build the `esp32dev` environment.
+
+`platformio.ini` targets the classic ESP32 Dev Module and uses the same async networking libraries as the rebuilt EBTKS ESP32 firmware:
+
+- `ESP32Async/AsyncTCP @ 3.3.2`
+- `ESP32Async/ESPAsyncWebServer @ 3.6.0`
+
+The original Arduino sketch remains in `ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino`. PlatformIO builds that same sketch through `pio_src/main.cpp`, so the repo continues to work as an Arduino IDE project as well.
+
+From a shell at the repository root:
+
+    pio run
+
+The OTA application image will be generated at:
+
+    .pio/build/esp32dev/firmware.bin
+
+No serial upload port is hard-coded because the normal EBTKS workflow is to install `firmware.bin` through the already-proven web updater.
+
 ## Browser terminal
 
 After the ESP joins Wi-Fi, open:
