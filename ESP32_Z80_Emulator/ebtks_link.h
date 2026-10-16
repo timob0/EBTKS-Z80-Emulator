@@ -7,6 +7,8 @@
 HardwareSerial TeensySerial(1);
 SemaphoreHandle_t ebtksLinkMutex = nullptr;
 
+static const size_t EBTKS_LINK_MAX_REPLY = 8192;
+
 inline uint16_t ebtksCrc16(const uint8_t *data, size_t len)
 {
   uint16_t crc = 0xffffU;
@@ -44,7 +46,7 @@ inline bool ebtksDecodeReplyEnvelope(String line, String &jsonReply)
 
 inline void ebtksLinkBegin()
 {
-  TeensySerial.setRxBufferSize(2048);
+  TeensySerial.setRxBufferSize(8192);
   TeensySerial.begin(115200, SERIAL_8N1, 3, 1);
   if (!ebtksLinkMutex) ebtksLinkMutex = xSemaphoreCreateMutex();
 }
@@ -54,8 +56,6 @@ inline bool ebtksLinkTransaction(const String &request, String &jsonReply, uint3
   if (!ebtksLinkMutex) return false;
   if (xSemaphoreTake(ebtksLinkMutex, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) return false;
 
-  // A complete request/reply pair owns UART1.  Discard any stale bytes left
-  // from a previous aborted transaction before sending the next request.
   while (TeensySerial.available()) TeensySerial.read();
 
   String req = request;
@@ -64,8 +64,9 @@ inline bool ebtksLinkTransaction(const String &request, String &jsonReply, uint3
   TeensySerial.write('\r');
 
   String line;
-  line.reserve(1200);
+  line.reserve(1024);
   bool complete = false;
+  bool overflow = false;
   uint32_t started = millis();
 
   while ((millis() - started) < timeoutMs) {
@@ -75,20 +76,19 @@ inline bool ebtksLinkTransaction(const String &request, String &jsonReply, uint3
         complete = true;
         break;
       }
-      if (line.length() < 1199) line += c;
+      if (line.length() < EBTKS_LINK_MAX_REPLY - 1) line += c;
       else {
-        Serial.println("EBTKS UART reply overflow");
-        line = "";
-        complete = false;
+        overflow = true;
         break;
       }
     }
-    if (complete) break;
+    if (complete || overflow) break;
     vTaskDelay(1);
   }
 
-  bool ok = complete && ebtksDecodeReplyEnvelope(line, jsonReply);
-  if (!ok && !complete) Serial.println("EBTKS UART transaction timeout");
+  bool ok = !overflow && complete && ebtksDecodeReplyEnvelope(line, jsonReply);
+  if (overflow) Serial.println("EBTKS UART reply overflow");
+  else if (!complete) Serial.println("EBTKS UART transaction timeout");
 
   xSemaphoreGive(ebtksLinkMutex);
   return ok;
