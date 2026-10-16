@@ -7,6 +7,7 @@
 
 static const size_t EBTKS_READ_CHUNK  = 256;
 static const size_t EBTKS_WRITE_CHUNK = 192;
+static const char *EBTKS_CPM_ROOT = "/cpm";
 
 inline bool ebtksStorageExchange(JsonDocument &request, JsonDocument &reply, uint32_t timeoutMs = 3000)
 {
@@ -30,7 +31,7 @@ inline bool ebtksStorageOpen(const char *path, bool writable, int &fd)
   JsonObject open = request["open"].to<JsonObject>();
   open["path"] = path;
   // SdFat flags used by the Teensy: O_READ=1, O_WRITE=2, O_RDWR=3.
-  // Read-only opens can use the Teensy-side default.  Existing disk images
+  // Read-only opens can use the Teensy-side default. Existing disk images
   // are opened read/write without create/truncate semantics.
   if (writable) open["opts"] = 3;
 
@@ -109,7 +110,7 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
   write["len"] = len;
 
   // The current Teensy firmware checks jdoc["write"] but reads the Base64
-  // payload from jdoc["Write"]["data"].  Supplying both keys preserves
+  // payload from jdoc["Write"]["data"]. Supplying both keys preserves
   // compatibility without requiring a Teensy-side protocol change.
   request["Write"]["data"] = (const char *)encoded;
 
@@ -121,7 +122,7 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
 inline bool ebtksStorageProbe()
 {
   int fd = -1;
-  bool ok = ebtksStorageOpen("/boot.txt", false, fd);
+  bool ok = ebtksStorageOpen("/cpm/boot.txt", false, fd);
   if (ok) ebtksStorageClose(fd);
   return ok;
 }
