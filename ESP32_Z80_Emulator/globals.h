@@ -22,7 +22,7 @@ const char *hostName = "ebtks-z80";
 
 // The upstream CPU initialisation still calls sdSPI.begin()/SD.begin().
 // On EBTKS there is deliberately no ESP32-attached SD card: those calls are
-// harmless compatibility shims.  Actual file and disk traffic is performed
+// harmless compatibility shims. Actual file and disk traffic is performed
 // by ebtks_storage.h over UART1 to the Teensy SD card.
 class EBTKSNullSPI {
 public:
@@ -75,7 +75,7 @@ volatile uint16_t txInPtr=0, txOutPtr=0;
 
 int vdrive;
 char sdfile[64] = {};
-char sddir[64] = {"/download"};
+char sddir[64] = {"/cpm/download"};
 bool sdfound = false;  // Milestone 2: true means Teensy-backed storage is reachable.
 
 TaskHandle_t Task1, Task2, Task3, Task4, Task5, Task6;
