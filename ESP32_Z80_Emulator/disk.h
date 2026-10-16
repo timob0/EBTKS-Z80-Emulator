@@ -28,7 +28,7 @@ void loadBasic(void) {
 }
 
 //*********************************************************************************************
-//****            Load boot.txt and bootstrap binaries from the Teensy SD card            ****
+//****         Load /cpm/boot.txt and bootstrap binaries from the Teensy SD card           ****
 //*********************************************************************************************
 void bootstrap(void) {
   if (!sdfound) {
@@ -38,13 +38,13 @@ void bootstrap(void) {
 
   char bootText[512];
   size_t bootLen = 0;
-  if (!ebtksStorageReadText("/boot.txt", bootText, sizeof(bootText), bootLen)) {
-    Serial.println("\n\rTeensy storage: /boot.txt not found; using BASIC fallback");
+  if (!ebtksStorageReadText("/cpm/boot.txt", bootText, sizeof(bootText), bootLen)) {
+    Serial.println("\n\rTeensy storage: /cpm/boot.txt not found; using BASIC fallback");
     loadBasic();
     return;
   }
 
-  Serial.println("\n\rBooting from Teensy SD card:");
+  Serial.println("\n\rBooting CP/M from Teensy SD card /cpm:");
   int loaded = 0;
   char *save = nullptr;
   char *line = strtok_r(bootText, "\n", &save);
@@ -156,8 +156,8 @@ bool diskWrite(void) {
   vdrive = packed >> 14;
   uint32_t sector = packed & 0x3fff;
 
-  char drivePath[] = "/disks/A.dsk";
-  drivePath[7] = (char)('A' + vdrive);
+  char drivePath[] = "/cpm/disks/A.dsk";
+  drivePath[11] = (char)('A' + vdrive);
 
   bool ok = ebtksStorageWriteRange(drivePath, sector * 512UL, &RAM[address], 512);
   if (!ok) Serial.printf("Virtual disk write failed: %s sector %lu\n", drivePath, (unsigned long)sector);
@@ -173,8 +173,8 @@ bool diskRead(void) {
   vdrive = packed >> 14;
   uint32_t sector = packed & 0x3fff;
 
-  char drivePath[] = "/disks/A.dsk";
-  drivePath[7] = (char)('A' + vdrive);
+  char drivePath[] = "/cpm/disks/A.dsk";
+  drivePath[11] = (char)('A' + vdrive);
 
   bool ok = ebtksStorageReadRange(drivePath, sector * 512UL, &RAM[address], 512);
   if (!ok) Serial.printf("Virtual disk read failed: %s sector %lu\n", drivePath, (unsigned long)sector);
