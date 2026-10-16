@@ -25,6 +25,15 @@ inline uint16_t ebtksCrc16(const uint8_t *data, size_t len)
 inline bool ebtksDecodeReplyEnvelope(String line, String &jsonReply)
 {
   line.trim();
+
+  // Older EBTKS ESP/Teensy combinations used plain JSON.  Current Teensy
+  // firmware appends a decimal CRC after the JSON.  Accept both formats so
+  // Milestone 2 does not regress installations with older Teensy firmware.
+  if (line.startsWith("{") && line.endsWith("}")) {
+    jsonReply = line;
+    return true;
+  }
+
   int comma = line.lastIndexOf(',');
   if (comma <= 0) return false;
 
