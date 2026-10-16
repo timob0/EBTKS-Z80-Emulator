@@ -7,13 +7,18 @@
 #include <ESPAsyncWiFiManager.h>
 #include <Update.h>
 
-// Shared EBTKS web server.  /ws remains the original Teensy JSON bridge.
+// Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal registers /z80 and /z80ws on this same server.
 AsyncWebServer ebtksServer(80);
 AsyncWebSocket ebtksWebSocket("/ws");
 DNSServer ebtksDns;
 
 volatile bool ebtksRestartRequired = false;
+
+struct EBTKSBrowserRequest {
+  char text[512];
+};
+QueueHandle_t ebtksBrowserRequestQueue = nullptr;
 
 static const char EBTKS_HOME_FALLBACK[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -34,34 +39,28 @@ body{font-family:Verdana,sans-serif;text-align:center;background:#222;color:#fff
 
 inline void ebtksServeHome(AsyncWebServerRequest *request)
 {
-  // App-only OTA preserves the SPIFFS partition.  If the existing EBTKS
-  // index page is present, serve it unchanged; otherwise use our compact
-  // embedded fallback page.
-  if (SPIFFS.exists("/index.html")) {
-    request->send(SPIFFS, "/index.html", "text/html");
-  } else {
-    request->send(200, "text/html", EBTKS_HOME_FALLBACK);
-  }
+  if (SPIFFS.exists("/index.html")) request->send(SPIFFS, "/index.html", "text/html");
+  else request->send(200, "text/html", EBTKS_HOME_FALLBACK);
 }
 
 inline void ebtksServeUpdater(AsyncWebServerRequest *request)
 {
-  if (SPIFFS.exists("/updater.html")) {
-    request->send(SPIFFS, "/updater.html", "text/html");
-  } else {
-    request->send(200, "text/html", EBTKS_UPDATER_FALLBACK);
-  }
+  if (SPIFFS.exists("/updater.html")) request->send(SPIFFS, "/updater.html", "text/html");
+  else request->send(200, "text/html", EBTKS_UPDATER_FALLBACK);
 }
 
-inline void ebtksBridgeWebSocketMessage(void *arg, uint8_t *data, size_t len)
+inline void ebtksQueueWebSocketMessage(void *arg, uint8_t *data, size_t len)
 {
   AwsFrameInfo *info = static_cast<AwsFrameInfo *>(arg);
   if (!info || !info->final || info->index != 0 || info->len != len || info->opcode != WS_TEXT) return;
+  if (!ebtksBrowserRequestQueue || len >= sizeof(EBTKSBrowserRequest::text)) return;
 
-  // Preserve the original EBTKS browser -> Teensy JSON bridge.  The Z80
-  // console never uses this UART; it has /z80ws instead.
-  TeensySerial.write(data, len);
-  TeensySerial.write((const uint8_t *)"\r\n", 2);
+  EBTKSBrowserRequest request = {};
+  memcpy(request.text, data, len);
+  request.text[len] = 0;
+  if (xQueueSend(ebtksBrowserRequestQueue, &request, 0) != pdTRUE) {
+    Serial.println("EBTKS browser request queue full");
+  }
 }
 
 inline void ebtksWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
@@ -69,7 +68,7 @@ inline void ebtksWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *cl
 {
   switch (type) {
     case WS_EVT_DATA:
-      ebtksBridgeWebSocketMessage(arg, data, len);
+      ebtksQueueWebSocketMessage(arg, data, len);
       break;
     case WS_EVT_CONNECT:
       Serial.printf("EBTKS websocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
@@ -85,20 +84,18 @@ inline void ebtksWebSocketEvent(AsyncWebSocket *server, AsyncWebSocketClient *cl
 
 inline void ebtksWebBackgroundTask(void *parameter)
 {
-  static char line[1024];
-  size_t pos = 0;
+  EBTKSBrowserRequest request;
 
   for (;;) {
-    // Preserve the original Teensy -> browser line bridge.
-    while (TeensySerial.available()) {
-      char c = (char)TeensySerial.read();
-      if (c == '\n') {
-        line[pos] = 0;
-        if (pos && ebtksWebSocket.count()) ebtksWebSocket.textAll(line);
-        pos = 0;
+    // Browser and Z80 storage traffic share one request/reply UART protocol.
+    // Browser requests are queued here and use the same transaction mutex as
+    // ebtks_storage.h, so replies can never be consumed by the wrong client.
+    if (ebtksBrowserRequestQueue && xQueueReceive(ebtksBrowserRequestQueue, &request, 0) == pdTRUE) {
+      String reply;
+      if (ebtksLinkTransaction(String(request.text), reply, 3000)) {
+        if (ebtksWebSocket.count()) ebtksWebSocket.textAll(reply.c_str());
       } else {
-        if (pos < sizeof(line) - 1) line[pos++] = c;
-        else pos = 0;
+        Serial.println("EBTKS browser Teensy transaction failed");
       }
     }
 
@@ -111,7 +108,7 @@ inline void ebtksWebBackgroundTask(void *parameter)
       ESP.restart();
     }
 
-    vTaskDelay(10);
+    vTaskDelay(2);
   }
 }
 
@@ -124,8 +121,6 @@ inline bool ebtksWebBegin()
 
   WiFi.mode(WIFI_STA);
 
-  // Same provisioning behaviour as the existing EBTKS ESP firmware:
-  // use stored credentials, otherwise expose EBTKS_AP/password.
   AsyncWiFiManager wm(&ebtksServer, &ebtksDns);
   bool connected = wm.autoConnect("EBTKS_AP", "password");
   if (!connected) {
@@ -141,6 +136,12 @@ inline bool ebtksWebBegin()
   } else {
     MDNS.addService("http", "tcp", 80);
     Serial.println("mDNS responder started: esp32_ebtks.local");
+  }
+
+  ebtksBrowserRequestQueue = xQueueCreate(8, sizeof(EBTKSBrowserRequest));
+  if (!ebtksBrowserRequestQueue) {
+    Serial.println("Unable to allocate EBTKS browser request queue");
+    return false;
   }
 
   ebtksServer.on("/", HTTP_GET, ebtksServeHome);
@@ -164,9 +165,7 @@ inline bool ebtksWebBegin()
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
       if (!index) {
         Serial.printf("OTA Update Start: %s\n", filename.c_str());
-        if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) {
-          Update.printError(Serial);
-        }
+        if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) Update.printError(Serial);
       }
       if (!Update.hasError() && len) {
         if (Update.write(data, len) != len) Update.printError(Serial);
@@ -175,9 +174,7 @@ inline bool ebtksWebBegin()
         if (Update.end(true)) {
           Serial.printf("OTA Update Success: %u bytes\n", (unsigned)(index + len));
           ebtksRestartRequired = true;
-        } else {
-          Update.printError(Serial);
-        }
+        } else Update.printError(Serial);
       }
     }
   );
@@ -185,7 +182,6 @@ inline bool ebtksWebBegin()
   ebtksWebSocket.onEvent(ebtksWebSocketEvent);
   ebtksServer.addHandler(&ebtksWebSocket);
 
-  // Register /z80 and /z80ws on the same HTTP server.
   webTerminalRegister(ebtksServer);
 
   ebtksServer.onNotFound([](AsyncWebServerRequest *request) {
