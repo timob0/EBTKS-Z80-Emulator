@@ -12,10 +12,20 @@ static const char EBTKS_TERM_PAGE[] PROGMEM = R"HTML(
 body{background:#202124;color:#e8eaed;font-family:monospace;margin:0;padding:1rem}
 #term{background:#000;color:#9ef59e;padding:12px;min-height:25em;white-space:pre-wrap;outline:none}
 button{margin-right:.5rem}</style></head><body>
-<div><b>EBTKS Z80 / CP/M terminal</b> <button onclick="clearTerm()">Clear</button> <button onclick="location.href='/'">EBTKS Home</button> <span id="state">connecting...</span></div>
+<div><b>EBTKS Z80 / CP/M terminal</b> <button onclick="clearTerm()">Clear</button> <button onclick="resetZ80()">Reset Z80</button> <button onclick="location.href='/'">EBTKS Home</button> <span id="state">connecting...</span></div>
 <pre id="term" tabindex="0"></pre><script>
 const term=document.getElementById('term'),state=document.getElementById('state');let ws;
 function clearTerm(){term.textContent=''}
+async function resetZ80(){
+  state.textContent='resetting...';
+  try{
+    const r=await fetch('/z80/reset',{method:'POST'});
+    if(!r.ok)throw new Error('reset failed');
+    term.textContent='';
+    state.textContent='reset requested';
+    setTimeout(()=>term.focus(),250);
+  }catch(e){state.textContent='reset error'}
+}
 function putByte(c){if(c===13)return;if(c===10)term.textContent+='\n';else if(c===8||c===127)term.textContent=term.textContent.slice(0,-1);else if(c===12||c===26)clearTerm();else if(c>=32||c===9)term.textContent+=String.fromCharCode(c);if(term.textContent.length>60000)term.textContent=term.textContent.slice(-40000);window.scrollTo(0,document.body.scrollHeight)}
 function connect(){ws=new WebSocket(`ws://${location.host}/z80ws`);ws.binaryType='arraybuffer';ws.onopen=()=>{state.textContent='connected';term.focus()};ws.onclose=()=>{state.textContent='disconnected';setTimeout(connect,1000)};ws.onerror=()=>state.textContent='error';ws.onmessage=e=>{if(typeof e.data==='string'){for(let i=0;i<e.data.length;i++)putByte(e.data.charCodeAt(i)&255)}else{for(const c of new Uint8Array(e.data))putByte(c)}}}
 term.addEventListener('keydown',e=>{if(!ws||ws.readyState!==WebSocket.OPEN)return;let b=null;if(e.key==='Enter')b=[13];else if(e.key==='Backspace')b=[8];else if(e.key==='Tab')b=[9];else if(e.key.length===1)b=[e.key.charCodeAt(0)&255];if(b){ws.send(new Uint8Array(b));e.preventDefault()}});document.addEventListener('click',()=>term.focus());connect();
@@ -47,6 +57,14 @@ inline void webTerminalRegister(AsyncWebServer &server) {
 
   server.on("/z80", HTTP_GET, [](AsyncWebServerRequest *r){
     r->send(200,"text/html",EBTKS_TERM_PAGE);
+  });
+
+  server.on("/z80/reset", HTTP_POST, [](AsyncWebServerRequest *r){
+    // The main loop treats RUN=false as a virtual machine stop, reloads the
+    // configured boot images and restarts the Z80 without resetting the ESP32
+    // or disturbing the HP-85 side of EBTKS.
+    RUN = false;
+    r->send(200,"application/json","{\"ok\":true}");
   });
 
   server.on("/z80/status", HTTP_GET, [](AsyncWebServerRequest *r){
