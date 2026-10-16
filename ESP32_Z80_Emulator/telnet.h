@@ -1,50 +1,32 @@
 #include "globals.h"
 #pragma once
 
-//*********************************************************************************************
-//****                                 Telnet task                                         ****
-//*********************************************************************************************
 void TelnetTask(void *parameter) {
-  server.begin();
-  server.setNoDelay(true);
-  Serial.println("Telnet Task Started:");
+  telnetServer.begin();
+  telnetServer.setNoDelay(true);
+  Serial.println("Telnet task started");
   Serial.print("Use 'telnet ");
   Serial.print(WiFi.localIP());
-  Serial.println("' to connect");
+  Serial.println(" 23' to connect");
   telnet_t = true;
 
   for (;;) {
-
-    if (server.hasClient()) {
-      serverClient = server.available();
-      //if (serverClient) {
-        Serial.print("\n\rNew Telnet client @ ");
+    if (telnetServer.hasClient()) {
+      WiFiClient incoming = telnetServer.available();
+      if (!serverClient || !serverClient.connected()) {
+        if (serverClient) serverClient.stop();
+        serverClient = incoming;
+        Serial.print("New Telnet client @ ");
         Serial.println(serverClient.remoteIP());
-        //vTaskDelay(100);
-        serverClient.write(255);  // IAC
-        serverClient.write(251);  // WILL
-        serverClient.write(1);    // ECHO
-        //vTaskDelay(100);
-        serverClient.write(255);  // IAC
-        serverClient.write(251);  // WILL
-        serverClient.write(3);    // suppress go ahead
-        //vTaskDelay(100);
-        serverClient.write(255);  // IAC
-        serverClient.write(252);  // WONT
-        serverClient.write(34);   // LINEMODE
-        //vTaskDelay(100);
-        serverClient.write(27);   //Print "esc"
-        serverClient.print("c");  //Send esc c to reset screen
-        //vTaskDelay(100);
-        for (int i = 0; i < 11; i++) {
-          serverClient.println(banner[i]);
-          //vTaskDelay(1);
-        };
-        while (serverClient.available()) serverClient.read();  //Get rid of any garbage received
-        //vTaskDelay(500);
-        RUN = false;  //Force Z80 reboot
-      //}
+        serverClient.write(255); serverClient.write(251); serverClient.write(1);
+        serverClient.write(255); serverClient.write(251); serverClient.write(3);
+        serverClient.write(255); serverClient.write(252); serverClient.write(34);
+        while (serverClient.available()) serverClient.read();
+        RUN = false;
+      } else {
+        incoming.stop();
+      }
     }
-    vTaskDelay(100);
+    vTaskDelay(50);
   }
 }
