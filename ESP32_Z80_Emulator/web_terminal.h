@@ -41,7 +41,7 @@ inline void webTerminalBegin() {
       uint8_t c=data[i]; if(c==127)c=8; consoleRxEnqueue(c);
     }
   });
-  webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *r){r->send_P(200,"text/html",EBTKS_TERM_PAGE);});
+  webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *r){r->send(200,"text/html",EBTKS_TERM_PAGE);});
   webServer.on("/status", HTTP_GET, [](AsyncWebServerRequest *r){String s="{\"target\":\"ESP32-D0WD-V3\",\"milestone\":1,\"z80_running\":";s+=RUN?"true":"false";s+="}";r->send(200,"application/json",s);});
   webServer.addHandler(&webSocket);
   webServer.begin();
