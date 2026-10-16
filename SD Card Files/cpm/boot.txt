@@ -1,0 +1,9 @@
+; boot.txt
+; Data files and load addresses at boot time
+;
+; CP/M 2.2
+/cpm/cboot.rom  0000
+/cpm/cpm22.rom  D000
+/cpm/cbios.rom  E600
+;
+; CP/M virtual disks live under /cpm/disks/
