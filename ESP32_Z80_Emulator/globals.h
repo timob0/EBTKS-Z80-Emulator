@@ -11,7 +11,7 @@ const String banner[] = {
   "E               S  P         8      8  0 0    0 ",
   " EEEEEE   SSSSSS   P          888888    000000  ",
   "                                                ",
-  "       EBTKS Z80 Emulator - Milestone 1         ",
+  "       EBTKS Z80 Emulator - Milestone 2         ",
   "        based on ESP32 Z80 Emulator V2.2        ",
   "                                                "
 };
@@ -20,9 +20,10 @@ WiFiServer telnetServer(23);
 WiFiClient serverClient;
 const char *hostName = "ebtks-z80";
 
-// Milestone 1 has no ESP32-attached SD card.  Keep the upstream disk code
-// compilable, but route all SD calls to a null backend so no EBTKS GPIOs are
-// touched.  Milestone 2 will replace this with Teensy-backed storage.
+// The upstream CPU initialisation still calls sdSPI.begin()/SD.begin().
+// On EBTKS there is deliberately no ESP32-attached SD card: those calls are
+// harmless compatibility shims.  Actual file and disk traffic is performed
+// by ebtks_storage.h over UART1 to the Teensy SD card.
 class EBTKSNullSPI {
 public:
   void begin(int, int, int, int) {}
@@ -30,7 +31,7 @@ public:
 
 class EBTKSNullSD {
 public:
-  bool begin(int, EBTKSNullSPI &) { return false; }
+  bool begin(int, EBTKSNullSPI &) { return true; }
   File open(const char *, const char * = FILE_READ) { return File(); }
 };
 
@@ -73,9 +74,9 @@ uint8_t txBuf[1024];
 volatile uint16_t txInPtr=0, txOutPtr=0;
 
 int vdrive;
-char sdfile[50] = {};
-char sddir[50] = {"/download"};
-bool sdfound = false;
+char sdfile[64] = {};
+char sddir[64] = {"/download"};
+bool sdfound = false;  // Milestone 2: true means Teensy-backed storage is reachable.
 
 TaskHandle_t Task1, Task2, Task3, Task4, Task5, Task6;
 SemaphoreHandle_t baton;
