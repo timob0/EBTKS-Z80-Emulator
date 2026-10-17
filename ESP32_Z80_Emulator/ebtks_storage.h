@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <mbedtls/base64.h>
 #include "ebtks_link.h"
+#include "z80_debug.h"
 
 static const size_t EBTKS_READ_CHUNK  = 256;
 static const size_t EBTKS_WRITE_CHUNK = 192;
@@ -37,12 +38,12 @@ inline bool ebtksStorageOpen(const char *path, bool writable, int &fd)
 
   JsonDocument reply;
   if (!ebtksStorageExchange(request, reply)) {
-    if (writable) Serial.printf("EBTKS WRITE open transport failure path=%s opts=3\n", path);
+    if (writable) z80DebugLog("EBTKS WRITE open transport failure path=%s opts=3\n", path);
     return false;
   }
   fd = reply["open"]["fd"] | -1;
   if (writable) {
-    Serial.printf("EBTKS WRITE open path=%s opts=3 -> fd=%d\n", path, fd);
+    z80DebugLog("EBTKS WRITE open path=%s opts=3 -> fd=%d\n", path, fd);
   }
   return fd >= 0;
 }
@@ -63,13 +64,13 @@ inline bool ebtksStorageCloseChecked(int fd)
   request["close"]["fd"] = fd;
   JsonDocument reply;
   if (!ebtksStorageExchange(request, reply)) {
-    Serial.printf("EBTKS WRITE close transport failure fd=%d\n", fd);
+    z80DebugLog("EBTKS WRITE close transport failure fd=%d\n", fd);
     return false;
   }
   int returnedFd = reply["close"]["fd"] | -999;
   bool ok = (returnedFd == -1);
-  Serial.printf("EBTKS WRITE close fd=%d -> returnedFd=%d %s\n",
-                fd, returnedFd, ok ? "OK" : "FAIL");
+  z80DebugLog("EBTKS WRITE close fd=%d -> returnedFd=%d %s\n",
+              fd, returnedFd, ok ? "OK" : "FAIL");
   return ok;
 }
 
@@ -97,14 +98,14 @@ inline bool ebtksStorageSeekChecked(int fd, uint32_t offset)
 
   JsonDocument reply;
   if (!ebtksStorageExchange(request, reply)) {
-    Serial.printf("EBTKS WRITE seek transport failure fd=%d offset=%lu\n",
-                  fd, (unsigned long)offset);
+    z80DebugLog("EBTKS WRITE seek transport failure fd=%d offset=%lu\n",
+                fd, (unsigned long)offset);
     return false;
   }
   int result = reply["lseek"]["offset"] | 0;
   bool ok = result != 0;
-  Serial.printf("EBTKS WRITE seek fd=%d offset=%lu -> result=%d %s\n",
-                fd, (unsigned long)offset, result, ok ? "OK" : "FAIL");
+  z80DebugLog("EBTKS WRITE seek fd=%d offset=%lu -> result=%d %s\n",
+              fd, (unsigned long)offset, result, ok ? "OK" : "FAIL");
   return ok;
 }
 
@@ -149,8 +150,8 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
   size_t encodedLen = 0;
   int rc = mbedtls_base64_encode(encoded, sizeof(encoded), &encodedLen, src, len);
   if (rc != 0) {
-    Serial.printf("EBTKS storage Base64 encode error rc=%d input=%u required=%u\n",
-                  rc, (unsigned)len, (unsigned)encodedLen);
+    z80DebugLog("EBTKS storage Base64 encode error rc=%d input=%u required=%u\n",
+                rc, (unsigned)len, (unsigned)encodedLen);
     return -1;
   }
   encoded[encodedLen] = 0;
@@ -167,14 +168,14 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
 
   JsonDocument reply;
   if (!ebtksStorageExchange(request, reply)) {
-    Serial.printf("EBTKS WRITE chunk transport failure fd=%d requested=%u\n",
-                  fd, (unsigned)len);
+    z80DebugLog("EBTKS WRITE chunk transport failure fd=%d requested=%u\n",
+                fd, (unsigned)len);
     return -1;
   }
   int written = reply["write"]["len"] | -1;
-  Serial.printf("EBTKS WRITE chunk fd=%d requested=%u -> written=%d %s\n",
-                fd, (unsigned)len, written,
-                written == (int)len ? "OK" : "FAIL");
+  z80DebugLog("EBTKS WRITE chunk fd=%d requested=%u -> written=%d %s\n",
+              fd, (unsigned)len, written,
+              written == (int)len ? "OK" : "FAIL");
   return written;
 }
 
@@ -207,18 +208,18 @@ inline bool ebtksStorageReadRange(const char *path, uint32_t offset, uint8_t *ds
 
 inline bool ebtksStorageWriteRange(const char *path, uint32_t offset, const uint8_t *src, size_t len)
 {
-  Serial.printf("EBTKS WRITE begin path=%s offset=%lu len=%u\n",
-                path, (unsigned long)offset, (unsigned)len);
+  z80DebugLog("EBTKS WRITE begin path=%s offset=%lu len=%u\n",
+              path, (unsigned long)offset, (unsigned)len);
 
   int fd = -1;
   if (!ebtksStorageOpen(path, true, fd)) {
-    Serial.printf("EBTKS WRITE abort: open failed path=%s\n", path);
+    z80DebugLog("EBTKS WRITE abort: open failed path=%s\n", path);
     return false;
   }
 
   bool ok = (offset == 0) || ebtksStorageSeekChecked(fd, offset);
   if (offset == 0) {
-    Serial.printf("EBTKS WRITE seek skipped fd=%d offset=0\n", fd);
+    z80DebugLog("EBTKS WRITE seek skipped fd=%d offset=0\n", fd);
   }
   size_t done = 0;
 
@@ -232,8 +233,8 @@ inline bool ebtksStorageWriteRange(const char *path, uint32_t offset, const uint
 
   bool closeOk = ebtksStorageCloseChecked(fd);
   ok = ok && closeOk;
-  Serial.printf("EBTKS WRITE end path=%s done=%u/%u result=%s\n",
-                path, (unsigned)done, (unsigned)len, ok ? "OK" : "FAIL");
+  z80DebugLog("EBTKS WRITE end path=%s done=%u/%u result=%s\n",
+              path, (unsigned)done, (unsigned)len, ok ? "OK" : "FAIL");
   return ok && done == len;
 }
 
