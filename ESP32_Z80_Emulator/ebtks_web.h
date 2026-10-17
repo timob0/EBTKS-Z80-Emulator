@@ -6,6 +6,7 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPAsyncWiFiManager.h>
 #include <Update.h>
+#include "sd_test_page.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal registers /z80 and /z80ws on this same server.
@@ -26,6 +27,7 @@ static const char EBTKS_HOME_FALLBACK[] PROGMEM = R"HTML(
 body{font-family:Verdana,sans-serif;text-align:center;background:#252525;color:#eaeaea}main{max-width:420px;margin:3rem auto}button{border:0;border-radius:.3rem;background:#1fa3ec;color:white;line-height:2.4rem;font-size:1.1rem;width:100%;margin:.45rem 0;cursor:pointer}button:hover{background:#0e70a4}.small{font-size:.85rem;color:#aaa}
 </style></head><body><main><h2>EBTKS</h2><p>ESP32 services</p>
 <button onclick="location.href='/z80'">Z80 / CP/M Terminal</button>
+<button onclick="location.href='/sdtest'">SD File Service Test</button>
 <button onclick="location.href='/updater'">Firmware Updater</button>
 <p class="small">The original EBTKS websocket service remains available at /ws.</p>
 </main></body></html>)HTML";
@@ -151,6 +153,7 @@ inline bool ebtksWebBegin()
     else request->send(404, "text/plain", "Not found");
   });
 
+  ebtksServer.on("/sdtest", HTTP_GET, ebtksServeSdTest);
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
 
   ebtksServer.on(
@@ -203,6 +206,7 @@ inline bool ebtksWebBegin()
   Serial.println("EBTKS web services started");
   Serial.print("Home: http://"); Serial.println(WiFi.localIP());
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");
+  Serial.print("SD file test: http://"); Serial.print(WiFi.localIP()); Serial.println("/sdtest");
   Serial.print("Firmware updater: http://"); Serial.print(WiFi.localIP()); Serial.println("/updater");
 
   return true;
