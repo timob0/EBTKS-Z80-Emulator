@@ -2,12 +2,14 @@
 
 **Status (2026-10-18): HARDWARE TEST PASSED.** Both firmware builds were flashed and user tested 1–8 MHz, sector counts 1–128 and multiple data patterns, with no failures. The 8 MHz / 128-sector (64 KiB) run passed. This is a *receive-only MOSI* SPI transport diagnostic; it does **not** prove MISO transfers or CP/M binary sector I/O, which still use the original UART/Base64 path. Do not merge to `main` without dedicated CP/M regressions.
 
+**New pending test:** [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md) covers the newly committed, **not yet hardware-tested** optional MISO/full-duplex extension. The confirmed results below are for the *older, MOSI-only* firmware. The browser now has a mode selector; start with 1 MHz / 1 full-duplex sector and retain MOSI-only as a baseline. All normal CP/M disk accesses remain unchanged.
+
 The two matching branches are:
 
 - ESP32: https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/cn3-spi-read-test
 - Teensy: https://github.com/timob0/ebtks-alt-firmware/tree/feature/cn3-spi-read-test
 
-The purpose is to measure reliability at 1, 2, 4, and 8 MHz and verify 128 consecutive 512-byte transactions (64 KiB), without modifying any live disk image. ESP32 remains the SPI2 slave receiving data; Teensy remains SPI0 master sending known patterns. **Normal CP/M disk access still uses UART/JSON/Base64.** The web UI, OTA, HP bus ISR, SD handling, and UART control protocol are preserved.
+The original purpose is to measure reliability at 1, 2, 4, and 8 MHz and verify 128 consecutive 512-byte transactions (64 KiB), without modifying any live disk image. The new optional full-duplex mode also transmits a distinct 512-byte pattern from ESP32 SPI2 TX DMA to Teensy SPI0 RX during each transaction. **Normal CP/M disk access still uses UART/JSON/Base64.** The web UI, OTA, HP bus ISR, SD handling, and UART control protocol are preserved.
 
 ## Wiring and prerequisites
 
