@@ -9,7 +9,7 @@
 #include "sd_test_page.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
-// The Z80 terminal registers /z80 and /z80ws on this same server.
+// The Z80 terminal has its own independent websocket endpoint.
 AsyncWebServer ebtksServer(80);
 AsyncWebSocket ebtksWebSocket("/ws");
 DNSServer ebtksDns;
@@ -43,10 +43,6 @@ body{font-family:Verdana,sans-serif;text-align:center;background:#222;color:#fff
 
 inline void ebtksServeHome(AsyncWebServerRequest *request)
 {
-  // Keep the integrated firmware's root page authoritative. Older SPIFFS
-  // images can contain a legacy index.html which predates the Z80 and CRT
-  // links, so serving the compiled page avoids requiring a separate SPIFFS
-  // update whenever the service menu changes.
   request->send(200, "text/html", EBTKS_HOME_FALLBACK);
 }
 
@@ -94,9 +90,6 @@ inline void ebtksWebBackgroundTask(void *parameter)
   EBTKSBrowserRequest request;
 
   for (;;) {
-    // Browser and Z80 storage traffic share one request/reply UART protocol.
-    // Browser requests are queued here and use the same transaction mutex as
-    // ebtks_storage.h, so replies can never be consumed by the wrong client.
     if (ebtksBrowserRequestQueue && xQueueReceive(ebtksBrowserRequestQueue, &request, 0) == pdTRUE) {
       String reply;
       if (ebtksLinkTransaction(String(request.text), reply, 3000)) {
@@ -129,6 +122,9 @@ inline bool ebtksWebBegin()
   WiFi.mode(WIFI_STA);
 
   AsyncWiFiManager wm(&ebtksServer, &ebtksDns);
+  // This library defaults to debug enabled and its implementation writes to
+  // the framework Serial object.  Keep the inter-processor UART protocol-only.
+  wm.setDebugOutput(false);
   bool connected = wm.autoConnect("EBTKS_AP", "password");
   if (!connected) {
     Serial.println("Failed to connect Wi-Fi");
