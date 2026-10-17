@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Native CP/M layout used by the EBTKS Z80 build:
@@ -14,10 +15,15 @@
 // straight back to the in-memory CCP instead, which fails for large programs
 // (notably Microsoft INSTALL/Multiplan) that reclaim high memory.
 //
-// Keep a pristine host-side shadow of D000-E5FF.  The CPU emulator already has
-// a single breakpoint facility, so reserve it internally while native CP/M is
-// running.  We first stop at CCP entry D000 after cold/warm boot to install a
-// tiny BDOS vector shim, then arm the breakpoint at BIOS WBOOT entry E603.
+// Keep a pristine host-side shadow of D000-E5FF.  Allocate it from the ESP32
+// heap rather than as a static array: this firmware is already very close to
+// the linker-visible DRAM/BSS limit, while the ESP32 heap has enough runtime
+// capacity for this 5632-byte snapshot.
+//
+// The CPU emulator already has a single breakpoint facility, so reserve it
+// internally while native CP/M is running.  We first stop at CCP entry D000
+// after cold/warm boot to install a tiny BDOS vector shim, then arm the
+// breakpoint at BIOS WBOOT entry E603.
 //
 // The shim lives in the intentionally unused CBIOS hole FFEB-FFFD:
 //   LD A,C / OR A / JP Z,E603 / JP D806
@@ -34,7 +40,7 @@ static constexpr uint16_t CPM_WBOOT_ENTRY  = 0xE603;
 static constexpr uint16_t CPM_BDOS_VECTOR  = 0x0005;
 static constexpr uint16_t CPM_BDOS_SHIM    = 0xFFEB;
 
-static uint8_t cpmResidentShadow[CPM_SHADOW_SIZE];
+static uint8_t *cpmResidentShadow = nullptr;
 static bool cpmResidentShadowValid = false;
 static uint32_t cpmWarmBootCount = 0;
 
@@ -62,6 +68,20 @@ inline void cpmWarmBootPatchBdosVector()
   RAM[CPM_BDOS_VECTOR + 2] = (uint8_t)(CPM_BDOS_SHIM >> 8);
 }
 
+inline bool cpmWarmBootEnsureShadow()
+{
+  if (cpmResidentShadow) return true;
+
+  cpmResidentShadow = static_cast<uint8_t *>(malloc(CPM_SHADOW_SIZE));
+  if (!cpmResidentShadow) {
+    Serial.printf("CP/M warm boot shadow: heap allocation of %u bytes failed; disabled\n",
+                  (unsigned)CPM_SHADOW_SIZE);
+    return false;
+  }
+
+  return true;
+}
+
 inline bool cpmWarmBootCapture()
 {
   cpmResidentShadowValid = false;
@@ -75,6 +95,8 @@ inline bool cpmWarmBootCapture()
     Serial.println("CP/M warm boot shadow: native CP/M image not detected; disabled");
     return false;
   }
+
+  if (!cpmWarmBootEnsureShadow()) return false;
 
   memcpy(cpmResidentShadow, &RAM[CPM_SHADOW_START], CPM_SHADOW_SIZE);
   cpmWarmBootWriteShim();
@@ -100,7 +122,7 @@ inline void cpmWarmBootArmInitialTrap()
 
 inline bool cpmWarmBootHandleTrap()
 {
-  if (!cpmResidentShadowValid) return false;
+  if (!cpmResidentShadowValid || !cpmResidentShadow) return false;
 
   if (PC == CPM_CCP_ENTRY) {
     // BOOT/WBOOT has just rebuilt page zero, so install our function-0 shim.
