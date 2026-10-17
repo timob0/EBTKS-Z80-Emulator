@@ -36,8 +36,14 @@ inline bool ebtksStorageOpen(const char *path, bool writable, int &fd)
   if (writable) open["opts"] = 3;
 
   JsonDocument reply;
-  if (!ebtksStorageExchange(request, reply)) return false;
+  if (!ebtksStorageExchange(request, reply)) {
+    if (writable) Serial.printf("EBTKS WRITE open transport failure path=%s opts=3\n", path);
+    return false;
+  }
   fd = reply["open"]["fd"] | -1;
+  if (writable) {
+    Serial.printf("EBTKS WRITE open path=%s opts=3 -> fd=%d\n", path, fd);
+  }
   return fd >= 0;
 }
 
@@ -48,6 +54,23 @@ inline void ebtksStorageClose(int fd)
   request["close"]["fd"] = fd;
   JsonDocument reply;
   ebtksStorageExchange(request, reply);
+}
+
+inline bool ebtksStorageCloseChecked(int fd)
+{
+  if (fd < 0) return false;
+  JsonDocument request;
+  request["close"]["fd"] = fd;
+  JsonDocument reply;
+  if (!ebtksStorageExchange(request, reply)) {
+    Serial.printf("EBTKS WRITE close transport failure fd=%d\n", fd);
+    return false;
+  }
+  int returnedFd = reply["close"]["fd"] | -999;
+  bool ok = (returnedFd == -1);
+  Serial.printf("EBTKS WRITE close fd=%d -> returnedFd=%d %s\n",
+                fd, returnedFd, ok ? "OK" : "FAIL");
+  return ok;
 }
 
 inline bool ebtksStorageSeek(int fd, uint32_t offset)
@@ -63,6 +86,26 @@ inline bool ebtksStorageSeek(int fd, uint32_t offset)
   // The current Teensy service returns FsFile::seek()'s success value rather
   // than the resulting byte offset, so any non-zero value means success.
   return result != 0;
+}
+
+inline bool ebtksStorageSeekChecked(int fd, uint32_t offset)
+{
+  JsonDocument request;
+  JsonObject seek = request["lseek"].to<JsonObject>();
+  seek["fd"] = fd;
+  seek["offset"] = offset;
+
+  JsonDocument reply;
+  if (!ebtksStorageExchange(request, reply)) {
+    Serial.printf("EBTKS WRITE seek transport failure fd=%d offset=%lu\n",
+                  fd, (unsigned long)offset);
+    return false;
+  }
+  int result = reply["lseek"]["offset"] | 0;
+  bool ok = result != 0;
+  Serial.printf("EBTKS WRITE seek fd=%d offset=%lu -> result=%d %s\n",
+                fd, (unsigned long)offset, result, ok ? "OK" : "FAIL");
+  return ok;
 }
 
 inline int ebtksStorageReadChunk(int fd, uint8_t *dst, size_t wanted)
@@ -123,8 +166,16 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
   request["Write"]["data"] = (const char *)encoded;
 
   JsonDocument reply;
-  if (!ebtksStorageExchange(request, reply)) return -1;
-  return reply["write"]["len"] | -1;
+  if (!ebtksStorageExchange(request, reply)) {
+    Serial.printf("EBTKS WRITE chunk transport failure fd=%d requested=%u\n",
+                  fd, (unsigned)len);
+    return -1;
+  }
+  int written = reply["write"]["len"] | -1;
+  Serial.printf("EBTKS WRITE chunk fd=%d requested=%u -> written=%d %s\n",
+                fd, (unsigned)len, written,
+                written == (int)len ? "OK" : "FAIL");
+  return written;
 }
 
 inline bool ebtksStorageProbe()
@@ -156,10 +207,19 @@ inline bool ebtksStorageReadRange(const char *path, uint32_t offset, uint8_t *ds
 
 inline bool ebtksStorageWriteRange(const char *path, uint32_t offset, const uint8_t *src, size_t len)
 {
-  int fd = -1;
-  if (!ebtksStorageOpen(path, true, fd)) return false;
+  Serial.printf("EBTKS WRITE begin path=%s offset=%lu len=%u\n",
+                path, (unsigned long)offset, (unsigned)len);
 
-  bool ok = (offset == 0) || ebtksStorageSeek(fd, offset);
+  int fd = -1;
+  if (!ebtksStorageOpen(path, true, fd)) {
+    Serial.printf("EBTKS WRITE abort: open failed path=%s\n", path);
+    return false;
+  }
+
+  bool ok = (offset == 0) || ebtksStorageSeekChecked(fd, offset);
+  if (offset == 0) {
+    Serial.printf("EBTKS WRITE seek skipped fd=%d offset=0\n", fd);
+  }
   size_t done = 0;
 
   while (ok && done < len) {
@@ -170,7 +230,10 @@ inline bool ebtksStorageWriteRange(const char *path, uint32_t offset, const uint
     else done += part;
   }
 
-  ebtksStorageClose(fd);
+  bool closeOk = ebtksStorageCloseChecked(fd);
+  ok = ok && closeOk;
+  Serial.printf("EBTKS WRITE end path=%s done=%u/%u result=%s\n",
+                path, (unsigned)done, (unsigned)len, ok ? "OK" : "FAIL");
   return ok && done == len;
 }
 
