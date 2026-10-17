@@ -21,7 +21,7 @@
 #define Serial EbtksDebugSerial
 
 #include "ebtks_link.h"
-#include "web_terminal.h"
+#include "web_terminal_v2.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
 #include "init8250.h"
