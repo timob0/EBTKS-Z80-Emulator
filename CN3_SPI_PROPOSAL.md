@@ -22,7 +22,7 @@ This is the optional bulk-data link for speeding up CP/M SD operations. The Teen
 
 ### Additional passive component (required)
 
-Install a **10 kΩ pull-up resistor** between **CN3 pin 4** (ESP32 GPIO32 / CS_N) and **CN3 pin 36** (3.3 V; pin 35 is also 3.3 V). This keeps CS deselected during boot/reset because GPIO32 is input/output capable and also has an internal pull-up; retain the installed external 10 kΩ pull-up for a defined idle CS. **Do not connect CS directly to 3.3 V.** Teensy T26 must drive CS_N high when idle, then low during a transfer.
+Install a **10 kΩ pull-up resistor** between **CN3 pin 4** (ESP32 GPIO32 / CS_N) and **CN3 pin 36** (3.3 V; pin 35 is also 3.3 V). This keeps CS deselected during boot/reset. GPIO32 is input/output capable and has an internal pull-up, but retain the installed external 10 kΩ pull-up for a defined idle CS. **Do not connect CS directly to 3.3 V.** Teensy T26 must drive CS_N high when idle, then low during a transfer.
 
 The processors share EBTKS board ground, so **no separate ground jumper is necessary** between these on-board CN3 endpoints. CN3 also has ground on pins 1/2/39/40. All signals are **3.3 V logic**, not 5 V.
 
@@ -35,7 +35,7 @@ The processors share EBTKS board ground, so **no separate ground jumper is neces
 3. When the Teensy sees ESP_READY high, it asserts **CS_N low**, supplies SCK and transfers **exactly the agreed number of bytes**, then deasserts CS_N.
 4. ESP32 completes the transaction, returns ESP_READY low, and exchanges validation/status over the existing UART control channel. Use a sequence number, CRC, timeouts and an error fallback to the current UART/Base64 path.
 
-**Open feasibility tests:** GPIO-matrix support for ESP32 SPI2 *slave* on input-only GPIO32 as CS, supported maximum SPI speed using remapped signals, Teensy SPI0 timing while servicing HP bus interrupts, hardware DMA/handshake sequencing, and chip-select idle behavior. Begin at a conservative SPI clock, e.g. **4 MHz**, and test reads before writes. Do not connect a powered board or flash untested changes without an explicit bring-up plan.
+**Open feasibility tests:** GPIO-matrix support for ESP32 SPI2 *slave* with GPIO32 as CS, supported maximum SPI speed using remapped signals, Teensy SPI0 timing while servicing HP bus interrupts, hardware DMA/handshake sequencing, and chip-select idle behavior. Begin at a conservative SPI clock, e.g. **4 MHz**, and test reads before writes. Do not connect a powered board or flash untested changes without an explicit bring-up plan.
 
 ## TFT connection reserved, not finalized
 
