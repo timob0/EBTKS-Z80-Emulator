@@ -4,7 +4,8 @@
 void serialTask(void *parameter) {
   Serial.println("Console router task started");
   serial_t = true;
-  uint8_t chunk[128];
+  // Fewer, larger WebSocket frames reduce queue pressure during screen redraws.
+  uint8_t chunk[256];
 
   // Minimal Telnet input parser.  Telnet option negotiation arrives on the
   // same TCP stream as terminal characters; those IAC command bytes must not
@@ -109,7 +110,13 @@ void outString(char buf[]) {
   while (buf[i] > 0) {
     uint16_t next = txInPtr + 1;
     if (next >= sizeof(txBuf)) next = 0;
-    if (next == txOutPtr) break;
+    // outString shares the console ring with Z80 OUT (80h); don't silently
+    // truncate diagnostic/utility strings when the output queue is full.
+    if (next == txOutPtr) {
+      if (!RUN) break;  // Z80 is being reset/stopped.
+      vTaskDelay(1);
+      continue;
+    }
     txBuf[txInPtr] = (uint8_t)buf[i++];
     txInPtr = next;
   }
