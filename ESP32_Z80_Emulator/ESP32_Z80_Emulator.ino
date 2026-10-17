@@ -20,7 +20,7 @@
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
-#include "hp_lif_compat.h"
+#include "cpm_mount_store.h"
 #include "cpu.h"
 #include "serial.h"
 #include "telnet.h"
@@ -73,11 +73,11 @@ void loop() {
   // boot image.  If storage is absent, bootstrap() uses the built-in BASIC.
   bootstrap();
 
-  // Stage-1 HP 82900A experiment: bootstrap() may load a CBIOS build whose
-  // absolute DPH addresses differ from the source currently in the repo.
-  // Locate the DPH table from its native DPB signature and install B:'s HP
-  // geometry immediately before releasing the Z80.
-  if (sdfound) installHpLifDriveBCompat();
+  // Make the Media Manager's verified persistent table authoritative.  The
+  // old bootstrap-time SD mount loader remains temporarily as a migration
+  // source, but its result is completely superseded here before the Z80 runs.
+  // This also replaces the former stage-1 hard-wired HP-LIF B: patch.
+  if (sdfound) cpmStoreActivateMounts();
 
   PC=0;
   SingleStep=false;
