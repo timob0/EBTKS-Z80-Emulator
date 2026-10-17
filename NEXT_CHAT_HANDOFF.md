@@ -6,6 +6,8 @@
 
 > **Immediate follow-up:** Current development focus is SPI binary transport, *not* the older TFT milestone in the historical sections below. First test reverse ESP32→Teensy MISO transfer (the wire was connected but not data-validated); then reduce per-sector UART coordination and integrate *opt-in*, CRC/sequence-protected 512-byte SD/CP/M transfers. Preserve working CP/M, HP bus ISR, UART protocol, WebSockets, OTA, and the last tested `main` state. [SPI test record](SPI_TEST_README.md).
 
+> **Bidirectional SPI test extension (2026-10-18, source ready for local build):** Both feature branches now support opt-in 512-byte *simultaneous MOSI + MISO* tests. The Teensy SPI0 master checks incoming MISO bytes/CRC while sending MOSI; ESP32 SPI2 slave queues aligned DMA TX/RX buffers and checks MOSI bytes/CRC. The browser `/spitest` offers a `Full duplex` direction selector, retains `MOSI only` regression mode, and starts at 1 MHz / 1 sector. A different deterministic pattern is used on MISO to rule out simple loopback. **This new bidirectional firmware has not yet been compiled or hardware-tested;** only the previous 1–8 MHz receive-only baseline is proven. Follow [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md), pull and build both repos, then test one full-duplex sector at 1 MHz before trying 2/4/8 MHz and 128 sectors. Disk I/O remains UART/JSON/Base64; no media was touched.
+
 ## Starting a new chat
 
 Use a message such as:
