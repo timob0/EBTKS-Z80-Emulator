@@ -26,6 +26,7 @@ static uint8_t *spiTestRx = nullptr;
 static uint8_t *spiTestTx = nullptr; // DMA-capable and word-aligned, like RX
 static spi_slave_transaction_t spiTestTrans = {};
 static bool spiTestInitialized = false;
+static uint8_t spiTestInitializedMode = 255; // mode is fixed at slave init
 static volatile bool spiTestNeedsReboot = false;
 static volatile int spiTestState = 0; // 0 idle, 1 running, 2 passed, 3 failed
 static volatile uint32_t spiTestRunNumber = 0;
@@ -33,6 +34,8 @@ static volatile uint32_t spiTestHz = 1000000;
 static volatile uint16_t spiTestSectors = 1;
 static volatile uint8_t spiTestPattern = 0; // 0..4 fixed; 5=cycle by sector
 static volatile bool spiTestBidi = false; // false keeps original MOSI-only test
+static volatile uint8_t spiTestMode = 1;  // ESP-IDF recommends mode 1 with DMA TX
+static char spiTestMisoHeadHex[33] = {}; // first 16 actual Teensy RX bytes
 static volatile uint16_t spiTestCompleted = 0;
 static volatile int spiTestFailSector = -1;
 static volatile int spiTestFailPattern = -1;
@@ -99,18 +102,36 @@ inline uint16_t spiTestCrcByte(uint16_t crc, uint8_t value)
   return crc;
 }
 
-inline bool spiTestInit()
+inline bool spiTestInit(uint8_t mode)
 {
-  if (spiTestInitialized) return true;
+  if (mode > 1) return false;
+  if (spiTestInitialized && spiTestInitializedMode == mode) return true;
   pinMode(SPI_TEST_READY, OUTPUT);
   digitalWrite(SPI_TEST_READY, LOW);
-  spiTestRx = static_cast<uint8_t *>(
+
+  // The slave SPI mode cannot change in the middle of a transaction.
+  // A new mode is selected only for a new worker, after ALL prior DMA
+  // transactions have completed. Incomplete DMA blocks further testing.
+  if (spiTestInitialized) {
+    const esp_err_t released = spi_slave_free(SPI_TEST_HOST);
+    if (released != ESP_OK) {
+      spiTestDetail = "Could not reconfigure SPI mode; reboot ESP32";
+      spiTestNeedsReboot = true;
+      Serial.printf("SPI test: slave_free failure: %s\n",
+                    esp_err_to_name(released));
+      return false;
+    }
+    spiTestInitialized = false;
+    spiTestInitializedMode = 255;
+  }
+
+  if (!spiTestRx) spiTestRx = static_cast<uint8_t *>(
       heap_caps_malloc(SPI_TEST_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
   if (!spiTestRx) {
     spiTestDetail = "ESP32 RX DMA allocation failed";
     return false;
   }
-  spiTestTx = static_cast<uint8_t *>(
+  if (!spiTestTx) spiTestTx = static_cast<uint8_t *>(
       heap_caps_malloc(SPI_TEST_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
   if (!spiTestTx) {
     spiTestDetail = "ESP32 TX DMA allocation failed";
@@ -128,7 +149,7 @@ inline bool spiTestInit()
 
   spi_slave_interface_config_t slave = {};
   slave.spics_io_num = SPI_TEST_CS;
-  slave.mode = 0;
+  slave.mode = mode;
   slave.queue_size = 1;
   slave.post_setup_cb = spiTestPostSetup;
   slave.post_trans_cb = spiTestPostTrans;
@@ -145,7 +166,9 @@ inline bool spiTestInit()
     return false;
   }
   spiTestInitialized = true;
-  Serial.println("SPI test: SPI2 slave initialized (GPIO22/17/16 CS=32 READY=27)");
+  spiTestInitializedMode = mode;
+  Serial.printf("SPI test: SPI2 slave initialized mode=%u (GPIO22/17/16 CS=32 READY=27)\n",
+                (unsigned)mode);
   return true;
 }
 
@@ -167,6 +190,7 @@ inline void spiTestWorker(void *)
   spiTestMisoTxCrc = 0;
   spiTestMisoRxCrc = 0;
   spiTestMisoMismatchAt = -1;
+  spiTestMisoHeadHex[0] = '\0';
   spiTestAggregateCrc = 0xFFFF;
   spiTestAggregateMisoTxCrc = 0xFFFF;
   spiTestElapsedUs = 0;
@@ -175,7 +199,8 @@ inline void spiTestWorker(void *)
   spiTestMaxUs = 0;
   spiTestDetail = "Initializing SPI2 slave";
 
-  if (!spiTestInit()) {
+  const uint8_t mode = spiTestMode;
+  if (!spiTestInit(mode)) {
     spiTestState = 3;
     vTaskDelete(nullptr);
     return;
@@ -236,6 +261,7 @@ inline void spiTestWorker(void *)
     probe["block"] = block;
     probe["pattern"] = pattern;
     probe["bidi"] = bidi;
+    probe["mode"] = mode;
     String message;
     serializeJson(req, message);
     String response;
@@ -287,6 +313,9 @@ inline void spiTestWorker(void *)
     const int remotePattern = reply["spi_probe"]["pattern"] | -1;
     const uint32_t remoteHz = reply["spi_probe"]["hz"] | 0UL;
     const bool remoteBidi = reply["spi_probe"]["bidi"] | false;
+    const int remoteMode = reply["spi_probe"]["mode"] | -1;
+    const char *misoHead = reply["spi_probe"]["miso_head_hex"] | "";
+    strlcpy(spiTestMisoHeadHex, misoHead, sizeof(spiTestMisoHeadHex));
     const uint16_t remoteCrc = (uint16_t)(reply["spi_probe"]["crc"] | 0);
     const uint16_t remoteMisoCrc = (uint16_t)(reply["spi_probe"]["miso_crc"] | 0);
     const int remoteMisoMismatch = reply["spi_probe"]["miso_first_mismatch"] | -2;
@@ -304,15 +333,17 @@ inline void spiTestWorker(void *)
                         (remoteMisoMismatch == -1 && remoteMisoCrc == txCrc);
     if (!ok || remoteSeq != seq || remoteLen != (int)SPI_TEST_BYTES ||
         remoteBlock != block || remotePattern != pattern || remoteHz != hz ||
-        remoteBidi != bidi || !mosiOk || !misoOk || elapsed == 0) {
+        remoteBidi != bidi || remoteMode != mode ||
+        !mosiOk || !misoOk || elapsed == 0) {
       spiTestFailure("SPI MOSI/MISO bytes, CRC or Teensy status mismatch");
-      Serial.printf("SPI test FAIL block=%u pattern=%u hz=%lu seq=%u "
+      Serial.printf("SPI test FAIL block=%u pattern=%u hz=%lu mode=%u seq=%u "
                     "len=%d bits=%u MOSI ESP=%04X Teensy=%04X expected=%04X at=%d "
-                    "MISO ESP_TX=%04X Teensy_RX=%04X at=%d bidi=%u\n",
-                    block, pattern, (unsigned long)hz, seq, remoteLen,
-                    (unsigned)spiTestTrans.trans_len, actualCrc, remoteCrc,
-                    expectedCrc, mismatch, bidi ? txCrc : 0,
-                    remoteMisoCrc, remoteMisoMismatch, bidi ? 1U : 0U);
+                    "MISO ESP_TX=%04X Teensy_RX=%04X at=%d bidi=%u MISO_HEAD=%s\n",
+                    block, pattern, (unsigned long)hz, (unsigned)mode,
+                    seq, remoteLen, (unsigned)spiTestTrans.trans_len,
+                    actualCrc, remoteCrc, expectedCrc, mismatch,
+                    bidi ? txCrc : 0, remoteMisoCrc, remoteMisoMismatch,
+                    bidi ? 1U : 0U, spiTestMisoHeadHex);
       break;
     }
 
@@ -347,15 +378,17 @@ inline void spiTestWorker(void *)
 }
 
 inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
-                         uint8_t pattern = 0, bool bidi = false)
+                         uint8_t pattern = 0, bool bidi = false,
+                         uint8_t mode = 0)
 {
-  if (!spiTestValidHz(hz) ||
+  if (mode > 1 || !spiTestValidHz(hz) ||
       !(sectors == 1 || sectors == 16 || sectors == SPI_TEST_MAX_SECTORS) ||
       pattern > 5 || spiTestState == 1 || spiTestNeedsReboot) return false;
   spiTestHz = hz;
   spiTestSectors = sectors;
   spiTestPattern = pattern;
   spiTestBidi = bidi;
+  spiTestMode = mode;
   spiTestState = 1;
   ++spiTestRunNumber;
   const BaseType_t ok = xTaskCreatePinnedToCore(
