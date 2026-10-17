@@ -30,8 +30,8 @@ async function resetZ80(){
     setTimeout(()=>term.focus(),250);
   }catch(e){state.textContent='reset error'}
 }
-async function refreshDiag(){try{const r=await fetch('/z80/debug',{cache:'no-store'});diag.textContent=await r.text();diag.scrollTop=diag.scrollHeight}catch(e){diag.textContent='diagnostic fetch failed'}}
-async function clearDiag(){try{await fetch('/z80/debug/clear',{method:'POST'});await refreshDiag()}catch(e){diag.textContent='diagnostic clear failed'}}
+async function refreshDiag(){try{const r=await fetch('/z80debug',{cache:'no-store'});diag.textContent=await r.text();diag.scrollTop=diag.scrollHeight}catch(e){diag.textContent='diagnostic fetch failed'}}
+async function clearDiag(){try{await fetch('/z80debug-clear',{method:'POST'});await refreshDiag()}catch(e){diag.textContent='diagnostic clear failed'}}
 function toggleDiag(){const show=diag.style.display==='none';diag.style.display=show?'block':'none';diagControls.style.display=show?'block':'none';if(show){refreshDiag();diagTimer=setInterval(refreshDiag,1000)}else{if(diagTimer){clearInterval(diagTimer);diagTimer=null}term.focus()}}
 function putByte(c){if(c===13)return;if(c===10)term.textContent+='\n';else if(c===8||c===127)term.textContent=term.textContent.slice(0,-1);else if(c===12||c===26)clearTerm();else if(c>=32||c===9)term.textContent+=String.fromCharCode(c);if(term.textContent.length>60000)term.textContent=term.textContent.slice(-40000);window.scrollTo(0,document.body.scrollHeight)}
 function connect(){ws=new WebSocket(`ws://${location.host}/z80ws`);ws.binaryType='arraybuffer';ws.onopen=()=>{state.textContent='connected';term.focus()};ws.onclose=()=>{state.textContent='disconnected';setTimeout(connect,1000)};ws.onerror=()=>state.textContent='error';ws.onmessage=e=>{if(typeof e.data==='string'){for(let i=0;i<e.data.length;i++)putByte(e.data.charCodeAt(i)&255)}else{for(const c of new Uint8Array(e.data))putByte(c)}}}
@@ -74,11 +74,13 @@ inline void webTerminalRegister(AsyncWebServer &server) {
     r->send(200,"application/json","{\"ok\":true}");
   });
 
-  server.on("/z80/debug", HTTP_GET, [](AsyncWebServerRequest *r){
+  // Keep diagnostics on top-level paths so older ESPAsyncWebServer variants
+  // cannot confuse them with the /z80 terminal handler.
+  server.on("/z80debug", HTTP_GET, [](AsyncWebServerRequest *r){
     r->send(200,"text/plain",z80DebugSnapshot());
   });
 
-  server.on("/z80/debug/clear", HTTP_POST, [](AsyncWebServerRequest *r){
+  server.on("/z80debug-clear", HTTP_POST, [](AsyncWebServerRequest *r){
     z80DebugClear();
     r->send(200,"application/json","{\"ok\":true}");
   });
