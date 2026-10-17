@@ -15,9 +15,8 @@
 // on jdoc["write"] but reads the Base64 payload from jdoc["Write"]["data"].
 // The test deliberately sends both keys, exactly like ebtks_storage.h.
 //
-// Decode-only probes send a valid Base64 payload with write.len=0. The Teensy
-// still executes its Base64 decoder, but its write handler skips SD.write().
-// This cleanly separates decoder faults from filesystem-write faults.
+// A 320-byte raw write expands to a JSON request of about 476 characters,
+// leaving useful headroom below the Teensy's 512-byte line parser limit.
 static const char EBTKS_SD_TEST_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
 <html>
@@ -42,11 +41,12 @@ pre{background:#111;color:#d8ffd8;border:1px solid #555;border-radius:.3rem;padd
 <p>This exercises the Teensy <code>open/read/write/lseek/close</code> JSON services through the ESP32 UART bridge. It creates and overwrites only <code>/cpm/ESPTEST.BIN</code>.</p>
 <button id="run">Run Test</button>
 <button onclick="location.href='/'">Back</button>
-<p class="small">The first probes exercise Base64 decode without writing to SD. Actual writes are currently split into 64-byte transfers.</p>
+<p class="small">Writes use up to 320 raw bytes per JSON/Base64 request; reads use 256-byte chunks.</p>
 <pre id="log">Ready.</pre>
 </main>
 <script>
 'use strict';
+const WRITE_CHUNK=320;
 const logEl=document.getElementById('log');
 const runEl=document.getElementById('run');
 let ws=null;
@@ -104,13 +104,8 @@ async function readChunk(fd,len){
   const data=fromB64(r.read&&r.read.data?r.read.data:'');
   return {n:n,data:data};
 }
-async function decodeOnly(fd,data){
-  const b64=toB64(data);
-  const r=await request({write:{fd:fd,len:0},Write:{data:b64}});
-  return Number(r.write&&r.write.len!==undefined?r.write.len:-999);
-}
 async function writeChunk(fd,data){
-  if(data.length>64)throw new Error('writeChunk exceeds 64-byte transport limit');
+  if(data.length>WRITE_CHUNK)throw new Error('writeChunk exceeds '+WRITE_CHUNK+'-byte transport limit');
   const b64=toB64(data);
   const r=await request({write:{fd:fd,len:data.length},Write:{data:b64}});
   return Number(r.write&&r.write.len!==undefined?r.write.len:-1);
@@ -122,7 +117,7 @@ async function readExact(fd,total){
 }
 async function writeAll(fd,data){
   let done=0;
-  while(done<data.length){const n=Math.min(64,data.length-done);const chunk=data.subarray(done,done+n);const wrote=await writeChunk(fd,chunk);if(wrote!==n)throw new Error('write returned '+wrote+' for '+n+' bytes at offset '+done);done+=n;}
+  while(done<data.length){const n=Math.min(WRITE_CHUNK,data.length-done);const chunk=data.subarray(done,done+n);const wrote=await writeChunk(fd,chunk);if(wrote!==n)throw new Error('write returned '+wrote+' for '+n+' bytes at offset '+done);done+=n;}
   return done;
 }
 function step(name,ok,detail=''){line(name.padEnd(39,'.')+' '+(ok?'PASS':'FAIL')+(detail?'  '+detail:''));if(!ok)throw new Error(name+(detail?': '+detail:''));}
@@ -138,18 +133,9 @@ async function runTest(){
     let c=await closeFile(fd);fd=-1;step('Close existing file',c===-1,'returned fd='+c);
     line();
 
-    const probe=makePattern(64,0x12345678);
-    fd=await openFile('/cpm/ESPTEST.BIN',1538);step('Create/truncate ESPTEST.BIN',fd>=0,'fd='+fd+' opts=1538');
-    for(const size of [1,2,3,8,16,32,64]){
-      const pr=await decodeOnly(fd,probe.subarray(0,size));
-      step('Decode-only '+size+' bytes',pr===-1,'reply len='+pr);
-    }
-    c=await closeFile(fd);fd=-1;step('Close after decode probes',c===-1,'returned fd='+c);
-    line();
-
     const block1=makePattern(128,0x12345678);
-    fd=await openFile('/cpm/ESPTEST.BIN',1538);step('Recreate/truncate ESPTEST.BIN',fd>=0,'fd='+fd+' opts=1538');
-    let n=await writeAll(fd,block1);step('Write block 1 as 2x64',n===block1.length,n+'/'+block1.length+' bytes');
+    fd=await openFile('/cpm/ESPTEST.BIN',1538);step('Create/truncate ESPTEST.BIN',fd>=0,'fd='+fd+' opts=1538');
+    let n=await writeAll(fd,block1);step('Write block 1 in one request',n===block1.length,n+'/'+block1.length+' bytes');
     c=await closeFile(fd);fd=-1;step('Close created file',c===-1,'returned fd='+c);
 
     fd=await openFile('/cpm/ESPTEST.BIN');step('Reopen created file',fd>=0,'fd='+fd);
@@ -161,7 +147,7 @@ async function runTest(){
     const block2=makePattern(128,0x89ABCDEF);
     fd=await openFile('/cpm/ESPTEST.BIN',2);step('Open existing read/write',fd>=0,'fd='+fd+' opts=2');
     let sk=await seekFile(fd,128);step('Seek to offset 128',sk!==0,'Teensy seek result='+sk);
-    n=await writeAll(fd,block2);step('Write block 2 as 2x64',n===block2.length,n+'/'+block2.length+' bytes');
+    n=await writeAll(fd,block2);step('Write block 2 in one request',n===block2.length,n+'/'+block2.length+' bytes');
     c=await closeFile(fd);fd=-1;step('Close after block 2',c===-1,'returned fd='+c);
 
     const combined=new Uint8Array(256);combined.set(block1,0);combined.set(block2,128);
@@ -173,7 +159,7 @@ async function runTest(){
 
     const big=makePattern(8192,0xC0FFEE01);
     fd=await openFile('/cpm/ESPTEST.BIN',1538);step('Create/truncate 8 KiB test',fd>=0,'fd='+fd);
-    n=await writeAll(fd,big);step('Write 8 KiB in 64-byte chunks',n===big.length,n+' bytes');
+    n=await writeAll(fd,big);step('Write 8 KiB in 320-byte chunks',n===big.length,n+' bytes');
     c=await closeFile(fd);fd=-1;step('Close 8 KiB file',c===-1,'returned fd='+c);
     fd=await openFile('/cpm/ESPTEST.BIN');step('Reopen 8 KiB file',fd>=0,'fd='+fd);
     got=await readExact(fd,big.length);step('Read 8 KiB in 256-byte chunks',got.length===big.length,got.length+' bytes');
