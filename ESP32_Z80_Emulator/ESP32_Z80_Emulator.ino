@@ -13,6 +13,7 @@
 
 #include "globals.h"
 #include "ebtks_link.h"
+#include "z80_debug.h"
 #include "web_terminal.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
