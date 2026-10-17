@@ -1,3 +1,5 @@
+> **Historical milestone document:** This describes the initial EBTKS Milestone 2 integration. The present ESP32 firmware **never emits diagnostic logs on hardware UART**; GPIO3/GPIO1 are protocol-only `TeensySerial`, while debug logs go to `/z80debug`. Media mounts now use ESP32 NVS `cpmmount`. The browser terminal has VT100/HP-86 modes and backpressure. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) for the hardware-tested current design.
+
 # EBTKS Milestone 2
 
 Milestone 2 keeps the proven Milestone 1 parallel Z80 system and moves its boot files and virtual disks onto the EBTKS Teensy SD card.
