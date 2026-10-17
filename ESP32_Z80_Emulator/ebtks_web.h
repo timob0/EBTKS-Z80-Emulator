@@ -26,6 +26,7 @@ static const char EBTKS_HOME_FALLBACK[] PROGMEM = R"HTML(
 <title>ESP32-EBTKS</title><style>
 body{font-family:Verdana,sans-serif;text-align:center;background:#252525;color:#eaeaea}main{max-width:420px;margin:3rem auto}button{border:0;border-radius:.3rem;background:#1fa3ec;color:white;line-height:2.4rem;font-size:1.1rem;width:100%;margin:.45rem 0;cursor:pointer}button:hover{background:#0e70a4}.small{font-size:.85rem;color:#aaa}
 </style></head><body><main><h2>EBTKS</h2><p>ESP32 services</p>
+<button onclick="location.href='/crt'">HP-80 Remote Display</button>
 <button onclick="location.href='/z80'">Z80 / CP/M Terminal</button>
 <button onclick="location.href='/sdtest'">SD File Service Test</button>
 <button onclick="location.href='/updater'">Firmware Updater</button>
@@ -41,8 +42,11 @@ body{font-family:Verdana,sans-serif;text-align:center;background:#222;color:#fff
 
 inline void ebtksServeHome(AsyncWebServerRequest *request)
 {
-  if (SPIFFS.exists("/index.html")) request->send(SPIFFS, "/index.html", "text/html");
-  else request->send(200, "text/html", EBTKS_HOME_FALLBACK);
+  // Keep the integrated firmware's root page authoritative. Older SPIFFS
+  // images can contain a legacy index.html which predates the Z80 and CRT
+  // links, so serving the compiled page avoids requiring a separate SPIFFS
+  // update whenever the service menu changes.
+  request->send(200, "text/html", EBTKS_HOME_FALLBACK);
 }
 
 inline void ebtksServeUpdater(AsyncWebServerRequest *request)
@@ -205,6 +209,7 @@ inline bool ebtksWebBegin()
 
   Serial.println("EBTKS web services started");
   Serial.print("Home: http://"); Serial.println(WiFi.localIP());
+  Serial.print("HP-80 remote display: http://"); Serial.print(WiFi.localIP()); Serial.println("/crt");
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");
   Serial.print("SD file test: http://"); Serial.print(WiFi.localIP()); Serial.println("/sdtest");
   Serial.print("Firmware updater: http://"); Serial.print(WiFi.localIP()); Serial.println("/updater");
