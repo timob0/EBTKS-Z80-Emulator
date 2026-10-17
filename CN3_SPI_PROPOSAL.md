@@ -1,6 +1,6 @@
 # Proposed CN3 wiring: Teensy-master SPI storage link
 
-**Status:** electrical/software proposal only — **not wired, compiled, or tested on EBTKS hardware**. Based on the supplied *EBTKS V3.0 schematic* (2021-04-10), **sheet 1 (CN3 and Teensy U4.1)** and **sheet 2 (ESP32 U7)**.
+**Original proposal (historical):** The wiring was subsequently installed, and the first 1 MHz / 512-byte SPI transfer passed on physical hardware on 2026-10-18 (run 13, 4543 us, matching CRC 59244). The 1–8 MHz / 128-sector extension remains unverified; see [SPI_TEST_README.md](SPI_TEST_README.md). The following is retained as the original proposal, including older tentative test steps. Based on the supplied *EBTKS V3.0 schematic* (2021-04-10), **sheet 1 (CN3 and Teensy U4.1)** and **sheet 2 (ESP32 U7)**.
 
 This is the optional bulk-data link for speeding up CP/M SD operations. The Teensy 4.1 would be the **SPI0 master** and initiate each transfer when its HP bus work permits; the ESP32-WROOM-32D would be an **SPI2/HSPI slave**. The existing ESP↔Teensy UART1 (GPIO3/GPIO1, 115200 baud) continues carrying JSON commands/status and must **not** be repurposed. The Teensy's microSD socket uses its own SDIO interface, not these SPI0 pins.
 
