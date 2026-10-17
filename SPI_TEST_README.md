@@ -1,103 +1,116 @@
-# CN3 SPI0 → SPI2 first communication test (FEATURE BRANCH)
+# CN3 SPI speed and reliability experiment (feature branches)
 
-**Experimental — not yet compiled or hardware-tested. Do not merge to main.**
+**Status (2026-10-18):** Original 1 MHz / 512-byte test **passed on physical hardware** (reported by user: 13 runs, CRC ESP=Teensy=59244, transfer-loop time 4543 us, no mismatch). The extended multi-speed/multi-sector stress test in this branch is **new source, not yet compiled or hardware-validated**. Do not merge into `main` yet.
 
-Both repositories need the same feature branch `feature/cn3-spi-read-test`:
+The two matching branches are:
 
 - ESP32: https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/cn3-spi-read-test
 - Teensy: https://github.com/timob0/ebtks-alt-firmware/tree/feature/cn3-spi-read-test
 
-This is the first **512-byte test pattern from Teensy SPI0 master to ESP32 SPI2 slave**, at 1 MHz. Nothing reads or writes the SD card or CP/M images. CP/M disk I/O remains on the existing UART/Base64 protocol. There is **no automatic transfer at startup**. The diagnostic is initiated manually via a browser page. Keep the last working `main` images backed up.
+The purpose is to measure reliability at 1, 2, 4, and 8 MHz and verify 128 consecutive 512-byte transactions (64 KiB), without modifying any live disk image. ESP32 remains the SPI2 slave receiving data; Teensy remains SPI0 master sending known patterns. **Normal CP/M disk access still uses UART/JSON/Base64.** The web UI, OTA, HP bus ISR, SD handling, and UART control protocol are preserved.
 
-## Prerequisites and CN3 wiring
+## Wiring and prerequisites
 
-Confirm the five jumpers and 10k external CS pull-up from [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md):
+Use exactly the wiring verified for the first SPI test. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md) for detailed orientation and 3.3 V cautions.
 
-| Signal | Teensy 4.1 CN3 | ESP32 CN3 | Notes |
-|---|---|---|---|
-| MOSI | 33 — T11 | 21 — E22/GPIO22 | Teensy → ESP |
-| MISO | 29 — T12 | 13 — E17/GPIO17 | Reserved for future reverse traffic; not validated by this test |
-| SCK | 24 — T13 | 14 — E16/GPIO16 | Teensy supplies clock |
-| CS_N | 30 — T26 | 4 — E34/GPIO32 | Active LOW. 10k resistor CN3-4 ↔ CN3-36 (3.3 V) |
-| ESP_READY | 26 — T06 | 8 — E27/GPIO27 | ESP output HIGH when RX DMA armed; Teensy input |
+| Wire | Teensy / CN3 | ESP32 / CN3 |
+|---|---|---|
+| MOSI | T11 / pin 33 | E22 / pin 21, GPIO22 |
+| MISO | T12 / pin 29 | E17 / pin 13, GPIO17 |
+| CLK | T13 / pin 24 | E16 / pin 14, GPIO16 |
+| CS_N | T26 / pin 30 | E34 / pin 4, GPIO32 |
+| READY | T06 / pin 26 | E27 / pin 8, GPIO27 |
 
-Power down before checking jumpers. Check for shorts and physical CN3 pin-1 orientation. Both boards already share ground and operate at 3.3 V. **Never short CN3 pin 4 directly to 3.3 V**; use the resistor. `GPIO32` does have an internal pull-up; the installed external resistor is kept for an independent defined idle state.
+Keep the external **10 kΩ** pull-up from CN3 pin 4 to 3.3 V (CN3 pin 36). Do **not** tie CS directly to 3.3 V. Firmware must have `"CRTRemote": true` in Teensy's SD-root `CONFIG.TXT` for the existing UART control service.
 
-Teensy firmware currently requires `"CRTRemote": true` in the SD root `CONFIG.TXT` to service ESP UART messages. Do not change this while testing.
+## Build and flash both feature branches
 
-## Build / flash order
-
-First build and install the **Teensy** feature firmware via the existing Teensy 4.1 USB flashing procedure:
+From the Teensy checkout:
 
 ```sh
-cd ebtks-alt-firmware
 git fetch origin
 git switch feature/cn3-spi-read-test
+git pull --ff-only
 pio run -e teensy41
-# On your established Teensy USB upload setup:
+# Use your established Teensy 4.1 USB upload method:
 pio run -e teensy41 -t upload
 ```
 
-Next build the **ESP32** feature firmware and update through the existing EBTKS `/updater` web page:
+From the ESP32 checkout:
 
 ```sh
-cd EBTKS-Z80-Emulator
 git fetch origin
 git switch feature/cn3-spi-read-test
+git pull --ff-only
 pio run -e esp32dev -t clean
 pio run -e esp32dev
 ```
 
-Select `.pio/build/esp32dev/firmware.bin` in the browser updater. This OTA image is application-only, **not** a blank-ESP32 factory image.
+Flash ESP32 application image `.pio/build/esp32dev/firmware.bin` using the existing EBTKS web updater (`/updater`). Do not erase/reformat flash or the Teensy SD card. These changes were pushed as source only: **compilation and hardware flashing remain to be performed locally**.
 
-Both firmwares must be on their respective feature branches before attempting the SPI test. The Teensy adds a single new optional JSON command `spi_probe`; the ESP32 adds the page and peripheral driver. Stable CP/M features remain enabled.
+## Run the speed and reliability matrix
 
-## Run the diagnostic
-
-After both updates, reboot and confirm HP-85 operation and a normal CP/M prompt in `/z80`. Then open:
+First verify the normal HP-85 operation, `/z80` CP/M prompt, and `/updater` page. Leave CP/M idle at the prompt while testing. Open:
 
 ```text
 http://<EBTKS-IP>/spitest
 ```
 
-Click **Run 512-byte test** once. The page polls `/api/spitest` and should report:
+Choose SPI clock, transfer count, and pattern; press **Run SPI test**. The selectors offer:
 
-```json
-{
-  "state": "passed",
-  "detail": "512 bytes verified; no CP/M disk accessed",
-  "needs_reboot": false,
-  "bytes": 512,
-  "clock_hz": 1000000,
-  "first_mismatch_byte": -1
-}
+- Clock: **1, 2, 4, 8 MHz**
+- Count: **1**, **16**, or **128** individual 512-byte transactions (512 B, 8 KiB, 64 KiB)
+- Pattern: sequence/ramp, all 00, all FF, alternating 55/AA, walking one, or **Cycle five patterns** (rotates by sector)
+- Every sector gets its own sequence and block index; ESP32 checks every byte plus CRC-16/Modbus, and compares with Teensy's returned CRC, sequence, block, pattern, length and actual clock selection.
+
+Recommended sequence (stop at first failure and capture diagnostics):
+
+1. **1 MHz, 1 sector, sequence/ramp** — regression of the previous success.
+2. **2 MHz, 1 sector, cycle patterns** — short clock bring-up (single sector uses the first pattern).
+3. **4 MHz, 1 sector, cycle patterns** — higher clock bring-up.
+4. **4 MHz, 128 sectors, cycle patterns** — 64 KiB of verified data, exercising all five patterns.
+5. **8 MHz, 1 sector, sequence/ramp**, then **8 MHz, 128 sectors, cycle patterns** if the short test passes.
+6. Optionally repeat the 128-sector test at **1 and 2 MHz** and run individual fixed patterns. Check HP-85 keyboard/display responsiveness during a long test.
+
+If an attempt fails, save the full `/api/spitest` JSON and `/z80debug` lines, including the failing sector, mismatch byte, CRCs, and reboot flag. If `needs_reboot=true`, **reboot ESP32 before another test**; do not try to reuse a possibly incomplete DMA transaction. Normal disk I/O is unchanged even when a test fails.
+
+For automation or manual HTTP requests, POST URL query parameters, e.g.:
+
+```sh
+curl -X POST 'http://<EBTKS-IP>/api/spitest?hz=4000000&sectors=128&pattern=5'
+curl 'http://<EBTKS-IP>/api/spitest'
 ```
 
-There are additional numeric fields for sequence/run count, the CRC reported by Teensy and independently calculated by ESP, and the Teensy's elapsed transfer-loop time in microseconds.
+Values: `hz=1000000|2000000|4000000|8000000`, `sectors=1|16|128`, `pattern=0|1|2|3|4|5` (5 cycles).
 
-**Expected /z80debug record:**
+## Interpret the results
 
-```text
-SPI test: ESP32 SPI2 slave initialized (GPIO22/17/16, CS=32, READY=27)
-SPI test PASS seq=1 512 bytes CRC=.... Teensy measured=.... us
-```
+`GET /api/spitest` provides the original status keys plus:
 
-If unsuccessful, copy the full `/api/spitest` JSON and the relevant `/z80debug` lines back to the development chat. The page deliberately prevents repeated attempts after a timed-out/incomplete DMA transfer until the ESP32 reboots. This avoids freeing or reusing a still-active peripheral transaction.
+| Field | Meaning |
+|---|---|
+| `state` / `needs_reboot` | idle, running, passed, failed; protect incomplete DMA |
+| `clock_hz` / `pattern` / `sectors` | selected configuration; pattern 5 means cycling |
+| `completed_sectors`, `completed_bytes` | verified progress, not merely attempted transfers |
+| `failed_sector`, `failed_pattern`, `first_mismatch_byte` | zero-based first failing sector/pattern/byte; -1 when none |
+| `crc_esp`, `crc_teensy` | CRC-16 of **last processed** sector; equal on success |
+| `aggregate_crc_esp` | continuous CRC of all received sectors; local diagnostic only |
+| `teensy_transfer_us` | **sum of Teensy's timed SPI.transfer/CRC loops** over verified sectors |
+| `teensy_min_us`, `teensy_max_us` | minimum/maximum individual verified-sector loop times |
+| `wall_us` | full elapsed run, including UART command/reply on every sector |
+| `spi_kib_s` | verified bytes / summed Teensy loop time (KiB/s) |
+| `end_to_end_kib_s` | verified bytes / full run duration (KiB/s) |
 
-### What the test actually measures
+For a full passed 128-sector run, `completed_sectors=128`, `completed_bytes=65536`, `failed_sector=-1`, and `first_mismatch_byte=-1`. Note that `teensy_transfer_us` measures software CRC and host bus interrupt overhead **as well as the wire transfer**, not an isolated SPI hardware throughput.
 
-The Teensy generates a deterministic byte pattern `0xA5 XOR low8(i*37 + seq)` and clocks 512 bytes as SPI mode 0 using standard `SPI.transfer()` calls. The ESP32 has first queued a word-aligned DMA buffer, and its post-setup ISR callback sets `ESP_READY=HIGH`. The Teensy observes READY, asserts CS_N, sends exactly 512 bytes, and deasserts CS_N. UART carries only the test command and a small status/CRC reply. The ESP32 checks the actual DMA length, every byte, its CRC-16/Modbus (poly A001, initial FFFF), the Teensy CRC, and the sequence number.
+**Important limitation:** 128 sectors means **128 sequential independent SPI DMA transactions**, each initiated by a short UART `spi_probe` command and confirmed by a UART CRC/status reply. It does **not** mean one uninterrupted 64 KiB SPI transaction, and `end_to_end_kib_s` is therefore conservative for a future optimized binary disk protocol. This design intentionally retains the proven safe READY/DMA synchronization between blocks. The ESP32 DMA buffer remains only 512 bytes.
 
-`teensy_transfer_us` measures the full loop, **including per-byte SPI.transfer() and software CRC**, not a pure wire-level transfer benchmark. At 1 MHz a 512-byte wire transfer alone is 4096 microseconds. Software and HP interrupt scheduling will add overhead.
+## What this does NOT test
 
-This first read-only test does **not** establish 4 MHz reliability, reverse-direction ESP→Teensy MISO traffic, clock pausing during HP-bus service, sustained throughput, or disk-speed improvements. Those are subsequent experiments.
+- SPI MISO data returning from ESP32 to Teensy (still unverified).
+- Real file access, sector reads, disk writes, or CP/M ABI.
+- A pipelined/burst binary sector transport (that is a later step).
+- Data integrity during arbitrary DMA timeouts; incomplete transactions force reboot before retry.
+- A compile/test result on hardware until explicitly reported.
 
-## Safety and fallback
-
-- SPI pins are initialized only after the user presses **Run**. The Teensy maintains CS_N inactive (HIGH) when not transferring.
-- The original Teensy ESP serial protocol on GPIO3/GPIO1 remains unchanged, including the existing CRC envelope and mutex.
-- The HP-85 bus ISR is not modified. The Teensy's synchronous test transfer is temporary and has interrupts enabled; **bus timing while transferring still needs actual hardware validation**.
-- The existing CP/M disk-service path remains unchanged and should continue functioning without SPI success.
-- For a failed build or unwanted behavior, reflash the last known-good `main` image(s). No SD-card image change is required.
-
-**No TFT wiring or display firmware is included.**
+**Regression after flashing:** CP/M `DIR`, browser-only VT100, Telnet, main EBTKS web UI and updater, `/ws`, Teensy SD services, and uninterrupted HP-85 operation. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) for the known-good baseline.
