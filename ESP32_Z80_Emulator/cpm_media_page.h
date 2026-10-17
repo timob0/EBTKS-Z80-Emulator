@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
-#include "cpm_media.h"
+#include "cpm_mount_store.h"
 
 static const char CPM_MEDIA_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
@@ -19,7 +19,7 @@ table{border-collapse:collapse;width:100%;margin:1rem 0;background:#292a2d}th,td
 <h2>CP/M Media Manager</h2>
 <div class="card"><div id="summary" class="status">Loading...</div>
 <div class="bar"><button onclick="refreshAll()">Refresh</button><button class="warn" id="apply" onclick="applyReset()">Apply changes / Reset CP/M</button><button onclick="location.href='/z80'">Z80 Terminal</button><button onclick="location.href='/'">EBTKS Home</button></div>
-<div class="small muted">Media files stay on the Teensy SD card under <span class="mono">/cpm/disks</span>. Mount changes are saved immediately but do not replace media underneath a running CP/M session; use Apply / Reset CP/M to activate them.</div></div>
+<div class="small muted">Disk images stay on the Teensy SD card under <span class="mono">/cpm/disks</span>. Drive assignments are saved in ESP32 NVS and verified immediately. Mount changes do not replace media underneath a running CP/M session; use Apply / Reset CP/M to activate them.</div></div>
 
 <h3>Drive assignments</h3>
 <table><thead><tr><th>Drive</th><th>Active</th><th>Next reset</th><th>Mount image</th><th>Actions</th></tr></thead><tbody id="drives"></tbody></table>
@@ -65,8 +65,8 @@ async function unmountDrive(d){
 }
 async function applyReset(){
  if(!confirm('Reset the Z80/CP/M system now and activate the saved drive assignments?'))return;
- const msg=document.getElementById('message');msg.textContent='Resetting CP/M...';
- try{const r=await fetch('/api/cpm/apply',{method:'POST'});if(!r.ok)throw new Error(await r.text());setTimeout(refreshAll,1200)}catch(e){msg.innerHTML='<span class="bad">'+esc(e.message||e)+'</span>'}
+ const msg=document.getElementById('message');msg.textContent='Verifying mounts and resetting CP/M...';
+ try{const r=await fetch('/api/cpm/apply',{method:'POST'});if(!r.ok)throw new Error(await r.text());setTimeout(refreshAll,1400)}catch(e){msg.innerHTML='<span class="bad">'+esc(e.message||e)+'</span>'}
 }
 refreshAll();
 </script></body></html>)HTML";
@@ -89,7 +89,7 @@ inline void cpmMediaRegister(AsyncWebServer &server)
 
   server.on("/api/cpm/media", HTTP_GET, [](AsyncWebServerRequest *request) {
     String reply;
-    if (!cpmBuildMediaStatusJson(reply)) {
+    if (!cpmStoreBuildMediaStatusJson(reply)) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"Unable to read CP/M media state\"}");
       return;
     }
@@ -103,11 +103,11 @@ inline void cpmMediaRegister(AsyncWebServer &server)
       return;
     }
     String path = request->getParam("path")->value();
-    if (!cpmMountDesired((uint8_t)drive, path.c_str())) {
-      request->send(400, "application/json", "{\"ok\":false,\"error\":\"Image is missing or not a supported CP/M media type\"}");
+    if (!cpmStoreMountDesired((uint8_t)drive, path.c_str())) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"Image is missing/unsupported or the mount assignment could not be persisted\"}");
       return;
     }
-    request->send(200, "application/json", "{\"ok\":true,\"reset_required\":true}");
+    request->send(200, "application/json", "{\"ok\":true,\"reset_required\":true,\"store\":\"esp32-nvs\"}");
   });
 
   server.on("/api/cpm/unmount", HTTP_POST, [](AsyncWebServerRequest *request) {
@@ -116,17 +116,21 @@ inline void cpmMediaRegister(AsyncWebServer &server)
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"valid drive A-P required\"}");
       return;
     }
-    if (!cpmUnmountDesired((uint8_t)drive)) {
-      request->send(500, "application/json", "{\"ok\":false,\"error\":\"Unable to save mount table\"}");
+    if (!cpmStoreUnmountDesired((uint8_t)drive)) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"Unable to persist mount assignment\"}");
       return;
     }
-    request->send(200, "application/json", "{\"ok\":true,\"reset_required\":true}");
+    request->send(200, "application/json", "{\"ok\":true,\"reset_required\":true,\"store\":\"esp32-nvs\"}");
   });
 
   server.on("/api/cpm/apply", HTTP_POST, [](AsyncWebServerRequest *request) {
-    // Same virtual-machine reset mechanism as /z80/reset.  The HP-85 side,
-    // Wi-Fi and web services stay up; loop() reloads CP/M and activates the
-    // newly saved mount table.
+    // Verify persistent state before stopping the Z80. A failed verification
+    // leaves the running CP/M session untouched instead of falling back to
+    // legacy drive names during the subsequent bootstrap.
+    if (!cpmStoreVerifyDesired()) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"Saved mount assignments failed verification; CP/M was not reset\"}");
+      return;
+    }
     RUN = false;
     request->send(200, "application/json", "{\"ok\":true}");
   });
