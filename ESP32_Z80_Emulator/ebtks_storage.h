@@ -7,11 +7,10 @@
 #include "z80_debug.h"
 
 static const size_t EBTKS_READ_CHUNK  = 256;
-// Teensy JSON requests are collected in a 512-byte line buffer. With the
-// current {write,...,Write:{data:...}} envelope, 345 raw bytes is the hard
-// Base64/JSON limit (508 serialized characters). Use 320 bytes to leave
-// useful framing/parser headroom while substantially reducing UART overhead.
+// Generic file writes remain below the JSON line limit used by older Teensy
+// firmware. CP/M virtual disks use the dedicated 512-byte disk fast path below.
 static const size_t EBTKS_WRITE_CHUNK = 320;
+static const size_t EBTKS_DISK_SECTOR_SIZE = 512;
 static const char *EBTKS_CPM_ROOT = "/cpm";
 
 inline bool ebtksStorageExchange(JsonDocument &request, JsonDocument &reply, uint32_t timeoutMs = 3000)
@@ -182,6 +181,81 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
               fd, (unsigned)len, written,
               written == (int)len ? "OK" : "FAIL");
   return written;
+}
+
+// Dedicated CP/M virtual-disk path. One UART request maps to one 512-byte
+// virtual sector. The Teensy performs open/seek/I/O/close locally, preserving
+// write durability while eliminating the generic file protocol round trips.
+inline bool ebtksDiskReadSector(uint8_t drive, uint32_t sector, uint8_t *dst)
+{
+  if (!dst || drive >= 26) return false;
+
+  JsonDocument request;
+  JsonObject disk = request["disk_read"].to<JsonObject>();
+  disk["drive"] = drive;
+  disk["sector"] = sector;
+
+  JsonDocument reply;
+  if (!ebtksStorageExchange(request, reply)) {
+    z80DebugLog("EBTKS DISK read transport failure drive=%u sector=%lu\n",
+                (unsigned)drive, (unsigned long)sector);
+    return false;
+  }
+
+  int reported = reply["disk_read"]["len"] | -1;
+  if (reported != (int)EBTKS_DISK_SECTOR_SIZE) {
+    z80DebugLog("EBTKS DISK read bad length drive=%u sector=%lu len=%d\n",
+                (unsigned)drive, (unsigned long)sector, reported);
+    return false;
+  }
+
+  const char *encoded = reply["disk_read"]["data"] | "";
+  size_t decoded = 0;
+  int rc = mbedtls_base64_decode(dst, EBTKS_DISK_SECTOR_SIZE, &decoded,
+                                 (const unsigned char *)encoded, strlen(encoded));
+  bool ok = (rc == 0 && decoded == EBTKS_DISK_SECTOR_SIZE);
+  if (!ok) {
+    z80DebugLog("EBTKS DISK read Base64 failure drive=%u sector=%lu rc=%d decoded=%u\n",
+                (unsigned)drive, (unsigned long)sector, rc, (unsigned)decoded);
+  }
+  return ok;
+}
+
+inline bool ebtksDiskWriteSector(uint8_t drive, uint32_t sector, const uint8_t *src)
+{
+  if (!src || drive >= 26) return false;
+
+  unsigned char encoded[4 * ((EBTKS_DISK_SECTOR_SIZE + 2) / 3) + 1];
+  size_t encodedLen = 0;
+  int rc = mbedtls_base64_encode(encoded, sizeof(encoded), &encodedLen,
+                                 src, EBTKS_DISK_SECTOR_SIZE);
+  if (rc != 0) {
+    z80DebugLog("EBTKS DISK write Base64 failure drive=%u sector=%lu rc=%d\n",
+                (unsigned)drive, (unsigned long)sector, rc);
+    return false;
+  }
+  encoded[encodedLen] = 0;
+
+  JsonDocument request;
+  JsonObject disk = request["disk_write"].to<JsonObject>();
+  disk["drive"] = drive;
+  disk["sector"] = sector;
+  disk["data"] = (const char *)encoded;
+
+  JsonDocument reply;
+  if (!ebtksStorageExchange(request, reply)) {
+    z80DebugLog("EBTKS DISK write transport failure drive=%u sector=%lu\n",
+                (unsigned)drive, (unsigned long)sector);
+    return false;
+  }
+
+  int written = reply["disk_write"]["len"] | -1;
+  bool ok = (written == (int)EBTKS_DISK_SECTOR_SIZE);
+  if (!ok) {
+    z80DebugLog("EBTKS DISK write bad length drive=%u sector=%lu len=%d\n",
+                (unsigned)drive, (unsigned long)sector, written);
+  }
+  return ok;
 }
 
 inline bool ebtksStorageProbe()
