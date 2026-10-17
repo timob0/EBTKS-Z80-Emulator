@@ -6,7 +6,12 @@
 // Small in-memory diagnostic log for Z80/CP/M services.  It mirrors messages
 // to the remapped ESP32 diagnostic UART, but also makes them available to the
 // /z80 web UI so no physical serial adapter is required.
-static const size_t Z80_DEBUG_CAPACITY = 8192;
+//
+// Keep this deliberately small: ESP32 internal DRAM is already tight in this
+// firmware (Z80 RAM, network stacks, web server, etc.).  A previous 8 KiB
+// static buffer overflowed dram0_0_seg at link time.  2 KiB is ample for the
+// short write-path trace we need while leaving useful headroom.
+static const size_t Z80_DEBUG_CAPACITY = 2048;
 static char z80DebugBuffer[Z80_DEBUG_CAPACITY];
 static size_t z80DebugLength = 0;
 static portMUX_TYPE z80DebugMux = portMUX_INITIALIZER_UNLOCKED;
