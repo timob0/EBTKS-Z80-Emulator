@@ -187,6 +187,7 @@ inline bool ebtksWebBegin()
   ebtksServer.addHandler(&ebtksWebSocket);
 
   webTerminalRegister(ebtksServer);
+  spiTestRegister(ebtksServer);
 
   ebtksServer.onNotFound([](AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
