@@ -64,7 +64,7 @@ inline void webTerminalWrite(const uint8_t *data, size_t len) {
     // A dead browser must not freeze CP/M forever. TCP will normally drain
     // the queue quickly; only abandon the client after a prolonged stall.
     if ((TickType_t)(xTaskGetTickCount() - start) >= pdMS_TO_TICKS(10000)) {
-      z80DebugLog("Z80 web terminal stalled for 10 s; disconnecting slow client\\n");
+      z80DebugLog("Z80 web terminal stalled for 10 s; disconnecting slow client\n");
       z80WebSocket.closeAll();
       return;
     }
