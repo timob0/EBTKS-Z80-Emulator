@@ -1,0 +1,81 @@
+# Current project status — EBTKS Z80 / CP/M on HP Series-80
+
+**Hardware-validated on 2026-10-17.** This is the current EBTKS-integrated ESP32 implementation, **not** the original 2021/2023 standalone emulator described in the historical README below.
+
+**Last hardware-tested application commit:** [`5f586f35197627319e7b8280ef62e3807b6ceee3`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/5f586f35197627319e7b8280ef62e3807b6ceee3). Later documentation-only commits do not change the firmware. See [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) for architecture, debugging lessons, and the next hardware milestone.
+
+## What is confirmed on physical EBTKS hardware
+
+| Subsystem / test | Result |
+|---|---|
+| ESP32 Z80 emulator alongside HP-85 | Works independently; HP-85 continues to run |
+| Browser terminal `/z80`, VT100, WebSocket `/z80ws` | Fully usable, including complete `DIR` and Multiplan screens **without any Telnet connection** |
+| Telnet port 23 | Works as an independent raw terminal connection; connecting does not reset CP/M |
+| WebSocket + Telnet simultaneously | Both receive Z80 console output |
+| Microsoft Multiplan, installed for VT100 | Full-screen use works; clean return to CP/M |
+| Microsoft INSTALL | Installs and exits cleanly |
+| MBASIC, Zork I | Previously tested successfully |
+| CP/M warm boot | Clean program exits; repeated shadow restorations without reloading boot images |
+| Web Media Manager `/cpmmedia` | Drive assignment, NVS persistence, Apply/Reset Z80 |
+| Mixed media | Native 8 MiB R/W disks and original HP 82900 LIF images R/O, with per-drive dynamic CBIOS geometry |
+| Wi-Fi provisioning, main EBTKS web UI, OTA updater, `/ws` | Preserved and operational |
+| Browser HP-86 / HP 82900 terminal mode | Most display output usable, **cursor/navigation keys remain ineffective in HP-86-installed Multiplan**; leave as known limitation |
+| Physical SPI TFT/touchscreen | **Not yet integrated**; planned next milestone |
+
+The **last confirmed fix** corrected console output truncation when only the browser was connected. Z80 UART TX used to overwrite unread bytes in a 1024-byte ring, while asynchronous WebSocket frames could fill their outgoing queue. Telnet TCP writes incidentally provided pacing. The current implementation blocks TX on a full ring, waits for WebSocket queue capacity, batches output, and coalesces browser repaints via `requestAnimationFrame`. After flashing, the user confirmed the browser terminal was very usable without Telnet. Do not regress or remove this backpressure path.
+
+## Tested system snapshot
+
+- **ESP32 repository:** [`timob0/EBTKS-Z80-Emulator`](https://github.com/timob0/EBTKS-Z80-Emulator), branch `main`.
+- **Companion Teensy firmware:** [`timob0/ebtks-alt-firmware`](https://github.com/timob0/ebtks-alt-firmware), branch `main`. No Teensy update was required for the recent terminal/warm-boot changes.
+- **CP/M:** native CP/M 2.2, boot files on the **Teensy's** SD card under `/cpm`; separate virtual Z80 machine, not the original HP 82900A boot ROM.
+- **Media example from successful testing:** A: `/cpm/disks/A.dsk` (native 8 MiB, R/W); B: `cpm_1.lif`; C: `cpm_2_MP.lif`; D: `cpm_3_f80.lif` (HP 82900 LIF, R/O). Actual assignments are user-specific.
+- **Active drive assignment authority:** ESP32 NVS namespace **`cpmmount`**, not `/cpm/mounts.cfg`. The SD configuration file is accepted for initial migration only; see `ESP32_Z80_Emulator/cpm_mount_store.h`. Changes become active at Z80 Reset/Apply, never mid-session.
+- **Active disk location:** Teensy SD `/cpm/disks`, not ESP32 flash or a second ESP32 SD slot.
+
+## Browser routes and workflow
+
+| Route | Purpose |
+|---|---|
+| `/` | Existing EBTKS web UI |
+| `/updater` | OTA firmware update |
+| `/ws` | Existing Teensy EBTKS browser JSON bridge |
+| `/z80` | Raw / VT100 / HP-86 Z80 browser terminal |
+| `/z80ws` | Z80 terminal binary WebSocket |
+| `/cpmmedia` | CP/M A:P media manager |
+| `/crt` | HP-85 CRT snapshot display |
+| `/z80debug` | **Memory-backed** ESP32/Z80 diagnostic log |
+| `/z80debug-clear` | Clear diagnostic log |
+
+Standard local build from repository root:
+
+```sh
+git pull
+pio run -t clean
+pio run
+```
+
+OTA image: `.pio/build/esp32dev/firmware.bin`. Flash it through the existing browser updater. ESP32 only for present firmware; do not flash the Teensy merely to update ESP terminal code.
+
+## Critical invariants
+
+1. **ESP32↔Teensy UART is exclusively hardware protocol traffic.** `HardwareSerial TeensySerial(1)`, 115200 8N1, GPIO3 RX/GPIO1 TX. Never route `Serial.print`, WiFiManager messages, terminal output, or debug data onto those pins. The current `Serial` macro redirects logging to the in-memory `/z80debug` sink.
+2. **Teensy owns the SD card and the HP bus.** ESP32 CP/M disk access uses serialized, CRC-checked JSON/Base64 transactions through the existing link. Keep `/ws`, storage and other link users serialized.
+3. **Preserve the CP/M ABI:** Z80 page zero at `0005h` must continue to expose the real BDOS entry `D806h` because applications inspect `0006h/0007h` to determine the memory limit. Never redirect that vector to a high-memory shim.
+4. **Preserve warm boot:** a 5632-byte heap-allocated pristine copy of `D000–E5FF`; WBOOT trap at `E603h` restores it. BDOS function 0 is routed through a shim behind `D806h`. Multiplan and INSTALL exits are the regression test.
+5. **Preserve browser-only console backpressure:** Z80 ring must not overwrite unread bytes; WebSocket queue must not be overrun. Telnet must remain optional.
+6. **Do not assume available ESP32 pins or RAM for a new TFT.** Check actual EBTKS board connector/schematic, ESP32 variant and backlight load before modifying the pin map or adding framebuffers.
+
+## Known limitations / open issues
+
+- HP-86 mode: arrow keys flash Multiplan's command area but do not navigate; a special-key `CONIN` compatibility shim was attempted and is still present in the tested code, **without resolving this problem**. VT100 is preferred and fully functional. Do not spend time on HP-86 unless specifically requested.
+- The message `Z80 halted @ xxxx - restarting virtual machine` is ambiguous: deliberate Web/Media Manager reset can also set `RUN=false`. It is not necessarily a Z80 `HALT` opcode.
+- HP LIF disks are deliberately read-only; unknown/raw CP/M image geometries unsupported unless a profile is added.
+- Current historical CBIOS does not reliably propagate disk write errors to CP/M; do not try to write to R/O or unmounted drives.
+- Older milestone docs remain valuable history but some implementation details have changed. Especially: `CPM_MEDIA_MANAGER.md` describes the earlier SD mount table, and `MILESTONE2_EBTKS.md` mentions an earlier diagnostic UART. The present source + this status take precedence.
+
+## Next milestone
+
+**Integrate the ordered 4-inch SPI TFT with optional capacitive touch, preserving the working VT100 terminal and all disk/HP services.** Expected display module: Hosyond 4.0-inch, advertised ST7796S (verify actual controller on arrival), native 320×480, landscape 480×320, FT6336U touch over I²C. An 80×24 screen at 6×12 pixels/cell uses 480×288 and leaves 32 pixels for status/touch controls.
+
+The browser parser lives in `web_terminal_v2.h` **as JavaScript**, so a physical SPI TFT cannot use it directly. Design an ESP-side terminal model/parser or an explicitly shared screen-state protocol rather than assuming JavaScript can be reused as C++. Start with pinout and minimal panel tests, then the renderer and keyboard/touch plan. See [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md).
