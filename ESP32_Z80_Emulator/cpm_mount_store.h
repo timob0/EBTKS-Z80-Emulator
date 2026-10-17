@@ -40,7 +40,10 @@ inline bool cpmStoreReadPrefs(CpmMountEntry *out, bool &found)
   for (uint8_t i = 0; i < CPM_DRIVE_COUNT; ++i) cpmClearMount(out[i]);
 
   Preferences prefs;
-  if (!prefs.begin(CPM_PREF_NAMESPACE, true)) return false;
+  // A read-only open fails when the namespace has never been created. That is
+  // the normal first-boot state, not an NVS error: report an empty/not-found
+  // table and let cpmStoreLoadDesired() initialize it through the R/W path.
+  if (!prefs.begin(CPM_PREF_NAMESPACE, true)) return true;
   uint32_t magic = prefs.getUInt("magic", 0);
   if (magic != CPM_PREF_MAGIC) {
     prefs.end();
@@ -137,11 +140,12 @@ inline bool cpmStoreFetchDiskDirectory(JsonDocument &reply, JsonArray &entries)
   request["files"]["path"] = CPM_DISK_ROOT;
   if (!ebtksStorageExchange(request, reply, 8000)) return false;
 
-  // Current Teensy firmware returns {"theFiles":{"dir":[...]}}.
-  // Accept the earlier top-level form too for compatibility with test builds.
-  entries = reply["theFiles"]["dir"].as<JsonArray>();
-  if (!entries.isNull()) return true;
+  // Current Teensy firmware returns
+  // {"theFiles":{"path":"/cpm/disks"},"dir":[...]}. Prefer that layout,
+  // while accepting the earlier nested form for compatibility with test builds.
   entries = reply["dir"].as<JsonArray>();
+  if (!entries.isNull()) return true;
+  entries = reply["theFiles"]["dir"].as<JsonArray>();
   return !entries.isNull();
 }
 
