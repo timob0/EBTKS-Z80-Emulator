@@ -1,5 +1,7 @@
 # EBTKS Z80 / CP/M integration — current project links
 
+**New user?** Follow the [Getting started guide](GETTING_STARTED.md) for the Teensy/ESP32 flashing sequence, SD-card layout, 8 MiB disk and HP 82900 LIF images, and a web UI walkthrough.
+
 > **Current hardware-tested status (2026-10-17):** See [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md). The last hardware-tested *firmware* commit is [`5f586f3`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/5f586f35197627319e7b8280ef62e3807b6ceee3); newer commits only add project documentation.
 >
 > The integrated EBTKS firmware runs Z80/CP/M alongside the HP-85, with Teensy SD-backed media, a working browser VT100 terminal (independent of Telnet), CP/M warm-boot recovery and a Media Manager. **Next milestone:** optional 4-inch SPI TFT. The README content below is inherited from the original standalone emulator and contains hardware, SD and UART details which **do not apply** to this integrated build.
