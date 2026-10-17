@@ -419,10 +419,16 @@ every byte at the receiving end and comparing independent CRCs via UART.
 No CP/M disks are read or written; normal CP/M still uses UART/Base64.</p>
 <p>Both test firmwares and the five CN3 jumpers + 10k CS pull-up are required.
 Leave CP/M idle at the prompt during stress testing. Start with a single
-1 MHz full-duplex sector before increasing the SPI clock.</p>
+1 MHz full-duplex sector in <strong>SPI mode 1</strong> before increasing the
+clock. ESP-IDF 4.4's SPI slave DMA TX timing recommends modes 1/3.
+Mode 0 remains available as a diagnostic comparison.</p>
 <label>Direction <select id="bidi">
 <option value="1" selected>Full duplex: Teensy ↔ ESP32</option>
 <option value="0">MOSI only: Teensy → ESP32 (regression)</option>
+</select></label>
+<label>SPI mode <select id="mode">
+<option value="1" selected>Mode 1 (DMA TX recommended)</option>
+<option value="0">Mode 0 (previous baseline)</option>
 </select></label>
 <label>SPI clock <select id="hz"><option value="1000000" selected>1 MHz</option>
 <option value="2000000">2 MHz</option><option value="4000000">4 MHz</option>
@@ -437,7 +443,11 @@ Leave CP/M idle at the prompt during stress testing. Start with a single
 <option value="4">Walking one</option></select></label>
 <p><button id="run" onclick="start()">Run SPI test</button></p>
 <pre id="out">Loading status…</pre>
-<p>In full duplex each 512-byte transaction carries 512 bytes <em>each way</em>.
+<p>If MISO fails, inspect <code>miso_first16_hex</code>. Thirty-two zeros
+means the first 16 Teensy-received bytes were all zero; use a 1 MHz test
+and check the MISO jumper CN3-13 (ESP GPIO17) ↔ CN3-29 (Teensy pin 12).
+8 MHz MISO over GPIO matrix is beyond ESP-IDF's conservative timing limit.
+</p><p>In full duplex each 512-byte transaction carries 512 bytes <em>each way</em>.
 SPI KiB/s is quoted per direction and includes Teensy software CRC, pattern
 checks and HP-bus interrupt overhead. End-to-end KiB/s additionally includes
 one UART round trip per sector, not a continuous 64 KiB burst. On incomplete
@@ -456,8 +466,9 @@ async function start(){
   const hz=document.getElementById('hz').value,
     sectors=document.getElementById('sectors').value,
     pattern=document.getElementById('pattern').value,
-    bidi=document.getElementById('bidi').value;
-  const u='/api/spitest?hz='+hz+'&sectors='+sectors+'&pattern='+pattern+'&bidi='+bidi;
+    bidi=document.getElementById('bidi').value,
+    mode=document.getElementById('mode').value;
+  const u='/api/spitest?hz='+hz+'&sectors='+sectors+'&pattern='+pattern+'&bidi='+bidi+'&mode='+mode;
   const r=await fetch(u,{method:'POST'});
   if(!r.ok)alert(await r.text());
   refresh();
@@ -480,11 +491,13 @@ inline void spiTestRegister(AsyncWebServer &server)
     if (r->hasParam("pattern")) pattern = (uint8_t)r->getParam("pattern")->value().toInt();
     const String bidiParam = r->hasParam("bidi") ? r->getParam("bidi")->value() : "0";
     const bool bidi = bidiParam == "1";
-    if (!spiTestValidHz(hz) || !(sectors == 1 || sectors == 16 ||
+    const String modeParam = r->hasParam("mode") ? r->getParam("mode")->value() : "0";
+    const uint8_t mode = modeParam == "1" ? 1 : 0;
+    if ((modeParam != "0" && modeParam != "1") || !spiTestValidHz(hz) || !(sectors == 1 || sectors == 16 ||
           sectors == SPI_TEST_MAX_SECTORS) || pattern > 5 ||
           (bidiParam != "0" && bidiParam != "1")) {
       r->send(400, "text/plain", "Invalid SPI settings");
-    } else if (!spiTestStart(hz, sectors, pattern, bidi)) {
+    } else if (!spiTestStart(hz, sectors, pattern, bidi, mode)) {
       r->send(409, "text/plain", "SPI test busy or requires ESP32 reboot");
     } else {
       r->send(202, "application/json", "{\"started\":true}");
@@ -501,6 +514,8 @@ inline void spiTestRegister(AsyncWebServer &server)
     doc["bytes"] = (uint32_t)spiTestSectors * SPI_TEST_BYTES;
     doc["clock_hz"] = (uint32_t)spiTestHz;
     doc["bidirectional"] = (bool)spiTestBidi;
+    doc["spi_mode"] = (unsigned)spiTestMode;
+    doc["miso_first16_hex"] = spiTestMisoHeadHex;
     doc["pattern"] = (unsigned)spiTestPattern;
     doc["sectors"] = (unsigned)spiTestSectors;
     doc["completed_sectors"] = (unsigned)spiTestCompleted;
