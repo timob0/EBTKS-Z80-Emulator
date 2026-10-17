@@ -21,6 +21,7 @@
 #define Serial EbtksDebugSerial
 
 #include "ebtks_link.h"
+#include "spi_link_test.h"
 #include "web_terminal_v2.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
