@@ -31,19 +31,24 @@ inline bool ebtksStorageOpen(const char *path, bool writable, int &fd)
   JsonDocument request;
   JsonObject open = request["open"].to<JsonObject>();
   open["path"] = path;
-  // SdFat flags used by the Teensy: O_READ=1, O_WRITE=2, O_RDWR=3.
+  // SdFat access-mode flags used by the Teensy are POSIX-style:
+  // O_RDONLY=0, O_WRONLY=1, O_RDWR=2 (O_ACCMODE=3).  Sending 3 selects
+  // the invalid O_ACCMODE bit pattern and makes SD.open() fail.
   // Read-only opens can use the Teensy-side default. Existing disk images
   // are opened read/write without create/truncate semantics.
-  if (writable) open["opts"] = 3;
+  static const int EBTKS_TEENSY_O_RDWR = 2;
+  if (writable) open["opts"] = EBTKS_TEENSY_O_RDWR;
 
   JsonDocument reply;
   if (!ebtksStorageExchange(request, reply)) {
-    if (writable) z80DebugLog("EBTKS WRITE open transport failure path=%s opts=3\n", path);
+    if (writable) z80DebugLog("EBTKS WRITE open transport failure path=%s opts=%d\n",
+                              path, EBTKS_TEENSY_O_RDWR);
     return false;
   }
   fd = reply["open"]["fd"] | -1;
   if (writable) {
-    z80DebugLog("EBTKS WRITE open path=%s opts=3 -> fd=%d\n", path, fd);
+    z80DebugLog("EBTKS WRITE open path=%s opts=%d -> fd=%d\n",
+                path, EBTKS_TEENSY_O_RDWR, fd);
   }
   return fd >= 0;
 }
