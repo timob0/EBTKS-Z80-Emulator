@@ -4,6 +4,8 @@
 
 **Last hardware-tested application commit:** [`5f586f35197627319e7b8280ef62e3807b6ceee3`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/5f586f35197627319e7b8280ef62e3807b6ceee3). Later documentation-only commits do not change the firmware. See [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) for architecture, debugging lessons, and the next hardware milestone.
 
+> **CN3 SPI feature-branch update, 2026-10-18:** The independent 512-byte Teensy-master/ESP-slave transfer has now been **hardware-verified at 1 MHz**: run 13 passed, CRC=59244 on both ends, no mismatches, Teensy loop 4543 us. A new speed/reliability diagnostic was committed on both repositories' `feature/cn3-spi-read-test` branches; it offers 1/2/4/8 MHz, 1/16/128 sectors, and five rotating data patterns. **The extended version is not yet compiled or tested on hardware.** CP/M disk transfers remain on UART/Base64; `main` remains the last verified application baseline. [SPI stress test instructions](SPI_TEST_README.md).
+
 ## What is confirmed on physical EBTKS hardware
 
 | Subsystem / test | Result |
