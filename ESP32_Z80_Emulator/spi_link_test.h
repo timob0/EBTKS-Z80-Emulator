@@ -369,7 +369,7 @@ inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
 
 static const char SPI_TEST_PAGE[] PROGMEM = R"SPIHTML(
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>EBTKS CN3 SPI diagnostics</title>
+<title>EBTKS CN3 SPI full-duplex diagnostics</title>
 <style>
 body{font:16px system-ui;background:#202124;color:#f0f0f0;max-width:780px;margin:30px auto;padding:15px}
 button,select{font:inherit;padding:10px;border-radius:5px}
@@ -378,18 +378,25 @@ button:disabled{opacity:.45}
 label{display:inline-block;margin:8px 16px 8px 0}
 pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#111;padding:15px;border-radius:6px}
 a{color:#80c4ff}
-</style></head><body><h2>CN3 SPI speed &amp; reliability test</h2>
-<p><strong>Feature branch only.</strong> Teensy SPI master → ESP32 SPI slave.
-Each block is an independently checked 512-byte DMA transaction, without
-reading or writing CP/M disks. CP/M still uses its original UART storage transport.</p>
+</style></head><body><h2>CN3 SPI speed &amp; bidirectional reliability</h2>
+<p><strong>Feature branch only.</strong> Teensy SPI master / ESP32 SPI slave.
+Each block is an independently checked 512-byte DMA transaction. Full duplex
+transmits different patterns in both directions simultaneously, checking
+every byte at the receiving end and comparing independent CRCs via UART.
+No CP/M disks are read or written; normal CP/M still uses UART/Base64.</p>
 <p>Both test firmwares and the five CN3 jumpers + 10k CS pull-up are required.
-Leave CP/M idle at the prompt during stress testing.</p>
-<label>SPI clock <select id="hz"><option value="1000000">1 MHz</option>
-<option value="2000000">2 MHz</option><option value="4000000" selected>4 MHz</option>
+Leave CP/M idle at the prompt during stress testing. Start with a single
+1 MHz full-duplex sector before increasing the SPI clock.</p>
+<label>Direction <select id="bidi">
+<option value="1" selected>Full duplex: Teensy ↔ ESP32</option>
+<option value="0">MOSI only: Teensy → ESP32 (regression)</option>
+</select></label>
+<label>SPI clock <select id="hz"><option value="1000000" selected>1 MHz</option>
+<option value="2000000">2 MHz</option><option value="4000000">4 MHz</option>
 <option value="8000000">8 MHz</option></select></label>
-<label>Transfer count <select id="sectors"><option value="1">1 sector (512 B)</option>
+<label>Transfer count <select id="sectors"><option value="1" selected>1 sector (512 B)</option>
 <option value="16">16 sectors (8 KiB)</option>
-<option value="128" selected>128 sectors (64 KiB)</option></select></label>
+<option value="128">128 sectors (64 KiB)</option></select></label>
 <label>Pattern <select id="pattern">
 <option value="5" selected>Cycle five patterns</option>
 <option value="0">Sequence/ramp</option><option value="1">All 00</option>
@@ -397,10 +404,12 @@ Leave CP/M idle at the prompt during stress testing.</p>
 <option value="4">Walking one</option></select></label>
 <p><button id="run" onclick="start()">Run SPI test</button></p>
 <pre id="out">Loading status…</pre>
-<p>Transfer-only throughput uses summed Teensy transfer-loop times, including
-software CRC and HP-bus interrupt overhead. End-to-end throughput also
-includes one UART request/response per sector; it is <em>not</em> an uninterrupted
-64 KiB DMA burst. Any incomplete DMA requires an ESP32 reboot before retry.</p>
+<p>In full duplex each 512-byte transaction carries 512 bytes <em>each way</em>.
+SPI KiB/s is quoted per direction and includes Teensy software CRC, pattern
+checks and HP-bus interrupt overhead. End-to-end KiB/s additionally includes
+one UART round trip per sector, not a continuous 64 KiB burst. On incomplete
+DMA the ESP32 must reboot before another test. Save the JSON and
+<a href="/z80debug">debug log</a> if either direction fails.</p>
 <p><a href="/z80">CP/M terminal</a> · <a href="/z80debug">Diagnostics</a></p>
 <script>
 async function refresh(){
@@ -413,8 +422,9 @@ async function refresh(){
 async function start(){
   const hz=document.getElementById('hz').value,
     sectors=document.getElementById('sectors').value,
-    pattern=document.getElementById('pattern').value;
-  const u='/api/spitest?hz='+hz+'&sectors='+sectors+'&pattern='+pattern;
+    pattern=document.getElementById('pattern').value,
+    bidi=document.getElementById('bidi').value;
+  const u='/api/spitest?hz='+hz+'&sectors='+sectors+'&pattern='+pattern+'&bidi='+bidi;
   const r=await fetch(u,{method:'POST'});
   if(!r.ok)alert(await r.text());
   refresh();
@@ -435,10 +445,13 @@ inline void spiTestRegister(AsyncWebServer &server)
     if (r->hasParam("hz")) hz = (uint32_t)r->getParam("hz")->value().toInt();
     if (r->hasParam("sectors")) sectors = (uint16_t)r->getParam("sectors")->value().toInt();
     if (r->hasParam("pattern")) pattern = (uint8_t)r->getParam("pattern")->value().toInt();
+    const String bidiParam = r->hasParam("bidi") ? r->getParam("bidi")->value() : "0";
+    const bool bidi = bidiParam == "1";
     if (!spiTestValidHz(hz) || !(sectors == 1 || sectors == 16 ||
-          sectors == SPI_TEST_MAX_SECTORS) || pattern > 5) {
+          sectors == SPI_TEST_MAX_SECTORS) || pattern > 5 ||
+          (bidiParam != "0" && bidiParam != "1")) {
       r->send(400, "text/plain", "Invalid SPI settings");
-    } else if (!spiTestStart(hz, sectors, pattern)) {
+    } else if (!spiTestStart(hz, sectors, pattern, bidi)) {
       r->send(409, "text/plain", "SPI test busy or requires ESP32 reboot");
     } else {
       r->send(202, "application/json", "{\"started\":true}");
@@ -454,16 +467,23 @@ inline void spiTestRegister(AsyncWebServer &server)
     doc["runs"] = (uint32_t)spiTestRunNumber;
     doc["bytes"] = (uint32_t)spiTestSectors * SPI_TEST_BYTES;
     doc["clock_hz"] = (uint32_t)spiTestHz;
+    doc["bidirectional"] = (bool)spiTestBidi;
     doc["pattern"] = (unsigned)spiTestPattern;
     doc["sectors"] = (unsigned)spiTestSectors;
     doc["completed_sectors"] = (unsigned)spiTestCompleted;
     doc["completed_bytes"] = (uint32_t)spiTestCompleted * SPI_TEST_BYTES;
+    doc["completed_bytes_total"] = (uint32_t)spiTestCompleted *
+                                    SPI_TEST_BYTES * (spiTestBidi ? 2U : 1U);
     doc["failed_sector"] = (int)spiTestFailSector;
     doc["failed_pattern"] = (int)spiTestFailPattern;
-    doc["first_mismatch_byte"] = (int)spiTestMismatchAt;
+    doc["first_mismatch_byte"] = (int)spiTestMismatchAt; // MOSI on ESP32
+    doc["first_mismatch_miso"] = (int)spiTestMisoMismatchAt; // MISO on Teensy
     doc["crc_esp"] = (uint16_t)spiTestCrcLocal;
     doc["crc_teensy"] = (uint16_t)spiTestCrcRemote;
+    doc["miso_crc_esp_tx"] = (uint16_t)spiTestMisoTxCrc;
+    doc["miso_crc_teensy_rx"] = (uint16_t)spiTestMisoRxCrc;
     doc["aggregate_crc_esp"] = (uint16_t)spiTestAggregateCrc;
+    doc["aggregate_miso_crc_esp_tx"] = (uint16_t)spiTestAggregateMisoTxCrc;
     doc["teensy_transfer_us"] = (uint32_t)spiTestElapsedUs;
     doc["teensy_min_us"] = (uint32_t)spiTestMinUs;
     doc["teensy_max_us"] = (uint32_t)spiTestMaxUs;
@@ -473,6 +493,9 @@ inline void spiTestRegister(AsyncWebServer &server)
        ? (bytes * 1000000.0 / 1024.0 / spiTestElapsedUs) : 0.0;
     doc["end_to_end_kib_s"] = spiTestWallUs
        ? (bytes * 1000000.0 / 1024.0 / spiTestWallUs) : 0.0;
+    doc["full_duplex_total_kib_s"] = spiTestElapsedUs
+       ? (bytes * (spiTestBidi ? 2.0 : 1.0) * 1000000.0 /
+          1024.0 / spiTestElapsedUs) : 0.0;
     String json;
     serializeJson(doc, json);
     r->send(200, "application/json", json);
