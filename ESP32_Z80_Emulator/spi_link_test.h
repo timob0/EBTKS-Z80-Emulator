@@ -15,7 +15,7 @@ static constexpr spi_host_device_t SPI_TEST_HOST = HSPI_HOST;
 static constexpr int SPI_TEST_MOSI = 22;   // CN3-21  E22 ESP input (Teensy T11)
 static constexpr int SPI_TEST_MISO = 17;   // CN3-13  E17 ESP output (Teensy T12)
 static constexpr int SPI_TEST_SCLK = 16;   // CN3-14  E16 ESP input (Teensy T13)
-static constexpr int SPI_TEST_CS = 32;     // CN3-4   E34 input-only; external 10k pull-up
+static constexpr int SPI_TEST_CS = 32;     // CN3-4   E34 input; external 10k pull-up
 static constexpr int SPI_TEST_READY = 27;  // CN3-8   E27 output (Teensy T06)
 static constexpr size_t SPI_TEST_BYTES = 512;
 
