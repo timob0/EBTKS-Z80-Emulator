@@ -12,6 +12,11 @@ void serialTask(void *parameter) {
   enum TelnetRxState : uint8_t { TEL_DATA, TEL_IAC, TEL_IAC_OPTION, TEL_SB, TEL_SB_IAC };
   TelnetRxState telState = TEL_DATA;
 
+  // In Telnet NVT mode, a carriage return is normally sent as CR NUL
+  // (literal carriage return) or CR LF (new line).  CP/M wants a single CR
+  // for Enter, so remember a received CR and discard a following NUL/LF.
+  bool telnetAfterCr = false;
+
   for (;;) {
     size_t n = 0;
     while (txOutPtr != txInPtr && n < sizeof(chunk)) {
@@ -43,11 +48,19 @@ void serialTask(void *parameter) {
 
       switch (telState) {
         case TEL_DATA:
+          // Normalize Telnet's CR NUL / CR LF convention to one CP/M CR.
+          // The CR itself was already queued on the previous byte.
+          if (telnetAfterCr) {
+            telnetAfterCr = false;
+            if (c == 0 || c == 10) break;
+          }
+
           if (c == 255) {                    // IAC
             telState = TEL_IAC;
           } else {
             if (c == 127) c = 8;
             consoleRxEnqueue(c);
+            if (c == 13) telnetAfterCr = true;
           }
           break;
 
