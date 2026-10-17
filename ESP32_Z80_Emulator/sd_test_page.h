@@ -3,8 +3,7 @@
 #include <ESPAsyncWebServer.h>
 
 // Browser-driven diagnostic for the existing ESP32 <-> Teensy JSON file
-// service.  The Teensy firmware is intentionally left unchanged so this page
-// tests the exact file-service implementation used by CP/M storage.
+// service. It creates and overwrites only /cpm/ESPTEST.BIN.
 //
 // SdFat on the ARM Teensy uses the POSIX-style flags:
 //   O_RDWR  = 0x002
@@ -16,8 +15,9 @@
 // on jdoc["write"] but reads the Base64 payload from jdoc["Write"]["data"].
 // The test deliberately sends both keys, exactly like ebtks_storage.h.
 //
-// The currently installed Base64 decoder is reliable for 64 decoded bytes per
-// request, so the ESP side deliberately splits larger writes at that boundary.
+// Decode-only probes send a valid Base64 payload with write.len=0. The Teensy
+// still executes its Base64 decoder, but its write handler skips SD.write().
+// This cleanly separates decoder faults from filesystem-write faults.
 static const char EBTKS_SD_TEST_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
 <html>
@@ -39,10 +39,10 @@ pre{background:#111;color:#d8ffd8;border:1px solid #555;border-radius:.3rem;padd
 <body>
 <main>
 <h2>Teensy SD File Service Test</h2>
-<p>This exercises the existing Teensy <code>open/read/write/lseek/close</code> JSON services through the ESP32 UART bridge. It creates and overwrites only <code>/cpm/ESPTEST.BIN</code>.</p>
+<p>This exercises the Teensy <code>open/read/write/lseek/close</code> JSON services through the ESP32 UART bridge. It creates and overwrites only <code>/cpm/ESPTEST.BIN</code>.</p>
 <button id="run">Run Test</button>
 <button onclick="location.href='/'">Back</button>
-<p class="small">Writes are split into 64-byte transfers. The final 8 KiB test exercises many packet boundaries as well as SD persistence.</p>
+<p class="small">The first probes exercise Base64 decode without writing to SD. Actual writes are currently split into 64-byte transfers.</p>
 <pre id="log">Ready.</pre>
 </main>
 <script>
@@ -104,6 +104,11 @@ async function readChunk(fd,len){
   const data=fromB64(r.read&&r.read.data?r.read.data:'');
   return {n:n,data:data};
 }
+async function decodeOnly(fd,data){
+  const b64=toB64(data);
+  const r=await request({write:{fd:fd,len:0},Write:{data:b64}});
+  return Number(r.write&&r.write.len!==undefined?r.write.len:-999);
+}
 async function writeChunk(fd,data){
   if(data.length>64)throw new Error('writeChunk exceeds 64-byte transport limit');
   const b64=toB64(data);
@@ -133,8 +138,17 @@ async function runTest(){
     let c=await closeFile(fd);fd=-1;step('Close existing file',c===-1,'returned fd='+c);
     line();
 
-    const block1=makePattern(128,0x12345678);
+    const probe=makePattern(64,0x12345678);
     fd=await openFile('/cpm/ESPTEST.BIN',1538);step('Create/truncate ESPTEST.BIN',fd>=0,'fd='+fd+' opts=1538');
+    for(const size of [1,2,3,8,16,32,64]){
+      const pr=await decodeOnly(fd,probe.subarray(0,size));
+      step('Decode-only '+size+' bytes',pr===-1,'reply len='+pr);
+    }
+    c=await closeFile(fd);fd=-1;step('Close after decode probes',c===-1,'returned fd='+c);
+    line();
+
+    const block1=makePattern(128,0x12345678);
+    fd=await openFile('/cpm/ESPTEST.BIN',1538);step('Recreate/truncate ESPTEST.BIN',fd>=0,'fd='+fd+' opts=1538');
     let n=await writeAll(fd,block1);step('Write block 1 as 2x64',n===block1.length,n+'/'+block1.length+' bytes');
     c=await closeFile(fd);fd=-1;step('Close created file',c===-1,'returned fd='+c);
 
