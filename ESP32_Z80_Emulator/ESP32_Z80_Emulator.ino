@@ -29,6 +29,7 @@
 #include "disk.h"
 #include "cpm_mount_store.h"
 #include "cpm_geometry_dynamic.h"
+#include "cpm_warmboot.h"
 #include "cpu.h"
 #include "serial.h"
 #include "telnet.h"
@@ -85,12 +86,33 @@ void loop() {
     cpmApplyMountedGeometryDynamic();
   }
 
+  // Capture a pristine native CCP+BDOS image before starting the Z80.  Large
+  // CP/M applications may legally reclaim the CCP and expect BIOS WBOOT to
+  // reload it.  Arm an internal breakpoint at E603 so we can restore D000-E5FF
+  // before the historical CBIOS warm-boot code executes.
+  cpmWarmBootCapture();
+
   PC=0;
   SingleStep=false;
-  bpOn=false;
+  cpmWarmBootArmTrap();
   RUN=true;
   Serial.println("Starting Z80");
-  while(RUN) vTaskDelay(100);
+
+  // A stop at the reserved WBOOT breakpoint is not a virtual-machine halt.
+  // Restore the resident CP/M image and resume exactly at WBOOT.  HALT, the
+  // web Reset Z80 action, and any other stop still fall through to the normal
+  // full virtual-machine restart below.
+  while (true) {
+    while(RUN) vTaskDelay(100);
+
+    if (cpmWarmBootHandleTrap()) {
+      RUN = true;
+      continue;
+    }
+    break;
+  }
+
+  bpOn=false;
   Serial.printf("Z80 halted @ %04X - restarting virtual machine\n",PC?PC-1:0);
   vTaskDelay(500);
 }
