@@ -1,6 +1,6 @@
 # CN3 SPI speed and reliability experiment (feature branches)
 
-**Status (2026-10-18):** Original 1 MHz / 512-byte test **passed on physical hardware** (reported by user: 13 runs, CRC ESP=Teensy=59244, transfer-loop time 4543 us, no mismatch). The extended multi-speed/multi-sector stress test in this branch is **new source, not yet compiled or hardware-validated**. Do not merge into `main` yet.
+**Status (2026-10-18): HARDWARE TEST PASSED.** Both firmware builds were flashed and user tested 1–8 MHz, sector counts 1–128 and multiple data patterns, with no failures. The 8 MHz / 128-sector (64 KiB) run passed. This is a *receive-only MOSI* SPI transport diagnostic; it does **not** prove MISO transfers or CP/M binary sector I/O, which still use the original UART/Base64 path. Do not merge to `main` without dedicated CP/M regressions.
 
 The two matching branches are:
 
@@ -105,12 +105,47 @@ For a full passed 128-sector run, `completed_sectors=128`, `completed_bytes=6553
 
 **Important limitation:** 128 sectors means **128 sequential independent SPI DMA transactions**, each initiated by a short UART `spi_probe` command and confirmed by a UART CRC/status reply. It does **not** mean one uninterrupted 64 KiB SPI transaction, and `end_to_end_kib_s` is therefore conservative for a future optimized binary disk protocol. This design intentionally retains the proven safe READY/DMA synchronization between blocks. The ESP32 DMA buffer remains only 512 bytes.
 
+## Hardware-confirmed results — 2026-10-18
+
+**Hardware-confirmed stress result (2026-10-18):** On both repositories' `feature/cn3-spi-read-test` branches, user reports **all SPI tests passed across 1–8 MHz, 1–128 sectors and multiple data patterns**. Longest reported test: 8 MHz, 128 × 512-byte sectors (65,536 B), rotating 5 patterns, run counter 30, zero mismatches, ESP and Teensy final-sector CRC both 3840, aggregate ESP CRC 59319, no reboot required. Teensy timed SPI transfer loops totaled **106,910 us**, min/max **834/836 us** per sector; full wall time **3,845,289 us**. Measured throughput: **598.634 KiB/s** inside Teensy loops versus **16.644 KiB/s** end-to-end with one UART request/reply per sector. This confirms *Teensy MOSI → ESP32 SPI2 receive* under the tested conditions; **ESP32 MISO → Teensy receive, disk data transfers, and a pipelined/burst protocol are not yet tested**. Working CP/M still uses UART/JSON/Base64.
+
+Latest 8 MHz, five-pattern 128-sector test JSON:
+
+```json
+{
+  "state": "passed",
+  "detail": "All SPI bytes verified; no CP/M disk accessed",
+  "needs_reboot": false,
+  "runs": 30,
+  "bytes": 65536,
+  "clock_hz": 8000000,
+  "pattern": 5,
+  "sectors": 128,
+  "completed_sectors": 128,
+  "completed_bytes": 65536,
+  "failed_sector": -1,
+  "failed_pattern": -1,
+  "first_mismatch_byte": -1,
+  "crc_esp": 3840,
+  "crc_teensy": 3840,
+  "aggregate_crc_esp": 59319,
+  "teensy_transfer_us": 106910,
+  "teensy_min_us": 834,
+  "teensy_max_us": 836,
+  "wall_us": 3845289,
+  "spi_kib_s": 598.6343654,
+  "end_to_end_kib_s": 16.64374251
+}
+```
+
+At 8 MHz the ideal 512-byte wire time is 512 us; the measured software `SPI.transfer` + CRC loop was approximately 835 us per sector. The total time per sector averaged 30.04 ms. Thus the critical path for this diagnostic is **outside** the SPI byte-transfer loops, reflecting UART round trips, task scheduling, SPI setup and other coordination. The test did not separately time those components; avoid assigning the residual to any one source. Next phase should measure and reduce command-to-data/ready-to-ack latency, and validate return data over MISO before changing CP/M disk I/O.
+
 ## What this does NOT test
 
 - SPI MISO data returning from ESP32 to Teensy (still unverified).
 - Real file access, sector reads, disk writes, or CP/M ABI.
 - A pipelined/burst binary sector transport (that is a later step).
 - Data integrity during arbitrary DMA timeouts; incomplete transactions force reboot before retry.
-- A compile/test result on hardware until explicitly reported.
+- Changes beyond the hardware-tested stress firmware (e.g. MISO testing, optimized protocol) until explicitly validated.
 
 **Regression after flashing:** CP/M `DIR`, browser-only VT100, Telnet, main EBTKS web UI and updater, `/ws`, Teensy SD services, and uninterrupted HP-85 operation. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) for the known-good baseline.
