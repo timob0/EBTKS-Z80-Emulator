@@ -7,7 +7,10 @@
 #include "z80_debug.h"
 
 static const size_t EBTKS_READ_CHUNK  = 256;
-static const size_t EBTKS_WRITE_CHUNK = 192;
+// The replacement Base64 decoder in the current Teensy firmware reliably
+// decodes the first 64 bytes of each request. Split larger writes at this
+// boundary; successive SD writes advance the same open file normally.
+static const size_t EBTKS_WRITE_CHUNK = 64;
 static const char *EBTKS_CPM_ROOT = "/cpm";
 
 inline bool ebtksStorageExchange(JsonDocument &request, JsonDocument &reply, uint32_t timeoutMs = 3000)
@@ -147,10 +150,6 @@ inline int ebtksStorageWriteChunk(int fd, const uint8_t *src, size_t len)
   if (!src || len == 0) return 0;
   if (len > EBTKS_WRITE_CHUNK) len = EBTKS_WRITE_CHUNK;
 
-  // mbedtls_base64_encode() requires room for the trailing NUL in addition
-  // to the Base64 payload.  For a full 192-byte chunk the payload is exactly
-  // 256 bytes, so passing sizeof(encoded)-1 made every full write chunk fail
-  // with MBEDTLS_ERR_BASE64_BUFFER_TOO_SMALL before it ever reached Teensy.
   unsigned char encoded[4 * ((EBTKS_WRITE_CHUNK + 2) / 3) + 1];
   size_t encodedLen = 0;
   int rc = mbedtls_base64_encode(encoded, sizeof(encoded), &encodedLen, src, len);
