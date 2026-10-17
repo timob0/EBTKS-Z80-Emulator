@@ -57,7 +57,7 @@
 <circle cx="78" cy="448" r="14" fill="#ea580c"/>
 <text x="78" y="453" text-anchor="middle" font-size="15" font-weight="700" fill="white" font-family="Arial, sans-serif">4</text>
 <text x="105" y="454" font-size="17" font-weight="600" fill="#0f172a" font-family="Arial, sans-serif">CN3-30  •  T26 / GPIO</text>
-<text x="740" y="454" font-size="17" font-weight="600" fill="#0f172a" font-family="Arial, sans-serif">CN3-04  •  E34 / GPIO35</text>
+<text x="740" y="454" font-size="17" font-weight="600" fill="#0f172a" font-family="Arial, sans-serif">CN3-04  •  E34 / GPIO32</text>
 <circle cx="482" cy="448" r="6.5" fill="#ea580c"/><circle cx="718" cy="448" r="6.5" fill="#ea580c"/>
 <path d="M489 448 H709" fill="none" stroke="#ea580c" stroke-width="5" stroke-linecap="round" marker-end="url(#arrow3)"/>
 <rect x="517" y="422" width="165" height="21" fill="white" rx="5"/>
@@ -75,8 +75,8 @@
 <text x="599.5" y="515" font-size="13.5" font-weight="700" text-anchor="middle" fill="#0284c7" font-family="Arial, sans-serif">ESP_READY · ESP32 → Teensy</text>
 
 <rect x="52" y="602" width="1096" height="62" rx="10" fill="#fff7ed" stroke="#fdba74"/>
-<text x="74" y="627" font-size="17" font-weight="700" fill="#9a3412" font-family="Arial, sans-serif">Required CS pull-up: CN3-04 / ESP GPIO35 → 10 kΩ resistor → CN3-36 / 3.3 V</text>
-<text x="74" y="649" font-size="14" fill="#7c2d12" font-family="Arial, sans-serif">GPIO35 is input-only and has no internal pull-up. Use a resistor; never connect CS directly to 3.3 V.</text>
+<text x="74" y="627" font-size="17" font-weight="700" fill="#9a3412" font-family="Arial, sans-serif">Required CS pull-up: CN3-04 / ESP GPIO32 → 10 kΩ resistor → CN3-36 / 3.3 V</text>
+<text x="74" y="649" font-size="14" fill="#7c2d12" font-family="Arial, sans-serif">GPIO32 is input/output capable; the installed external 10 kΩ pull-up keeps CS inactive at startup. Use a resistor; never connect CS directly to 3.3 V.</text>
 <text x="52" y="699" font-size="15" font-weight="700" fill="#334155" font-family="Arial, sans-serif">CN3 PIN NUMBERS ONLY — confirm physical connector orientation and pin 1 before connecting jumpers.</text>
 <text x="52" y="724" font-size="13.5" fill="#475569" font-family="Arial, sans-serif">Schematic: EBTKS V3.0 (2021-04-10), sheet 1 CN3 + Teensy U4; sheet 2 ESP32 U7. Boards already share GND.</text>
 </svg>
