@@ -2,15 +2,17 @@
 
 #include <Arduino.h>
 #include "globals.h"
-#include "cpm_media.h"
+#include "cpm_mount_store.h"
 
 // Generic mixed-geometry CBIOS patcher.
 //
 // The stage-1 HP-LIF experiment proved that the cbios.rom actually installed
 // on a machine must not be assumed to use one fixed DPH address.  Locate the
 // native 8 MiB DPB and the complete 16-entry DPH table from their contents,
-// restore every drive to native geometry, then patch each actively mounted
-// HP 82900 floppy independently.
+// restore every drive to native geometry, then patch each mounted HP 82900
+// floppy independently.  This pass also rebuilds the active table from the
+// verified persistent assignments so no earlier migration helper can override
+// or clear the selected media.
 
 inline uint16_t cpmGeomRead16(uint16_t p)
 {
@@ -58,10 +60,10 @@ inline uint16_t cpmGeomFindDphBase(uint16_t nativeDpb)
 {
   if (!nativeDpb) return 0;
 
-  // A valid table is 16 consecutive 16-byte DPHs.  All entries share DIRBUF;
-  // their ALV buffers are distinct and laid out in increasing RAM order.  At
-  // least one DPH must still reference the native DPB.  This remains true even
-  // if the earlier media-manager or stage-1 code already patched another drive.
+  // A valid table is 16 consecutive 16-byte DPHs. All entries share DIRBUF;
+  // their ALV buffers are distinct and laid out in increasing RAM order. At
+  // least one DPH must still reference the native DPB. This remains true even
+  // if an earlier media-manager build already patched another drive.
   for (uint32_t base32 = 0xd000; base32 <= 0xf000; ++base32) {
     uint16_t base = (uint16_t)base32;
     uint16_t dirbuf = cpmGeomRead16((uint16_t)(base + 8));
@@ -105,6 +107,26 @@ inline uint16_t cpmGeomFindDphBase(uint16_t nativeDpb)
 
 inline bool cpmApplyMountedGeometryDynamic()
 {
+  // Reconstruct the active table directly from the verified NVS assignments.
+  // This intentionally supersedes the first media-manager's SD-table loader
+  // and any stage-1 B:-specific compatibility state before touching the DPHs.
+  for (uint8_t drive = 0; drive < CPM_DRIVE_COUNT; ++drive) {
+    if (!cpmDesiredMounts[drive].mounted) {
+      cpmClearMount(cpmActiveMounts[drive]);
+      continue;
+    }
+
+    CpmMountEntry actual;
+    if (!cpmStoreFindMedia(cpmDesiredMounts[drive].path, actual) ||
+        actual.profile != cpmDesiredMounts[drive].profile) {
+      Serial.printf("CP/M media: %c: configured image unavailable/changed: %s\n",
+                    'A' + drive, cpmDesiredMounts[drive].path);
+      cpmClearMount(cpmActiveMounts[drive]);
+      continue;
+    }
+    cpmActiveMounts[drive] = cpmDesiredMounts[drive];
+  }
+
   uint16_t nativeDpb = cpmGeomFindNativeDpb();
   uint16_t dphBase = cpmGeomFindDphBase(nativeDpb);
   if (!nativeDpb || !dphBase) {
@@ -126,7 +148,7 @@ inline bool cpmApplyMountedGeometryDynamic()
     0x03, 0x00              // OFF  = 3
   };
 
-  // First return all sixteen DPHs to the native hard-disk geometry.  This is
+  // First return all sixteen DPHs to the native hard-disk geometry. This is
   // essential when a drive that used to contain an HP floppy is remounted as
   // an 8 MiB disk or unmounted.
   for (uint8_t drive = 0; drive < CPM_DRIVE_COUNT; ++drive) {
