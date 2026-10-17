@@ -32,11 +32,11 @@ button,select{font:inherit}.spacer{flex:1}.hint{color:#9aa0a6;font-size:.9em}
 const term=document.getElementById('term'),state=document.getElementById('state'),diag=document.getElementById('diag'),diagControls=document.getElementById('diagControls'),modeSel=document.getElementById('termMode'),status2=document.getElementById('status2');
 let ws,diagTimer=null,mode=localStorage.getItem('ebtksTermMode')||'vt100';
 const W=80,H=24,ESC=27;
-let scr,row,col,savedRow,savedCol,scrollTop,scrollBottom,attr,insertMode,cursorVisible,g0,parserState,seq,hpSeq,hpAddr,rawText='',unsupported=new Set();
+let scr,row,col,savedRow,savedCol,scrollTop,scrollBottom,attr,insertMode,cursorVisible,g0,parserState,seq,hpSeq,hpAddr,hpDialect,rawText='',unsupported=new Set();
 function cell(){return{ch:' ',inv:false,ul:false,bd:false}}
 function resetModel(clear=true){
   if(clear||!scr)scr=Array.from({length:H},()=>Array.from({length:W},cell));
-  row=0;col=0;savedRow=0;savedCol=0;scrollTop=0;scrollBottom=H-1;attr={inv:false,ul:false,bd:false};insertMode=false;cursorVisible=true;g0='ascii';parserState='normal';seq='';hpSeq='';hpAddr=[];
+  row=0;col=0;savedRow=0;savedCol=0;scrollTop=0;scrollBottom=H-1;attr={inv:false,ul:false,bd:false};insertMode=false;cursorVisible=true;g0='ascii';parserState='normal';seq='';hpSeq='';hpAddr=[];hpDialect='auto';
 }
 function clearTerm(){rawText='';resetModel(true);unsupported.clear();status2.textContent='';render()}
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
@@ -161,12 +161,12 @@ function hpEscByte(b){
   parserState='normal';
   switch(ch){
     case'A':row--;break;case'B':row++;break;case'C':col++;break;case'D':col--;break;case'H':case'h':row=0;col=0;break;
-    case'F':case'f':row=H-1;col=0;break;case'S':scrollUp();break;case'T':scrollDown();break;
-    case'J':eraseDisplay(0);break;case'K':eraseLine(0);break;case'P':delChars(1);break;case'Q':insertMode=true;break;case'R':insertMode=false;break;
-    case'E':resetModel(true);break;case'Y':return;case'Z':return;
-    case'*':resetModel(true);break;
-    case'=':parserState='hpaddr1';hpAddr=[];return;
-    case'&':hpSeq='&';parserState='hpesc';return;
+    case'F':case'f':row=H-1;col=0;break;case'S':hpDialect='hp262';scrollUp();break;case'T':if(hpDialect==='soroc')eraseLine(0);else{hpDialect='hp262';scrollDown()}break;
+    case'J':hpDialect='hp262';eraseDisplay(0);break;case'K':hpDialect='hp262';eraseLine(0);break;case'P':hpDialect='hp262';delChars(1);break;case'Q':hpDialect='hp262';insertMode=true;break;case'R':hpDialect='hp262';insertMode=false;break;
+    case'E':hpDialect='hp262';resetModel(true);break;case'Y':if(hpDialect==='soroc')eraseDisplay(0);return;case'Z':return;
+    case'*':hpDialect='soroc';resetModel(true);hpDialect='soroc';break;
+    case'=':hpDialect='soroc';parserState='hpaddr1';hpAddr=[];return;
+    case'&':hpDialect='hp262';hpSeq='&';parserState='hpesc';return;
     default:trace('HP86','ESC '+ch);return;
   }
   clamp();
