@@ -82,7 +82,7 @@ inline bool spiTestInit()
   slave.post_trans_cb = spiTestPostTrans;
 
   // Use explicit DMA channel 1 (ESP-IDF 4.4 / ESP32 Arduino v2 target).
-  const esp_err_t err = spi_slave_initialize(SPI_TEST_HOST, &bus, &slave, 1);
+  const esp_err_t err = spi_slave_initialize(SPI_TEST_HOST, &bus, &slave, SPI_DMA_CH1);
   if (err != ESP_OK) {
     Serial.printf("SPI test: spi_slave_initialize failed: %s\n", esp_err_to_name(err));
     spiTestDetail = "ESP32 SPI2 slave initialization failed";
