@@ -1,3 +1,5 @@
+> **Historical milestone document:** The active Media Manager now saves and verifies the drive mount table in ESP32 NVS namespace `cpmmount`, not `/cpm/mounts.cfg`. The SD config is read only as a migration source. See [PROJECT_STATUS.md](PROJECT_STATUS.md), [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md), and `ESP32_Z80_Emulator/cpm_mount_store.h` for the current implemented behavior. The original development notes below are retained for context.
+
 # CP/M Media Manager
 
 The CP/M Media Manager assigns disk-image files stored on the EBTKS Teensy SD card to CP/M drive letters without requiring the SD card to be removed or configuration files to be edited by hand.
