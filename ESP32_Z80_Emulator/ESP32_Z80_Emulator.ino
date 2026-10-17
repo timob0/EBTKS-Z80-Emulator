@@ -20,6 +20,7 @@
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
+#include "hp_lif_compat.h"
 #include "cpu.h"
 #include "serial.h"
 #include "telnet.h"
@@ -71,6 +72,13 @@ void loop() {
   // With Teensy storage available, /boot.txt selects CP/M or another remote
   // boot image.  If storage is absent, bootstrap() uses the built-in BASIC.
   bootstrap();
+
+  // Stage-1 HP 82900A experiment: bootstrap() may load a CBIOS build whose
+  // absolute DPH addresses differ from the source currently in the repo.
+  // Locate the DPH table from its native DPB signature and install B:'s HP
+  // geometry immediately before releasing the Z80.
+  if (sdfound) installHpLifDriveBCompat();
+
   PC=0;
   SingleStep=false;
   bpOn=false;
