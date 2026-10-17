@@ -9,35 +9,43 @@
 //   D806-E5FF  BDOS and resident CP/M state
 //   E600-FFFF  CBIOS
 //
-// CP/M applications are allowed to use/overwrite the CCP before terminating;
-// a real BIOS warm boot reloads the resident CP/M image before returning to
-// the command processor.  The historical CBIOS used by this emulator jumps
-// straight back to the in-memory CCP instead, which fails for large programs
-// (notably Microsoft INSTALL/Multiplan) that reclaim high memory.
+// CP/M applications may reclaim the CCP before terminating. A normal BIOS
+// warm boot reloads the resident CCP/BDOS image before returning to the CCP;
+// the historical CBIOS used by this emulator only jumps back to the in-memory
+// copy. Large applications such as Microsoft INSTALL/Multiplan can therefore
+// leave resident CP/M damaged at exit.
 //
-// Keep a pristine host-side shadow of D000-E5FF.  Allocate it from the ESP32
-// heap rather than as a static array: this firmware is already very close to
-// the linker-visible DRAM/BSS limit, while the ESP32 heap has enough runtime
-// capacity for this 5632-byte snapshot.
+// Keep a pristine host-side shadow of D000-E5FF in heap memory and reserve the
+// emulator's existing breakpoint at BIOS WBOOT entry E603. When WBOOT is
+// reached, restore CCP+BDOS, then resume at the real CBIOS WBOOT routine so it
+// can reset its stack, disk buffers and page-zero vectors normally.
 //
-// The CPU emulator already has a single breakpoint facility, so reserve it
-// internally while native CP/M is running.  We first stop at CCP entry D000
-// after cold/warm boot to install a tiny BDOS vector shim, then arm the
-// breakpoint at BIOS WBOOT entry E603.
+// BDOS function 0 is special: if an application has already overwritten part
+// of BDOS, it must still be able to request WBOOT. Do NOT move the standard
+// page-zero BDOS vector at 0005 away from D806: many CP/M programs inspect
+// 0006/0007 to discover the BDOS base / top of TPA. Instead patch the first
+// instruction at D806 to jump through a small shim in the intentionally unused
+// CBIOS hole FFEB-FFFD.
 //
-// The shim lives in the intentionally unused CBIOS hole FFEB-FFFD:
-//   LD A,C / OR A / JP Z,E603 / JP D806
-// Thus ordinary CALL 0005 BDOS requests pass through unchanged, while BDOS
-// function 0 reaches WBOOT even if an HP-oriented application has overwritten
-// part of our lower-addressed BDOS before terminating.
+// Shim at FFEB (AF preserved for ordinary BDOS calls):
+//   PUSH AF
+//   LD   A,C
+//   OR   A
+//   JR   Z,warm
+//   POP  AF
+//   JP   D811        ; original FBASE1 target
+// warm:
+//   POP  AF
+//   JP   E603        ; BIOS WBOOT
+//
+// Page zero therefore remains exactly the standard JP D806 layout.
 
 static constexpr uint16_t CPM_SHADOW_START = 0xD000;
 static constexpr size_t   CPM_SHADOW_SIZE  = 0x1600;  // D000-E5FF inclusive
-static constexpr uint16_t CPM_CCP_ENTRY    = 0xD000;
 static constexpr uint16_t CPM_BDOS_ENTRY   = 0xD806;
+static constexpr uint16_t CPM_BDOS_BODY    = 0xD811;
 static constexpr uint16_t CPM_BIOS_ENTRY   = 0xE600;
 static constexpr uint16_t CPM_WBOOT_ENTRY  = 0xE603;
-static constexpr uint16_t CPM_BDOS_VECTOR  = 0x0005;
 static constexpr uint16_t CPM_BDOS_SHIM    = 0xFFEB;
 
 static uint8_t *cpmResidentShadow = nullptr;
@@ -46,26 +54,36 @@ static uint32_t cpmWarmBootCount = 0;
 
 inline void cpmWarmBootWriteShim()
 {
-  // FFEB: LD A,C
-  RAM[CPM_BDOS_SHIM + 0] = 0x79;
-  // FFEC: OR A
-  RAM[CPM_BDOS_SHIM + 1] = 0xB7;
-  // FFED: JP Z,E603
-  RAM[CPM_BDOS_SHIM + 2] = 0xCA;
-  RAM[CPM_BDOS_SHIM + 3] = (uint8_t)(CPM_WBOOT_ENTRY & 0xFF);
-  RAM[CPM_BDOS_SHIM + 4] = (uint8_t)(CPM_WBOOT_ENTRY >> 8);
-  // FFF0: JP D806
-  RAM[CPM_BDOS_SHIM + 5] = 0xC3;
-  RAM[CPM_BDOS_SHIM + 6] = (uint8_t)(CPM_BDOS_ENTRY & 0xFF);
-  RAM[CPM_BDOS_SHIM + 7] = (uint8_t)(CPM_BDOS_ENTRY >> 8);
+  // FFEB: PUSH AF
+  RAM[CPM_BDOS_SHIM + 0] = 0xF5;
+  // FFEC: LD A,C
+  RAM[CPM_BDOS_SHIM + 1] = 0x79;
+  // FFED: OR A
+  RAM[CPM_BDOS_SHIM + 2] = 0xB7;
+  // FFEE: JR Z,FFF4  (+4 from FFF0)
+  RAM[CPM_BDOS_SHIM + 3] = 0x28;
+  RAM[CPM_BDOS_SHIM + 4] = 0x04;
+  // FFF0: POP AF
+  RAM[CPM_BDOS_SHIM + 5] = 0xF1;
+  // FFF1: JP D811
+  RAM[CPM_BDOS_SHIM + 6] = 0xC3;
+  RAM[CPM_BDOS_SHIM + 7] = (uint8_t)(CPM_BDOS_BODY & 0xFF);
+  RAM[CPM_BDOS_SHIM + 8] = (uint8_t)(CPM_BDOS_BODY >> 8);
+  // FFF4: POP AF
+  RAM[CPM_BDOS_SHIM + 9] = 0xF1;
+  // FFF5: JP E603
+  RAM[CPM_BDOS_SHIM + 10] = 0xC3;
+  RAM[CPM_BDOS_SHIM + 11] = (uint8_t)(CPM_WBOOT_ENTRY & 0xFF);
+  RAM[CPM_BDOS_SHIM + 12] = (uint8_t)(CPM_WBOOT_ENTRY >> 8);
 }
 
-inline void cpmWarmBootPatchBdosVector()
+inline void cpmWarmBootPatchBdosEntry()
 {
-  // 0005: JP FFEB
-  RAM[CPM_BDOS_VECTOR + 0] = 0xC3;
-  RAM[CPM_BDOS_VECTOR + 1] = (uint8_t)(CPM_BDOS_SHIM & 0xFF);
-  RAM[CPM_BDOS_VECTOR + 2] = (uint8_t)(CPM_BDOS_SHIM >> 8);
+  // Preserve the standard page-zero vector (0005 -> D806). Only replace the
+  // original D806 "JP D811" with "JP FFEB".
+  RAM[CPM_BDOS_ENTRY + 0] = 0xC3;
+  RAM[CPM_BDOS_ENTRY + 1] = (uint8_t)(CPM_BDOS_SHIM & 0xFF);
+  RAM[CPM_BDOS_ENTRY + 2] = (uint8_t)(CPM_BDOS_SHIM >> 8);
 }
 
 inline bool cpmWarmBootEnsureShadow()
@@ -86,10 +104,12 @@ inline bool cpmWarmBootCapture()
 {
   cpmResidentShadowValid = false;
 
-  // These JP opcodes identify the native CP/M image we currently support.
-  // If boot.txt selects BASIC or some other image, leave the trap disabled.
+  // Identify the native CP/M image before patching anything. In particular,
+  // D806 must still contain its original JP D811 instruction here.
   if (RAM[CPM_SHADOW_START] != 0xC3 ||
       RAM[CPM_BDOS_ENTRY]   != 0xC3 ||
+      RAM[CPM_BDOS_ENTRY + 1] != (uint8_t)(CPM_BDOS_BODY & 0xFF) ||
+      RAM[CPM_BDOS_ENTRY + 2] != (uint8_t)(CPM_BDOS_BODY >> 8) ||
       RAM[CPM_BIOS_ENTRY]   != 0xC3 ||
       RAM[CPM_WBOOT_ENTRY]  != 0xC3) {
     Serial.println("CP/M warm boot shadow: native CP/M image not detected; disabled");
@@ -100,19 +120,19 @@ inline bool cpmWarmBootCapture()
 
   memcpy(cpmResidentShadow, &RAM[CPM_SHADOW_START], CPM_SHADOW_SIZE);
   cpmWarmBootWriteShim();
+  cpmWarmBootPatchBdosEntry();
   cpmResidentShadowValid = true;
+
   Serial.printf("CP/M warm boot shadow: captured %u bytes D000-E5FF\n",
                 (unsigned)CPM_SHADOW_SIZE);
+  Serial.println("CP/M warm boot: BDOS base preserved at D806; function-0 shim active");
   return true;
 }
 
-inline void cpmWarmBootArmInitialTrap()
+inline void cpmWarmBootArmTrap()
 {
   if (cpmResidentShadowValid) {
-    // Cold boot must first run the real BIOS so it can initialise page zero.
-    // Stop at the first CCP entry, patch the BDOS vector, then switch the trap
-    // over to WBOOT for normal operation.
-    BP = CPM_CCP_ENTRY;
+    BP = CPM_WBOOT_ENTRY;
     bpOn = true;
   } else {
     BP = 0xFFFF;
@@ -122,34 +142,21 @@ inline void cpmWarmBootArmInitialTrap()
 
 inline bool cpmWarmBootHandleTrap()
 {
-  if (!cpmResidentShadowValid || !cpmResidentShadow) return false;
+  if (!cpmResidentShadowValid || !cpmResidentShadow || PC != CPM_WBOOT_ENTRY)
+    return false;
 
-  if (PC == CPM_CCP_ENTRY) {
-    // BOOT/WBOOT has just rebuilt page zero, so install our function-0 shim.
-    cpmWarmBootWriteShim();
-    cpmWarmBootPatchBdosVector();
-    BP = CPM_WBOOT_ENTRY;
-    bpOn = true;
-    Serial.println("CP/M warm boot: BDOS function-0 shim active");
-    return true;
-  }
+  // Restore pristine CCP+BDOS, then immediately reinstall the D806 shim before
+  // allowing the real WBOOT code to execute. WBOOT will rebuild page zero with
+  // its normal JP D806 BDOS vector, so no further CCP-entry trap is required.
+  memcpy(&RAM[CPM_SHADOW_START], cpmResidentShadow, CPM_SHADOW_SIZE);
+  cpmWarmBootWriteShim();
+  cpmWarmBootPatchBdosEntry();
+  ++cpmWarmBootCount;
 
-  if (PC == CPM_WBOOT_ENTRY) {
-    // Restore the pristine CCP+BDOS before allowing the real CBIOS WBOOT code
-    // to run.  WBOOT will reset its stack/buffer state and rebuild page zero.
-    memcpy(&RAM[CPM_SHADOW_START], cpmResidentShadow, CPM_SHADOW_SIZE);
-    cpmWarmBootWriteShim();
-    ++cpmWarmBootCount;
+  BP = CPM_WBOOT_ENTRY;
+  bpOn = true;
 
-    // WBOOT rewrites the BDOS vector at 0005, so catch its eventual JP D000
-    // once and reinstall the shim before the CCP starts executing.
-    BP = CPM_CCP_ENTRY;
-    bpOn = true;
-
-    Serial.printf("CP/M warm boot: restored D000-E5FF (count=%lu)\n",
-                  (unsigned long)cpmWarmBootCount);
-    return true;
-  }
-
-  return false;
+  Serial.printf("CP/M warm boot: restored D000-E5FF (count=%lu)\n",
+                (unsigned long)cpmWarmBootCount);
+  return true;
 }
