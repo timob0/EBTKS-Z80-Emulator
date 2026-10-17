@@ -2,6 +2,8 @@
 
 **Read first:** [PROJECT_STATUS.md](PROJECT_STATUS.md) gives the concise status and authoritative hardware-tested baseline. This file preserves decisions, why they were made, and the likely next task. Written 2026-10-17.
 
+> **Active feature-branch follow-up (2026-10-18):** User is working on CN3 SPI data-transfer speed/reliability, **not the TFT milestone**. Read [SPI_TEST_README.md](SPI_TEST_README.md) and `ESP32_Z80_Emulator/spi_link_test.h` on `feature/cn3-spi-read-test`, plus `include/EBTKS_SPI_Test.h` and `include/EBTKS_ESP.h` in companion Teensy branch. Original 512-byte test passed on hardware at 1 MHz, run 13, CRC 59244, 4543 us. Newly committed 1–8 MHz/128-sector stress tests need local PlatformIO builds and flashing; don't claim them hardware-tested. The normal CP/M disk transport and HP bus/OTA are untouched. The TFT plan below remains a future milestone.
+
 ## Starting a new chat
 
 Use a message such as:
