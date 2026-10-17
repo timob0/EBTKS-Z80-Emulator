@@ -21,7 +21,7 @@ Confirm the five jumpers and 10k external CS pull-up from [CN3_SPI_PROPOSAL.md](
 | CS_N | 30 — T26 | 4 — E34/GPIO32 | Active LOW. 10k resistor CN3-4 ↔ CN3-36 (3.3 V) |
 | ESP_READY | 26 — T06 | 8 — E27/GPIO27 | ESP output HIGH when RX DMA armed; Teensy input |
 
-Power down before checking jumpers. Check for shorts and physical CN3 pin-1 orientation. Both boards already share ground and operate at 3.3 V. **Never short CN3 pin 4 directly to 3.3 V**; use the resistor. `GPIO32` has no internal pull-up.
+Power down before checking jumpers. Check for shorts and physical CN3 pin-1 orientation. Both boards already share ground and operate at 3.3 V. **Never short CN3 pin 4 directly to 3.3 V**; use the resistor. `GPIO32` does have an internal pull-up; the installed external resistor is kept for an independent defined idle state.
 
 Teensy firmware currently requires `"CRTRemote": true` in the SD root `CONFIG.TXT` to service ESP UART messages. Do not change this while testing.
 
