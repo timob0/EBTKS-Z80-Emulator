@@ -2071,12 +2071,22 @@ void portOut(uint8_t p, uint8_t v) {
         }       
       }
       break;
-    case UART_PORT:                           //UART Write
-      txBuf[txInPtr] = v;                     //Write char to output buffer
-      txInPtr++;
-      if (txInPtr == sizeof(txBuf)) txInPtr = 0;
-      bitWrite(pIn[UART_LSR], 6, 1);          //Set bit to indicate sent
+    case UART_PORT: {                         // UART write
+      // The Z80 can produce output much faster than Wi-Fi can deliver it.
+      // This is a single-producer/single-consumer ring (CPU -> ConsoleTask).
+      // Never overwrite unread bytes when a browser-only session is busy:
+      // give the console task time to drain the ring.  A connected Telnet
+      // client used to provide that pacing accidentally through TCP writes.
+      uint16_t next = txInPtr + 1;
+      if (next >= sizeof(txBuf)) next = 0;
+      while (next == txOutPtr && RUN) vTaskDelay(1);
+      if (next != txOutPtr) {
+        txBuf[txInPtr] = v;
+        txInPtr = next;
+      }
+      bitWrite(pIn[UART_LSR], 6, 1);          // Transmitter ready
       break;
+    }
 
     case DCMD:
       pIn[p] = v;
