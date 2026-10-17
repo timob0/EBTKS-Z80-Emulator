@@ -7,10 +7,11 @@
 #include "z80_debug.h"
 
 static const size_t EBTKS_READ_CHUNK  = 256;
-// The replacement Base64 decoder in the current Teensy firmware reliably
-// decodes the first 64 bytes of each request. Split larger writes at this
-// boundary; successive SD writes advance the same open file normally.
-static const size_t EBTKS_WRITE_CHUNK = 64;
+// Teensy JSON requests are collected in a 512-byte line buffer. With the
+// current {write,...,Write:{data:...}} envelope, 345 raw bytes is the hard
+// Base64/JSON limit (508 serialized characters). Use 320 bytes to leave
+// useful framing/parser headroom while substantially reducing UART overhead.
+static const size_t EBTKS_WRITE_CHUNK = 320;
 static const char *EBTKS_CPM_ROOT = "/cpm";
 
 inline bool ebtksStorageExchange(JsonDocument &request, JsonDocument &reply, uint32_t timeoutMs = 3000)
