@@ -18,10 +18,10 @@ Confirm the five jumpers and 10k external CS pull-up from [CN3_SPI_PROPOSAL.md](
 | MOSI | 33 — T11 | 21 — E22/GPIO22 | Teensy → ESP |
 | MISO | 29 — T12 | 13 — E17/GPIO17 | Reserved for future reverse traffic; not validated by this test |
 | SCK | 24 — T13 | 14 — E16/GPIO16 | Teensy supplies clock |
-| CS_N | 30 — T26 | 4 — E34/GPIO35 | Active LOW. 10k resistor CN3-4 ↔ CN3-36 (3.3 V) |
+| CS_N | 30 — T26 | 4 — E34/GPIO32 | Active LOW. 10k resistor CN3-4 ↔ CN3-36 (3.3 V) |
 | ESP_READY | 26 — T06 | 8 — E27/GPIO27 | ESP output HIGH when RX DMA armed; Teensy input |
 
-Power down before checking jumpers. Check for shorts and physical CN3 pin-1 orientation. Both boards already share ground and operate at 3.3 V. **Never short CN3 pin 4 directly to 3.3 V**; use the resistor. `GPIO35` has no internal pull-up.
+Power down before checking jumpers. Check for shorts and physical CN3 pin-1 orientation. Both boards already share ground and operate at 3.3 V. **Never short CN3 pin 4 directly to 3.3 V**; use the resistor. `GPIO32` has no internal pull-up.
 
 Teensy firmware currently requires `"CRTRemote": true` in the SD root `CONFIG.TXT` to service ESP UART messages. Do not change this while testing.
 
@@ -78,7 +78,7 @@ There are additional numeric fields for sequence/run count, the CRC reported by 
 **Expected /z80debug record:**
 
 ```text
-SPI test: ESP32 SPI2 slave initialized (GPIO22/17/16, CS=35, READY=27)
+SPI test: ESP32 SPI2 slave initialized (GPIO22/17/16, CS=32, READY=27)
 SPI test PASS seq=1 512 bytes CRC=.... Teensy measured=.... us
 ```
 
