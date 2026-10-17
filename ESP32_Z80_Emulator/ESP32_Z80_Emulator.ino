@@ -88,21 +88,20 @@ void loop() {
 
   // Capture a pristine native CCP+BDOS image before starting the Z80. Large
   // CP/M applications may legally reclaim this area and expect BIOS WBOOT to
-  // reload it. The warm-boot helper also places a tiny function-0-safe BDOS
-  // shim in the unused FFEB-FFFD CBIOS gap.
+  // reload it. The helper keeps page zero standard (0005 -> D806) and patches
+  // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
 
   PC=0;
   SingleStep=false;
-  cpmWarmBootArmInitialTrap();
+  cpmWarmBootArmTrap();
   RUN=true;
   Serial.println("Starting Z80");
 
-  // The internal breakpoint alternates between CCP entry D000 (where page
-  // zero has just been rebuilt and the BDOS shim must be reinstalled) and
-  // WBOOT entry E603 (where CCP+BDOS must be restored). Neither event is a
-  // virtual-machine halt. HALT, the web Reset Z80 action, and any other stop
-  // still fall through to the normal full virtual-machine restart below.
+  // A stop at the reserved WBOOT breakpoint is not a virtual-machine halt.
+  // Restore the resident CP/M image and resume exactly at WBOOT. HALT, the
+  // web Reset Z80 action, and any other stop still fall through to the normal
+  // full virtual-machine restart below.
   while (true) {
     while(RUN) vTaskDelay(100);
 
