@@ -3,8 +3,9 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FS.h>
-#include <SPIFFS.h>
 #include <mbedtls/base64.h>
+#include <ctype.h>
+#include <strings.h>
 #include "globals.h"
 #include "ebtks_storage.h"
 
@@ -25,12 +26,15 @@ static const uint32_t CPM_NATIVE_SECTORS = CPM_NATIVE_BYTES / 512UL;
 static const uint32_t CPM_HP_LOGICAL_BYTES = 256UL * 1024UL;
 static const uint32_t CPM_HP_LOGICAL_SECTORS = CPM_HP_LOGICAL_BYTES / 512UL;
 
-// Teensy 4.x SdFat is built with USE_FCNTL_H=1.  These are the ARM/newlib
-// values used by O_RDWR | O_CREAT | O_TRUNC.  The ordinary writable helper in
-// ebtks_storage.h intentionally uses only O_RDWR because disk images must not
-// be created or truncated; the mount table is the one place where truncation
-// is desired.
-static const int CPM_TEENSY_O_RDWR_CREATE_TRUNC = 0x0002 | 0x0040 | 0x0200;
+// Teensy 4.x SdFat is built with USE_FCNTL_H=1, so it uses the ARM/newlib
+// fcntl flag values.  The ordinary writable helper in ebtks_storage.h sends
+// only O_RDWR because disk images must never be created or truncated.  The
+// mount table is deliberately opened as O_RDWR | O_CREAT | O_TRUNC here.
+static const int CPM_TEENSY_O_RDWR  = 0x0002;
+static const int CPM_TEENSY_O_CREAT = 0x0200;
+static const int CPM_TEENSY_O_TRUNC = 0x0400;
+static const int CPM_TEENSY_O_RDWR_CREATE_TRUNC =
+    CPM_TEENSY_O_RDWR | CPM_TEENSY_O_CREAT | CPM_TEENSY_O_TRUNC;
 
 enum CpmMediaProfile : uint8_t {
   CPM_MEDIA_NONE = 0,
@@ -252,7 +256,12 @@ inline bool cpmBuildLegacyDefaults()
   }
 
   cpmDesiredLoaded = true;
-  return cpmSaveDesiredMounts();
+  if (!cpmSaveDesiredMounts()) {
+    // Persistence is convenient, but it must never make a firmware upgrade
+    // lose the legacy A.dsk/B.dsk media for the current boot.
+    Serial.println("CP/M media: legacy mounts imported in RAM; mount table persistence failed");
+  }
+  return true;
 }
 
 inline bool cpmLoadDesiredMounts(bool createDefaults = true)
