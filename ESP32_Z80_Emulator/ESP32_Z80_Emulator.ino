@@ -12,8 +12,15 @@
 #include <ArduinoJson.h>
 
 #include "globals.h"
-#include "ebtks_link.h"
 #include "z80_debug.h"
+
+// The EBTKS serial connection is protocol-only.  Legacy emulator sources have
+// many Serial.print/printf diagnostics; redirect every one of them to the
+// in-memory /z80debug sink rather than any ESP32 hardware UART.  The actual
+// Teensy link is the explicit TeensySerial object in ebtks_link.h.
+#define Serial EbtksDebugSerial
+
+#include "ebtks_link.h"
 #include "web_terminal.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
@@ -27,10 +34,8 @@
 #include "telnet.h"
 
 void setup() {
-  // EBTKS v3.x factory firmware mapping, confirmed on the installed board:
-  // ESP32-D0WD-V3 rev 3.0, 40 MHz crystal, 4 MB flash.
-  // UART0 diagnostics are moved to GPIO25/26; GPIO3/1 are reserved for Teensy.
-  Serial.begin(115200, SERIAL_8N1, 25, 26);
+  // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
+  // exclusively by TeensySerial for the framed ESP32 <-> Teensy protocol.
   ebtksLinkBegin();
   delay(100);
 
@@ -47,9 +52,8 @@ void setup() {
     ESP.restart();
   }
 
-  // Milestone 2: verify that the Teensy SD card contains /boot.txt.  The
-  // upstream CPU task still performs its virtual disk-controller init, but
-  // all actual file traffic is now serviced over UART1 by the Teensy.
+  // Milestone 2: verify that the Teensy SD card contains /cpm/boot.txt. All
+  // actual file and disk traffic is serviced over TeensySerial by the Teensy.
   Serial.print("Probing Teensy-backed Z80 storage... ");
   sdfound = ebtksStorageProbe();
   Serial.println(sdfound ? "ready" : "not available (BASIC fallback)");
@@ -70,16 +74,12 @@ void setup() {
 }
 
 void loop() {
-  // With Teensy storage available, /boot.txt selects CP/M or another remote
-  // boot image.  If storage is absent, bootstrap() uses the built-in BASIC.
+  // With Teensy storage available, /cpm/boot.txt selects CP/M or another
+  // remote boot image. If storage is absent, bootstrap() uses built-in BASIC.
   bootstrap();
 
-  // Make the Media Manager's verified persistent table authoritative.  The
-  // old bootstrap-time SD mount loader remains temporarily as a migration
-  // source, but its result is completely superseded here before the Z80 runs.
-  // Dynamic geometry discovery then restores all DPHs to native geometry and
-  // patches every actively mounted HP 82900 floppy, independent of cbios.rom
-  // absolute addresses.
+  // Make the Media Manager's verified persistent table authoritative and then
+  // patch every mounted HP 82900 floppy using dynamic CBIOS discovery.
   if (sdfound) {
     cpmStoreActivateMounts();
     cpmApplyMountedGeometryDynamic();
