@@ -2,6 +2,7 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include "z80_debug.h"
+#include "crt_display_page.h"
 
 // Keep the original EBTKS websocket at /ws for HP/Teensy traffic.
 // The Z80 terminal has its own independent websocket endpoint.
@@ -14,7 +15,7 @@ body{background:#202124;color:#e8eaed;font-family:monospace;margin:0;padding:1re
 #term{background:#000;color:#9ef59e;padding:12px;min-height:25em;white-space:pre-wrap;outline:none}
 #diag{background:#111;color:#ddd;padding:12px;min-height:10em;max-height:20em;overflow:auto;white-space:pre-wrap;display:none}
 button{margin-right:.5rem}</style></head><body>
-<div><b>EBTKS Z80 / CP/M terminal</b> <button onclick="clearTerm()">Clear</button> <button onclick="resetZ80()">Reset Z80</button> <button onclick="toggleDiag()">Diagnostics</button> <button onclick="location.href='/'">EBTKS Home</button> <span id="state">connecting...</span></div>
+<div><b>EBTKS Z80 / CP/M terminal</b> <button onclick="clearTerm()">Clear</button> <button onclick="resetZ80()">Reset Z80</button> <button onclick="toggleDiag()">Diagnostics</button> <button onclick="location.href='/crt'">HP-85 CRT</button> <button onclick="location.href='/'">EBTKS Home</button> <span id="state">connecting...</span></div>
 <pre id="term" tabindex="0"></pre>
 <div id="diagControls" style="display:none"><button onclick="refreshDiag()">Refresh diagnostics</button><button onclick="clearDiag()">Clear diagnostics</button></div>
 <pre id="diag"></pre><script>
@@ -65,6 +66,8 @@ inline void webTerminalRegister(AsyncWebServer &server) {
   server.on("/z80", HTTP_GET, [](AsyncWebServerRequest *r){
     r->send(200,"text/html",EBTKS_TERM_PAGE);
   });
+
+  server.on("/crt", HTTP_GET, ebtksServeCrtDisplay);
 
   server.on("/z80/reset", HTTP_POST, [](AsyncWebServerRequest *r){
     // The main loop treats RUN=false as a virtual machine stop, reloads the
