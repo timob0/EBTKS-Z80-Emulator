@@ -73,13 +73,11 @@ On a successful bidirectional 128-sector test, expect:
   "completed_bytes_total": 131072,
   "first_mismatch_byte": -1,
   "first_mismatch_miso": -1,
-  "miso_crc_esp_tx": 0,
-  "miso_crc_teensy_rx": 0,
   "needs_reboot": false
 }
 ```
 
-**The two shown MISO CRC zeroes are placeholders in this example**; real reported CRCs depend on run number, pattern and last sector. The two actual CRC fields should be equal. Likewise `crc_esp` must equal `crc_teensy` for MOSI. The aggregate MISO CRC is calculated locally on ESP transmit bytes, whereas actual received MISO CRC is compared on every sector.
+The response additionally contains numeric `miso_crc_esp_tx` and `miso_crc_teensy_rx` fields. These two values should match each other, and their exact value depends on sequence, pattern, and the last sector. Similarly `crc_esp` must equal `crc_teensy` for MOSI. The aggregate MISO CRC is calculated locally on ESP transmit bytes, whereas actual received MISO CRC is compared on every sector.
 
 `spi_kib_s` / `end_to_end_kib_s` remain **per-direction** throughput, and `full_duplex_total_kib_s` is **total bytes in both directions divided by summed SPI transfer-loop time**, not the end-to-end rate. The Teensy loop now includes incoming-byte CRC and expected-data comparisons, so a direct speed comparison with the older one-way test must account for extra software work.
 
