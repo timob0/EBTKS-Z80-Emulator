@@ -11,7 +11,7 @@ bool diskRead(void);
 bool diskWrite(void);
 void SDfileOpen(void);
 bool SDfileRead(void);
-bool SDprintDir(void);
+void SDprintDir(void);
 bool SDsetPath(void);
 void FileToRAM(char[], uint16_t);
 bool installHpLifDriveB(void);
