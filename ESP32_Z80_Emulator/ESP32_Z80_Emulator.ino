@@ -21,6 +21,7 @@
 #include "basic.h"
 #include "disk.h"
 #include "cpm_mount_store.h"
+#include "cpm_geometry_dynamic.h"
 #include "cpu.h"
 #include "serial.h"
 #include "telnet.h"
@@ -76,8 +77,13 @@ void loop() {
   // Make the Media Manager's verified persistent table authoritative.  The
   // old bootstrap-time SD mount loader remains temporarily as a migration
   // source, but its result is completely superseded here before the Z80 runs.
-  // This also replaces the former stage-1 hard-wired HP-LIF B: patch.
-  if (sdfound) cpmStoreActivateMounts();
+  // Dynamic geometry discovery then restores all DPHs to native geometry and
+  // patches every actively mounted HP 82900 floppy, independent of cbios.rom
+  // absolute addresses.
+  if (sdfound) {
+    cpmStoreActivateMounts();
+    cpmApplyMountedGeometryDynamic();
+  }
 
   PC=0;
   SingleStep=false;
