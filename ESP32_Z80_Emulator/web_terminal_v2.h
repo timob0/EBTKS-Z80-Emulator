@@ -37,7 +37,7 @@ function processVT(b){if(parserState==='normal'){if(b===ESC){parserState='esc';r
 function hpEnhanced(s){let m=s.match(/^&a([+-]?\d+)([cC])([+-]?\d+)([rRyY])$/);if(m){col=parseInt(m[1],10);row=parseInt(m[3],10);clamp();return true}m=s.match(/^&a([+-]?\d+)([rRyY])([+-]?\d+)([cC])$/);if(m){row=parseInt(m[1],10);col=parseInt(m[3],10);clamp();return true}m=s.match(/^&a([+-]?\d+)([cC])$/);if(m){col=parseInt(m[1],10);clamp();return true}m=s.match(/^&a([+-]?\d+)([rRyY])$/);if(m){row=parseInt(m[1],10);clamp();return true}return false}
 function hpEscByte(b){const ch=String.fromCharCode(b);if(hpSeq){hpSeq+=ch;if(hpSeq.length>32){trace('HP86','ESC '+hpSeq);hpSeq='';parserState='normal';return}if(/[A-Z]/.test(ch)){const s=hpSeq;hpSeq='';parserState='normal';if(!hpEnhanced(s))trace('HP86','ESC '+s);return}return}parserState='normal';switch(ch){case'A':row--;break;case'B':row++;break;case'C':col++;break;case'D':col--;break;case'H':case'h':row=0;col=0;break;case'F':case'f':row=H-1;col=0;break;case'S':hpDialect='hp262';scrollUp();break;case'T':if(hpDialect==='soroc')eraseLine(0);else{hpDialect='hp262';scrollDown()}break;case'J':hpDialect='hp262';eraseDisplay(0);break;case'K':hpDialect='hp262';eraseLine(0);break;case'P':hpDialect='hp262';delChars(1);break;case'Q':hpDialect='hp262';insertMode=true;break;case'R':hpDialect='hp262';insertMode=false;break;case'E':hpDialect='hp262';for(let r=0;r<H;r++)scr[r]=blankRow();row=0;col=0;break;case'Y':if(hpDialect==='soroc')eraseDisplay(0);return;case'Z':return;case'*':hpDialect='soroc';for(let r=0;r<H;r++)scr[r]=blankRow();row=0;col=0;break;case'=':hpDialect='soroc';parserState='hpaddr1';hpAddr=[];return;case'&':hpDialect='hp262';hpSeq='&';parserState='hpesc';return;default:trace('HP86','ESC '+ch);return}clamp()}
 function processHP(b){if(parserState==='normal'){if(b===ESC){parserState='hpesc';hpSeq='';return}if(ctl(b,true))return;if(b>=32&&b!==127)putChar(String.fromCharCode(b));return}if(parserState==='hpaddr1'){hpAddr=[b];parserState='hpaddr2';return}if(parserState==='hpaddr2'){hpAddr.push(b);row=Math.max(0,Math.min(H-1,hpAddr[0]-32));col=Math.max(0,Math.min(W-1,hpAddr[1]-32));parserState='normal';return}if(parserState==='hpesc')hpEscByte(b)}
-function putRaw(b){if(b===13)return;if(b===10)rawText+='\n';else if(b===8||b===127)rawText=rawText.slice(0,-1);else if(b===12||b===26)rawText='';else if(b>=32||b===9)rawText+=String.fromCharCode(b);if(rawText.length>60000)rawText=rawText.slice(-40000)}function feed(data){for(const b of data){if(mode==='raw')putRaw(b);else if(mode==='vt100')processVT(b);else processHP(b)}render()}function setMode(m){mode=m;localStorage.setItem('ebtksTermMode',mode);modeSel.value=mode;rawText='';resetModel(true);unsupported.clear();status2.textContent='';render();term.focus()}modeSel.addEventListener('change',()=>setMode(modeSel.value));
+function putRaw(b){if(b===13)return;if(b===10)rawText+='\n';else if(b===8||b===127)rawText=rawText.slice(0,-1);else if(b===12||b===26)rawText='';else if(b>=32||b===9)rawText+=String.fromCharCode(b);if(rawText.length>60000)rawText=rawText.slice(-40000)}let renderPending=false;function scheduleRender(){if(renderPending)return;renderPending=true;requestAnimationFrame(()=>{renderPending=false;render()})}function feed(data){for(const b of data){if(mode==='raw')putRaw(b);else if(mode==='vt100')processVT(b);else processHP(b)}scheduleRender()}function setMode(m){mode=m;localStorage.setItem('ebtksTermMode',mode);modeSel.value=mode;rawText='';resetModel(true);unsupported.clear();status2.textContent='';render();term.focus()}modeSel.addEventListener('change',()=>setMode(modeSel.value));
 async function resetZ80(){state.textContent='resetting...';try{const r=await fetch('/z80/reset',{method:'POST'});if(!r.ok)throw new Error();clearTerm();state.textContent='reset requested';setTimeout(()=>term.focus(),250)}catch(e){state.textContent='reset error'}}async function refreshDiag(){try{const r=await fetch('/z80debug',{cache:'no-store'});diag.textContent=await r.text();diag.scrollTop=diag.scrollHeight}catch(e){diag.textContent='diagnostic fetch failed'}}async function clearDiag(){try{await fetch('/z80debug-clear',{method:'POST'});await refreshDiag()}catch(e){diag.textContent='diagnostic clear failed'}}function toggleDiag(){const show=diag.style.display==='none';diag.style.display=show?'block':'none';diagControls.style.display=show?'block':'none';if(show){refreshDiag();diagTimer=setInterval(refreshDiag,1000)}else{if(diagTimer){clearInterval(diagTimer);diagTimer=null}term.focus()}}
 function sendBytes(a){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(new Uint8Array(a))}function sendText(s){sendBytes(Array.from(s,x=>x.charCodeAt(0)&255))}function connect(){ws=new WebSocket(`ws://${location.host}/z80ws`);ws.binaryType='arraybuffer';ws.onopen=()=>{state.textContent='connected';term.focus()};ws.onclose=()=>{state.textContent='disconnected';setTimeout(connect,1000)};ws.onerror=()=>state.textContent='error';ws.onmessage=e=>{if(typeof e.data==='string')feed(Uint8Array.from(e.data,x=>x.charCodeAt(0)&255));else feed(new Uint8Array(e.data))}}
 const hpKey={ArrowLeft:0x9F,ArrowRight:0xAA,ArrowUp:0xA3,ArrowDown:0xA4,Delete:0x88,Insert:0x9E,PageUp:0x91,PageDown:0xA9,F1:0x80,F2:0x81,F3:0x82,F4:0x83,F5:0xA1,F6:0xA2,F7:0x9C,F8:0x84,F9:0x85,F10:0x86,F11:0x87,F12:0xA5,F13:0xAC,F14:0x93};
@@ -45,7 +45,32 @@ term.addEventListener('keydown',e=>{if(!ws||ws.readyState!==WebSocket.OPEN)retur
 </script></body></html>)HTML";
 
 inline void consoleRxEnqueue(uint8_t c){uint16_t next=rxInPtr+1;if(next>=sizeof(rxBuf))next=0;if(next==rxOutPtr)return;rxBuf[rxInPtr]=c;rxInPtr=next;}
-inline void webTerminalWrite(const uint8_t *data,size_t len){if(len&&z80WebSocket.count())z80WebSocket.binaryAll(data,len);}
+inline void webTerminalWrite(const uint8_t *data, size_t len) {
+  if (!len) return;
+
+  // AsyncWebSocket::binaryAll() queues frames, it does NOT throttle the Z80.
+  // Rapid DIR/Multiplan redraws can fill the library's finite queue and close
+  // the browser socket, silently losing the remainder of the screen.  Wait
+  // for queue space before consuming more bytes from the console TX ring.
+  // The CPU's UART output ring now blocks when full, completing end-to-end
+  // flow control even with no Telnet client attached.
+  const TickType_t start = xTaskGetTickCount();
+  while (z80WebSocket.count()) {
+    if (z80WebSocket.availableForWriteAll()) {
+      z80WebSocket.binaryAll(data, len);
+      return;
+    }
+
+    // A dead browser must not freeze CP/M forever. TCP will normally drain
+    // the queue quickly; only abandon the client after a prolonged stall.
+    if ((TickType_t)(xTaskGetTickCount() - start) >= pdMS_TO_TICKS(10000)) {
+      z80DebugLog("Z80 web terminal stalled for 10 s; disconnecting slow client\\n");
+      z80WebSocket.closeAll();
+      return;
+    }
+    vTaskDelay(1);
+  }
+}
 inline void webTerminalRegister(AsyncWebServer &server){
   z80WebSocket.onEvent([](AsyncWebSocket*,AsyncWebSocketClient*,AwsEventType type,void *arg,uint8_t *data,size_t len){
     if(type!=WS_EVT_DATA)return;AwsFrameInfo *info=static_cast<AwsFrameInfo*>(arg);if(!info||info->index!=0||info->len!=len||!info->final)return;
