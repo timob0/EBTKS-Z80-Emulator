@@ -156,11 +156,9 @@ bool diskWrite(void) {
   vdrive = packed >> 14;
   uint32_t sector = packed & 0x3fff;
 
-  char drivePath[] = "/cpm/disks/A.dsk";
-  drivePath[11] = (char)('A' + vdrive);
-
-  bool ok = ebtksStorageWriteRange(drivePath, sector * 512UL, &RAM[address], 512);
-  if (!ok) Serial.printf("Virtual disk write failed: %s sector %lu\n", drivePath, (unsigned long)sector);
+  bool ok = ebtksDiskWriteSector((uint8_t)vdrive, sector, &RAM[address]);
+  if (!ok) Serial.printf("Virtual disk write failed: drive %d sector %lu\n",
+                         vdrive, (unsigned long)sector);
   return ok;
 }
 
@@ -173,11 +171,9 @@ bool diskRead(void) {
   vdrive = packed >> 14;
   uint32_t sector = packed & 0x3fff;
 
-  char drivePath[] = "/cpm/disks/A.dsk";
-  drivePath[11] = (char)('A' + vdrive);
-
-  bool ok = ebtksStorageReadRange(drivePath, sector * 512UL, &RAM[address], 512);
-  if (!ok) Serial.printf("Virtual disk read failed: %s sector %lu\n", drivePath, (unsigned long)sector);
+  bool ok = ebtksDiskReadSector((uint8_t)vdrive, sector, &RAM[address]);
+  if (!ok) Serial.printf("Virtual disk read failed: drive %d sector %lu\n",
+                         vdrive, (unsigned long)sector);
   return ok;
 }
 
