@@ -27,18 +27,27 @@
 // instruction at D806 to jump through a small shim in the intentionally unused
 // CBIOS hole FFEB-FFFD.
 //
-// Shim at FFEB (AF preserved for ordinary BDOS calls):
-//   PUSH AF
+// The original HP 82900A BIOS also has a useful non-standard CONIN convention
+// for special HP-86/87 keys.  The raw 8-bit keycode is returned in B while A
+// contains keycode & 7Fh.  Appendix D of the HP reference manual documents the
+// high-bit cursor/function key values, and Microsoft Multiplan's HP-86 driver
+// relies on this behavior.  Our native CBIOS originally returned the byte only
+// in A, so special keys such as 9Fh (left arrow) were not recognized properly.
+// Patch the two native UART CONIN tails through a second tiny shim in the same
+// unused high-memory hole.
+//
+// FFEB-FFF2: BDOS function-0 shim
 //   LD   A,C
 //   OR   A
-//   JR   Z,warm
-//   POP  AF
-//   JP   D811        ; original FBASE1 target
-// warm:
-//   POP  AF
-//   JP   E603        ; BIOS WBOOT
+//   JP   Z,E603       ; BIOS WBOOT
+//   JP   D811         ; original BDOS FBASE1 body
 //
-// Page zero therefore remains exactly the standard JP D806 layout.
+// FFF3-FFF9: HP-compatible CONIN shim
+//   IN   A,(80h)
+//   LD   B,A          ; preserve complete HP keycode
+//   AND  7Fh          ; standard 7-bit CP/M character result
+//   POP  HL           ; matches native coninA/coninB stack frame
+//   RET
 
 static constexpr uint16_t CPM_SHADOW_START = 0xD000;
 static constexpr size_t   CPM_SHADOW_SIZE  = 0x1600;  // D000-E5FF inclusive
@@ -46,35 +55,46 @@ static constexpr uint16_t CPM_BDOS_ENTRY   = 0xD806;
 static constexpr uint16_t CPM_BDOS_BODY    = 0xD811;
 static constexpr uint16_t CPM_BIOS_ENTRY   = 0xE600;
 static constexpr uint16_t CPM_WBOOT_ENTRY  = 0xE603;
+
 static constexpr uint16_t CPM_BDOS_SHIM    = 0xFFEB;
+static constexpr uint16_t CPM_HPKEY_SHIM   = 0xFFF3;
+
+// Native CBIOS 1.1 addresses from the checked-in cbios.lst.  At both sites the
+// original bytes are DB 80 E1 C9: IN A,(80h), POP HL, RET.
+static constexpr uint16_t CPM_CONIN_A_READ = 0xE82C;
+static constexpr uint16_t CPM_CONIN_B_READ = 0xE837;
 
 static uint8_t *cpmResidentShadow = nullptr;
 static bool cpmResidentShadowValid = false;
+static bool cpmHpConinCompatActive = false;
 static uint32_t cpmWarmBootCount = 0;
 
-inline void cpmWarmBootWriteShim()
+inline void cpmWarmBootWriteShims()
 {
-  // FFEB: PUSH AF
-  RAM[CPM_BDOS_SHIM + 0] = 0xF5;
-  // FFEC: LD A,C
-  RAM[CPM_BDOS_SHIM + 1] = 0x79;
-  // FFED: OR A
-  RAM[CPM_BDOS_SHIM + 2] = 0xB7;
-  // FFEE: JR Z,FFF4  (+4 from FFF0)
-  RAM[CPM_BDOS_SHIM + 3] = 0x28;
-  RAM[CPM_BDOS_SHIM + 4] = 0x04;
-  // FFF0: POP AF
-  RAM[CPM_BDOS_SHIM + 5] = 0xF1;
-  // FFF1: JP D811
-  RAM[CPM_BDOS_SHIM + 6] = 0xC3;
-  RAM[CPM_BDOS_SHIM + 7] = (uint8_t)(CPM_BDOS_BODY & 0xFF);
-  RAM[CPM_BDOS_SHIM + 8] = (uint8_t)(CPM_BDOS_BODY >> 8);
-  // FFF4: POP AF
-  RAM[CPM_BDOS_SHIM + 9] = 0xF1;
-  // FFF5: JP E603
-  RAM[CPM_BDOS_SHIM + 10] = 0xC3;
-  RAM[CPM_BDOS_SHIM + 11] = (uint8_t)(CPM_WBOOT_ENTRY & 0xFF);
-  RAM[CPM_BDOS_SHIM + 12] = (uint8_t)(CPM_WBOOT_ENTRY >> 8);
+  // FFEB: LD A,C
+  RAM[CPM_BDOS_SHIM + 0] = 0x79;
+  // FFEC: OR A
+  RAM[CPM_BDOS_SHIM + 1] = 0xB7;
+  // FFED: JP Z,E603
+  RAM[CPM_BDOS_SHIM + 2] = 0xCA;
+  RAM[CPM_BDOS_SHIM + 3] = (uint8_t)(CPM_WBOOT_ENTRY & 0xFF);
+  RAM[CPM_BDOS_SHIM + 4] = (uint8_t)(CPM_WBOOT_ENTRY >> 8);
+  // FFF0: JP D811
+  RAM[CPM_BDOS_SHIM + 5] = 0xC3;
+  RAM[CPM_BDOS_SHIM + 6] = (uint8_t)(CPM_BDOS_BODY & 0xFF);
+  RAM[CPM_BDOS_SHIM + 7] = (uint8_t)(CPM_BDOS_BODY >> 8);
+
+  // FFF3: IN A,(80h)
+  RAM[CPM_HPKEY_SHIM + 0] = 0xDB;
+  RAM[CPM_HPKEY_SHIM + 1] = 0x80;
+  // FFF5: LD B,A
+  RAM[CPM_HPKEY_SHIM + 2] = 0x47;
+  // FFF6: AND 7Fh
+  RAM[CPM_HPKEY_SHIM + 3] = 0xE6;
+  RAM[CPM_HPKEY_SHIM + 4] = 0x7F;
+  // FFF8: POP HL / RET
+  RAM[CPM_HPKEY_SHIM + 5] = 0xE1;
+  RAM[CPM_HPKEY_SHIM + 6] = 0xC9;
 }
 
 inline void cpmWarmBootPatchBdosEntry()
@@ -84,6 +104,33 @@ inline void cpmWarmBootPatchBdosEntry()
   RAM[CPM_BDOS_ENTRY + 0] = 0xC3;
   RAM[CPM_BDOS_ENTRY + 1] = (uint8_t)(CPM_BDOS_SHIM & 0xFF);
   RAM[CPM_BDOS_ENTRY + 2] = (uint8_t)(CPM_BDOS_SHIM >> 8);
+}
+
+inline bool cpmHpConinLayoutMatches()
+{
+  return RAM[CPM_CONIN_A_READ + 0] == 0xDB &&
+         RAM[CPM_CONIN_A_READ + 1] == 0x80 &&
+         RAM[CPM_CONIN_A_READ + 2] == 0xE1 &&
+         RAM[CPM_CONIN_A_READ + 3] == 0xC9 &&
+         RAM[CPM_CONIN_B_READ + 0] == 0xDB &&
+         RAM[CPM_CONIN_B_READ + 1] == 0x80 &&
+         RAM[CPM_CONIN_B_READ + 2] == 0xE1 &&
+         RAM[CPM_CONIN_B_READ + 3] == 0xC9;
+}
+
+inline void cpmPatchHpConinCompat()
+{
+  // Replace IN A,(80h) + POP HL with JP FFF3.  The shim performs the original
+  // input, supplies HP's B-register keycode convention, pops HL and returns;
+  // therefore the old RET byte immediately following each patched site is
+  // deliberately never executed.
+  RAM[CPM_CONIN_A_READ + 0] = 0xC3;
+  RAM[CPM_CONIN_A_READ + 1] = (uint8_t)(CPM_HPKEY_SHIM & 0xFF);
+  RAM[CPM_CONIN_A_READ + 2] = (uint8_t)(CPM_HPKEY_SHIM >> 8);
+
+  RAM[CPM_CONIN_B_READ + 0] = 0xC3;
+  RAM[CPM_CONIN_B_READ + 1] = (uint8_t)(CPM_HPKEY_SHIM & 0xFF);
+  RAM[CPM_CONIN_B_READ + 2] = (uint8_t)(CPM_HPKEY_SHIM >> 8);
 }
 
 inline bool cpmWarmBootEnsureShadow()
@@ -103,6 +150,7 @@ inline bool cpmWarmBootEnsureShadow()
 inline bool cpmWarmBootCapture()
 {
   cpmResidentShadowValid = false;
+  cpmHpConinCompatActive = false;
 
   // Identify the native CP/M image before patching anything. In particular,
   // D806 must still contain its original JP D811 instruction here.
@@ -119,13 +167,25 @@ inline bool cpmWarmBootCapture()
   if (!cpmWarmBootEnsureShadow()) return false;
 
   memcpy(cpmResidentShadow, &RAM[CPM_SHADOW_START], CPM_SHADOW_SIZE);
-  cpmWarmBootWriteShim();
+
+  const bool hpConinLayoutOk = cpmHpConinLayoutMatches();
+  cpmWarmBootWriteShims();
   cpmWarmBootPatchBdosEntry();
+
+  if (hpConinLayoutOk) {
+    cpmPatchHpConinCompat();
+    cpmHpConinCompatActive = true;
+  }
+
   cpmResidentShadowValid = true;
 
   Serial.printf("CP/M warm boot shadow: captured %u bytes D000-E5FF\n",
                 (unsigned)CPM_SHADOW_SIZE);
   Serial.println("CP/M warm boot: BDOS base preserved at D806; function-0 shim active");
+  if (cpmHpConinCompatActive)
+    Serial.println("CP/M console: HP 82900 CONIN keycode compatibility active");
+  else
+    Serial.println("CP/M console: native CONIN layout changed; HP keycode compatibility disabled");
   return true;
 }
 
@@ -147,10 +207,12 @@ inline bool cpmWarmBootHandleTrap()
 
   // Restore pristine CCP+BDOS, then immediately reinstall the D806 shim before
   // allowing the real WBOOT code to execute. WBOOT will rebuild page zero with
-  // its normal JP D806 BDOS vector, so no further CCP-entry trap is required.
+  // its normal JP D806 BDOS vector. The BIOS itself is outside the restored
+  // range, but rewrite the shims/CONIN patch as a cheap consistency safeguard.
   memcpy(&RAM[CPM_SHADOW_START], cpmResidentShadow, CPM_SHADOW_SIZE);
-  cpmWarmBootWriteShim();
+  cpmWarmBootWriteShims();
   cpmWarmBootPatchBdosEntry();
+  if (cpmHpConinCompatActive) cpmPatchHpConinCompat();
   ++cpmWarmBootCount;
 
   BP = CPM_WBOOT_ENTRY;
