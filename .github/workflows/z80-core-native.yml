@@ -1,0 +1,12 @@
+name: Z80 core native regression tests
+on:
+  push:
+    branches: [fix/z80-cpu-compatibility]
+  workflow_dispatch:
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test pinned upstream Z80 and EBTKS adapter
+        run: bash tests/run_z80_core_native.sh

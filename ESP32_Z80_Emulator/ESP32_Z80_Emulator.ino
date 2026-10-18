@@ -32,7 +32,12 @@
 #include "cpm_mount_store.h"
 #include "cpm_geometry_dynamic.h"
 #include "cpm_warmboot.h"
+// Keep last user-tested decoder available for A/B regression builds.
+#ifdef EBTKS_Z80_LEGACY_CPU
 #include "cpu.h"
+#else
+#include "cpu_redcode.h"
+#endif
 #include "serial.h"
 #include "telnet.h"
 
@@ -94,7 +99,11 @@ void loop() {
   // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
 
+#ifdef EBTKS_Z80_LEGACY_CPU
   PC=0;
+#else
+  ebtksCpuColdReset(); // reset CPU registers after each outer-loop cold boot
+#endif
   SingleStep=false;
   cpmWarmBootArmTrap();
   RUN=true;
