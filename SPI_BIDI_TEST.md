@@ -48,6 +48,36 @@ pio run -e esp32dev
 
 Upload only `.pio/build/esp32dev/firmware.bin` in `/updater`. No ESP32 flash erase or Teensy SD replacement required. Teensy must have `"CRTRemote": true` in SD-root `CONFIG.TXT`, as for the previous diagnostic.
 
+## Next isolation test: GPIO17 to Teensy pin12 (new firmware; not yet validated)
+
+**Observed hardware failure:** With the jumper corrected to ESP CN3-13 (GPIO17) → Teensy CN3-29 (T12), **full-duplex mode 1 at 1 MHz still fails**. The user reported `miso_first16_hex=00000000000000000000000000000000`, `miso_crc_teensy_rx=47937` (512 zero bytes), `miso_crc_esp_tx=13577`, `first_mismatch_miso=0`, while both MOSI CRCs match at 60981. Failure occurs on sector 0; longer runs add no diagnostic value.
+
+**New optional diagnostic** (source committed on 2026-10-18, **not compiled or hardware-tested**) tests GPIO electrical continuity *without the SPI peripheral or DMA*. ESP32 temporarily releases SPI2 when idle, drives its **GPIO17 (CN3-13)** LOW and HIGH in turn as a standard output, then sends a `spi_gpio_probe` command over the existing UART. Teensy briefly releases SPI0 and samples physical pin **12 (CN3-29)** as a normal GPIO input with pulldown, returning the observed level. SPI0 is restored; ESP32 sets GPIO17 to input afterward. No CS/SCLK transactions and no disk access take place.
+
+After pulling and rebuilding **both** feature branches, open `/spitest` and press **Check MISO wire (GPIO LOW/HIGH)**. Alternatively, POST `/api/spitest/gpio` and GET `/api/spitest`.
+
+Expected when the pin-to-pin signal path is good:
+
+```json
+{
+  "state": "passed",
+  "test_kind": "gpio_miso",
+  "gpio_low_read": 0,
+  "gpio_high_read": 1,
+  "needs_reboot": false
+}
+```
+
+Other SPI status fields remain present but are not relevant in GPIO mode. Interpret failures:
+
+- LOW=0, HIGH=0: ESP GPIO17 high drive does not arrive at Teensy pin12; investigate continuity, a short to ground or incorrect pin mapping.
+- LOW=1, HIGH=1: pin seems held high, or output drive isn't reaching Teensy.
+- LOW=1, HIGH=0: swapped/inverted or unexpected output behavior.
+- Either reading = -1: UART command/response or sampling failed; inspect `/z80debug`.
+- LOW=0, HIGH=1 but MISO still zeros during SPI: the wire can carry static levels, so investigate SPI peripheral GPIO routing, DMA TX behavior, or SPI pin-mux configuration. A GPIO pass **does not** prove dynamic 1–8 MHz MISO integrity.
+
+Run only with CP/M idle at prompt; retain original five jumpers and 10 kΩ CS pull-up. The GPIO test must not be run concurrently with any SPI test; the web endpoint rejects busy requests. If `needs_reboot=true`, reboot before retrying. Power down before physically moving jumpers.
+
 ## First tests
 
 With CP/M idle at the `A>` prompt and HP-85 normal, open `http://<EBTKS-IP>/spitest`.
