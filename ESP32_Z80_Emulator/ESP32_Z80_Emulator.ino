@@ -22,6 +22,7 @@
 
 #include "ebtks_link.h"
 #include "spi_link_test.h"
+#include "spi_disk_read.h" // opt-in CP/M read cache; CP/M writes remain UART
 #include "web_terminal_v2.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
