@@ -10,6 +10,7 @@
 #include <driver/gpio.h>
 #include <esp_heap_caps.h>
 #include <string.h>
+#include "spi_stream_frame.h"
 
 static constexpr spi_host_device_t SPI_TEST_HOST = HSPI_HOST;
 static constexpr int SPI_TEST_MOSI = 22;   // CN3-21
@@ -18,6 +19,7 @@ static constexpr int SPI_TEST_SCLK = 16;   // CN3-14
 static constexpr int SPI_TEST_CS = 32;     // CN3-4, external 10k pull-up
 static constexpr int SPI_TEST_READY = 27;  // CN3-8
 static constexpr size_t SPI_TEST_BYTES = 512;
+static constexpr size_t SPI_TEST_DMA_CAPACITY = EbtksStream::FRAME_BYTES;
 static constexpr uint16_t SPI_TEST_MAX_SECTORS = 128;
 
 // DMA buffer + descriptor remain allocated for the lifetime of the firmware.
@@ -37,6 +39,12 @@ static volatile bool spiTestBidi = false; // false keeps original MOSI-only test
 static volatile uint8_t spiTestMode = 0;  // 8 MHz mode 0 hardware-tested; mode 1 selectable
 static volatile bool spiTestGpioMode = false; // separate GPIO-only isolation check
 static volatile bool spiTestSdMode = false; // separate SD-to-SPI read-only diagnostic
+static volatile bool spiTestStreamMode = false; // batched, CRC-framed diagnostic
+static volatile uint16_t spiTestStreamSession = 0;
+static volatile uint16_t spiTestStreamFrames = 0;
+static volatile uint16_t spiTestStreamBadFrames = 0;
+static volatile uint32_t spiTestStreamWireBytes = 0;
+static char spiTestStreamError[40] = {};
 static char spiTestSdPath[120] = "/cpm/disks/A.dsk";
 static volatile uint32_t spiTestSdFirstSector = 0;
 static volatile uint32_t spiTestSdReadUs = 0;
@@ -137,13 +145,13 @@ inline bool spiTestInit(uint8_t mode)
   }
 
   if (!spiTestRx) spiTestRx = static_cast<uint8_t *>(
-      heap_caps_malloc(SPI_TEST_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+      heap_caps_malloc(SPI_TEST_DMA_CAPACITY, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
   if (!spiTestRx) {
     spiTestDetail = "ESP32 RX DMA allocation failed";
     return false;
   }
   if (!spiTestTx) spiTestTx = static_cast<uint8_t *>(
-      heap_caps_malloc(SPI_TEST_BYTES, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
+      heap_caps_malloc(SPI_TEST_DMA_CAPACITY, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL));
   if (!spiTestTx) {
     spiTestDetail = "ESP32 TX DMA allocation failed";
     heap_caps_free(spiTestRx);
@@ -156,7 +164,7 @@ inline bool spiTestInit(uint8_t mode)
   bus.sclk_io_num = SPI_TEST_SCLK;
   bus.quadwp_io_num = -1;
   bus.quadhd_io_num = -1;
-  bus.max_transfer_sz = SPI_TEST_BYTES;
+  bus.max_transfer_sz = SPI_TEST_DMA_CAPACITY;
 
   spi_slave_interface_config_t slave = {};
   slave.spics_io_num = SPI_TEST_CS;
@@ -482,6 +490,7 @@ inline bool spiTestGpioStart()
   spiTestState = 1;
   spiTestGpioMode = true;
   spiTestSdMode = false;
+  spiTestStreamMode = false;
   spiTestHz = 0;
   spiTestSectors = 0;
   spiTestPattern = 0;
@@ -714,6 +723,7 @@ inline bool spiTestSdStart(const String &path, uint32_t first, uint16_t sectors)
   spiTestSdFirstSector = first;
   spiTestSectors = sectors;
   spiTestSdMode = true;
+  spiTestStreamMode = false;
   spiTestGpioMode = false;
   spiTestHz = 4000000;
   spiTestMode = 0;
@@ -725,6 +735,285 @@ inline bool spiTestSdStart(const String &path, uint32_t first, uint16_t sectors)
       spiTestSdWorker, "SpiSdRead", 6144, nullptr, 1, nullptr, 0);
   if (ok != pdPASS) {
     spiTestFailure("Could not create SD SPI worker");
+    return false;
+  }
+  return true;
+}
+
+// One control request per batch rather than two UART round trips/sector.
+// The Teensy receives its sole 'send' request while we hold the UART mutex;
+// we must keep feeding independently validated SPI RX DMA transactions until
+// all frames arrive. This same transport can later carry CRT frames using a
+// different KIND, without coupling the SPI framing to SD.
+inline bool spiStreamReadReplyLocked(String &reply, uint32_t timeoutMs)
+{
+  String line;
+  line.reserve(1024);
+  const uint32_t started = millis();
+  while ((uint32_t)(millis() - started) < timeoutMs) {
+    while (TeensySerial.available()) {
+      const char c = (char)TeensySerial.read();
+      if (c == '\n') return ebtksDecodeReplyEnvelope(line, reply);
+      if (line.length() >= EBTKS_LINK_MAX_REPLY - 1) return false;
+      line += c;
+    }
+    vTaskDelay(1);
+  }
+  return false;
+}
+
+inline void spiTestStreamWorker(void *)
+{
+  spiTestDetail = "Preparing read-only batched SPI stream";
+  spiTestCompleted = 0;
+  spiTestFailSector = -1;
+  spiTestFailPattern = -1;
+  spiTestMismatchAt = -1;
+  spiTestMisoMismatchAt = -1;
+  spiTestCrcLocal = 0;
+  spiTestCrcRemote = 0;
+  spiTestAggregateCrc = 0xFFFF;
+  spiTestSdReadUs = 0;
+  spiTestSdFileSize = 0;
+  spiTestSdPreparedCrc = 0;
+  spiTestSdSentCrc = 0;
+  spiTestSdFirst16Hex[0] = '\0';
+  spiTestStreamFrames = 0;
+  spiTestStreamBadFrames = 0;
+  spiTestStreamWireBytes = 0;
+  spiTestStreamError[0] = '\0';
+  spiTestMisoHeadHex[0] = '\0';
+  spiTestMisoTxCrc = 0;
+  spiTestMisoRxCrc = 0;
+  spiTestWallUs = 0;
+  spiTestElapsedUs = 0;
+  spiTestMinUs = 0;
+  spiTestMaxUs = 0;
+
+  const uint32_t started = micros();
+  const uint16_t session = spiTestStreamSession;
+  const uint16_t count = spiTestSectors;
+  const uint32_t first = spiTestSdFirstSector;
+  if (!spiTestInit(0)) {
+    spiTestFailure("SPI stream: slave init failed");
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // Phase A: validate entire source file span BEFORE arming any DMA.
+  JsonDocument prepRequest;
+  JsonObject pre = prepRequest["spi_stream_prepare"].to<JsonObject>();
+  pre["path"] = spiTestSdPath;
+  pre["first"] = first;
+  pre["count"] = count;
+  pre["session"] = session;
+  String req, reply;
+  serializeJson(prepRequest, req);
+  if (!ebtksLinkTransaction(req, reply, 3000)) {
+    spiTestFailure("Stream prepare UART timeout (DMA not queued)");
+    vTaskDelete(nullptr);
+    return;
+  }
+  JsonDocument preDoc;
+  if (deserializeJson(preDoc, reply)) {
+    spiTestFailure("Stream prepare UART JSON malformed");
+    vTaskDelete(nullptr);
+    return;
+  }
+  JsonVariantConst pr = preDoc["spi_stream_prepare"];
+  const bool ready = pr["ok"] | false;
+  const int returnedSession = pr["session"] | -1;
+  const uint32_t returnedFirst = pr["first"] | UINT32_MAX;
+  const int returnedCount = pr["count"] | -1;
+  spiTestSdFileSize = pr["file_size"] | 0UL;
+  if (!ready || returnedSession != session || returnedFirst != first ||
+      returnedCount != count) {
+    spiTestFailure("Stream prepare rejected path or sector span; no DMA queued");
+    Serial.printf("SPI stream prepare failed: %s start=%lu count=%u reason=%s\n",
+                  spiTestSdPath, (unsigned long)first, (unsigned)count,
+                  pr["reason"] | "unknown");
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // Lock the serialized Teensy UART for the duration of the batch. Normal
+  // CP/M disk requests and browser commands cannot interleave stream frames.
+  if (xSemaphoreTake(ebtksLinkMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
+    spiTestFailure("Stream UART busy (DMA not queued)");
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // The first descriptor must be armed before the Teensy sees the request.
+  // A single descriptor is reused only AFTER each DMA completion is reaped.
+  const size_t wireBytes = EbtksStream::FRAME_BYTES;
+  const uint32_t wireBits = (uint32_t)wireBytes * 8U;
+  bool dmaOk = true;
+  auto arm = [&]() -> bool {
+    memset(spiTestRx, 0, wireBytes);
+    memset(&spiTestTrans, 0, sizeof(spiTestTrans));
+    spiTestTrans.length = wireBits;
+    spiTestTrans.rx_buffer = spiTestRx;
+    spiTestTrans.tx_buffer = nullptr;
+    gpio_set_level((gpio_num_t)SPI_TEST_READY, 0);
+    return spi_slave_queue_trans(SPI_TEST_HOST, &spiTestTrans,
+                                pdMS_TO_TICKS(1500)) == ESP_OK;
+  };
+
+  if (!arm()) {
+    xSemaphoreGive(ebtksLinkMutex);
+    spiTestFailure("Stream first DMA descriptor queue failed; reboot", true);
+    vTaskDelete(nullptr);
+    return;
+  }
+
+  // Single UART send request; no UART traffic per data frame.
+  while (TeensySerial.available()) TeensySerial.read();
+  JsonDocument sendReq;
+  sendReq["spi_stream_send"]["session"] = session;
+  String sendMessage;
+  serializeJson(sendReq, sendMessage);
+  TeensySerial.print(sendMessage);
+  TeensySerial.write('\r');
+
+  int firstBad = -1;
+  static const char hd[] = "0123456789ABCDEF";
+  for (uint16_t block = 0; block < count; ++block) {
+    spi_slave_transaction_t *done = nullptr;
+    const esp_err_t err = spi_slave_get_trans_result(
+        SPI_TEST_HOST, &done, pdMS_TO_TICKS(2500));
+    if (err != ESP_OK || done != &spiTestTrans ||
+        spiTestTrans.trans_len != wireBits) {
+      // Queued descriptor might STILL be DMA-owned after a timeout.
+      spiTestFailure("Stream SPI DMA incomplete; ESP32 reboot required", true);
+      Serial.printf("SPI stream DMA error at %u: %s bits=%u\n",
+                    (unsigned)block, esp_err_to_name(err),
+                    (unsigned)spiTestTrans.trans_len);
+      dmaOk = false;
+      break;
+    }
+    ++spiTestStreamFrames;
+    spiTestStreamWireBytes += wireBytes;
+
+    const EbtksStream::Check check = EbtksStream::check(
+        spiTestRx, EbtksStream::KIND_SD_READ, session, block);
+    const uint8_t *payload = spiTestRx + EbtksStream::HEADER_BYTES;
+    const uint16_t payloadCrc = EbtksStream::crc16(payload, EbtksStream::PAYLOAD_BYTES);
+    spiTestCrcLocal = payloadCrc;
+    for (uint8_t i = 0; i < 16; ++i) {
+      spiTestSdFirst16Hex[2U*i] = hd[payload[i] >> 4];
+      spiTestSdFirst16Hex[2U*i+1] = hd[payload[i] & 15];
+    }
+    spiTestSdFirst16Hex[32] = '\0';
+    if (check != EbtksStream::Check::OK) {
+      ++spiTestStreamBadFrames;
+      if (firstBad < 0) {
+        firstBad = block;
+        strlcpy(spiTestStreamError, EbtksStream::checkName(check),
+                sizeof(spiTestStreamError));
+      }
+    } else {
+      spiTestAggregateCrc = EbtksStream::crc16(
+          payload, EbtksStream::PAYLOAD_BYTES, spiTestAggregateCrc);
+      ++spiTestCompleted;
+    }
+    // We still drain all requested frames after CRC errors. This prevents
+    // leaving DMA queued or truncating a session on a recoverable mismatch.
+    if (block + 1 < count && !arm()) {
+      spiTestFailure("Stream next DMA queue failed; ESP32 reboot required", true);
+      dmaOk = false;
+      break;
+    }
+  }
+
+  // Only read the final UART result once all SPI DMA descriptors have been
+  // reaped. The Teensy cannot reply before its last SPI transfer completes.
+  String serialReply;
+  const bool uartOk = dmaOk && spiStreamReadReplyLocked(serialReply, 3500);
+  xSemaphoreGive(ebtksLinkMutex);
+  if (!dmaOk) {
+    spiTestWallUs = (uint32_t)(micros() - started);
+    vTaskDelete(nullptr);
+    return;
+  }
+  spiTestWallUs = (uint32_t)(micros() - started);
+  spiTestFailSector = firstBad;
+  if (!uartOk) {
+    spiTestFailure("Stream UART final reply invalid/timed out (all DMA received)");
+    vTaskDelete(nullptr);
+    return;
+  }
+  JsonDocument response;
+  if (deserializeJson(response, serialReply)) {
+    spiTestFailure("Stream final UART reply is malformed");
+    vTaskDelete(nullptr);
+    return;
+  }
+  JsonVariantConst sr = response["spi_stream_send"];
+  const bool ok = sr["ok"] | false;
+  const int replySession = sr["session"] | -1;
+  const int framesSent = sr["frames"] | -1;
+  const int sourceGood = sr["good"] | -1;
+  const int replyCount = sr["count"] | -1;
+  const uint16_t senderAggregate = (uint16_t)(sr["aggregate_crc"] | 0);
+  spiTestSdReadUs = sr["sd_us"] | 0UL;
+  spiTestElapsedUs = sr["spi_us"] | 0UL;
+  spiTestMinUs = sr["min_us"] | 0UL;
+  spiTestMaxUs = sr["max_us"] | 0UL;
+  spiTestCrcRemote = senderAggregate;
+  spiTestSdSentCrc = senderAggregate;
+
+  if (!ok || replySession != session || framesSent != count ||
+      sourceGood != count || replyCount != count || firstBad >= 0 ||
+      spiTestStreamFrames != count || spiTestCompleted != count ||
+      spiTestAggregateCrc != senderAggregate || spiTestElapsedUs == 0) {
+    spiTestFailure("Stream frame integrity, session or aggregate CRC mismatch");
+    Serial.printf("SPI stream FAIL: path=%s session=%u received=%u/%u "
+                  "bad=%u first_bad=%d err=%s recvCRC=%04X teenCRC=%04X "
+                  "teen=%s\n",
+                  spiTestSdPath, (unsigned)session,
+                  (unsigned)spiTestStreamFrames, (unsigned)count,
+                  (unsigned)spiTestStreamBadFrames, firstBad,
+                  spiTestStreamError, (unsigned)spiTestAggregateCrc,
+                  (unsigned)senderAggregate, sr["reason"] | "unknown");
+  } else {
+    spiTestDetail = "Batched real SD SPI stream verified; no image writes";
+    spiTestFailSector = -1;
+    spiTestState = 2;
+    Serial.printf("SPI stream PASS: %s sector=%lu count=%u SD_us=%lu SPI_us=%lu "
+                  "wall_us=%lu aggregate=%04X\n",
+                  spiTestSdPath, (unsigned long)first, (unsigned)count,
+                  (unsigned long)spiTestSdReadUs,
+                  (unsigned long)spiTestElapsedUs,
+                  (unsigned long)spiTestWallUs,
+                  (unsigned)spiTestAggregateCrc);
+  }
+  vTaskDelete(nullptr);
+}
+
+inline bool spiTestStreamStart(const String &path, uint32_t first, uint16_t sectors)
+{
+  if (!spiTestSdPathValid(path) ||
+      !(sectors == 1 || sectors == 16 || sectors == SPI_TEST_MAX_SECTORS) ||
+      first > ((UINT32_MAX / SPI_TEST_BYTES) - SPI_TEST_MAX_SECTORS) ||
+      spiTestState == 1 || spiTestNeedsReboot) return false;
+  strlcpy(spiTestSdPath, path.c_str(), sizeof(spiTestSdPath));
+  spiTestSdFirstSector = first;
+  spiTestStreamSession = (uint16_t)((spiTestRunNumber + 1U) & 0xFFFFU);
+  spiTestSectors = sectors;
+  spiTestGpioMode = false;
+  spiTestSdMode = false;
+  spiTestStreamMode = true;
+  spiTestMode = 0;
+  spiTestHz = 4000000;
+  spiTestBidi = false;
+  spiTestPattern = 0;
+  spiTestState = 1;
+  ++spiTestRunNumber;
+  const BaseType_t created = xTaskCreatePinnedToCore(
+      spiTestStreamWorker, "SpiBatch", 6144, nullptr, 1, nullptr, 0);
+  if (created != pdPASS) {
+    spiTestFailure("Could not launch SPI stream worker");
     return false;
   }
   return true;
@@ -744,6 +1033,7 @@ inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
   spiTestMode = mode;
   spiTestGpioMode = false;
   spiTestSdMode = false;
+  spiTestStreamMode = false;
   spiTestGpioLow = -1;
   spiTestGpioHigh = -1;
   spiTestState = 1;
