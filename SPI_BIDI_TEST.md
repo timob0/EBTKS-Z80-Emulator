@@ -1,10 +1,10 @@
 # CN3 SPI full-duplex diagnostic — build and first hardware test
 
-**Status: source committed on 2026-10-18; requires local PlatformIO builds, flashes, and hardware validation.** Both repos must be on `feature/cn3-spi-read-test`. The previous one-way Teensy MOSI → ESP32 DMA RX test is already confirmed on hardware at 1–8 MHz and up to 128 sectors. This extension adds the *unverified* ESP32 DMA TX → Teensy MISO receive path.
+**Status (2026-10-18):** MOSI-only passed at 1–8 MHz and 128 sectors, but initial **full-duplex mode-0 hardware tests failed** at both 8 MHz and 1 MHz. ESP32's MOSI RX matched the Teensy CRC, while Teensy received what appears to be **512 zero bytes** on MISO (CRC-16 = 47937, first MISO mismatch at byte 0). An incorrect CN3-29 → CN3-15 jumper was corrected to **CN3-29 → CN3-13**, yet the symptom remained. **A NEW diagnostic revision has been committed to both `feature/cn3-spi-read-test` branches but has not yet been flashed or hardware-tested:** the web test supports matching SPI modes 0/1 on both devices and exposes the Teensy's first 16 actually sampled MISO bytes. Start with mode 1 at 1 MHz. No CP/M disk image is accessed.
 
 ## Design and safety
 
-- Full-duplex **512-byte mode-0 SPI transaction**: Teensy SPI0 master clocks MOSI data and simultaneously receives MISO data; ESP32 SPI2 slave RX DMA receives MOSI and TX DMA sends a different deterministic pattern on MISO.
+- Full-duplex **512-byte SPI mode-0 or mode-1 transaction**: Teensy SPI0 master clocks MOSI data and simultaneously receives MISO data; ESP32 SPI2 slave RX DMA receives MOSI and TX DMA sends a different deterministic pattern on MISO. Both ends use the same selected mode. The diagnostic defaults to **mode 1**, which Espressif documents as suitable for slave DMA timing, while preserving mode 0 for comparison. See [ESP-IDF v4.4 SPI slave restrictions](https://docs.espressif.com/projects/esp-idf/en/v4.4/esp32/api-reference/peripherals/spi_slave.html).
 - Both receivers check **every byte** against a locally generated expected pattern, calculate **CRC-16/Modbus**, and compare CRCs over the existing serialized UART `spi_probe` status reply. The Teensy reports its **first MISO mismatch index**. ESP32 reports its **first MOSI mismatch index**.
 - The optional request flag `"bidi":true` enables the MISO test; omitted or `false` keeps the original MOSI-only operation. The browser has a direction selector.
 - For each 512-byte transaction, ESP32 fills aligned `MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL` **TX and RX** buffers before queuing its transaction. Its post-setup ISR signals ESP_READY high only when DMA is armed; Teensy waits for READY, then clocks bytes. The next transaction is queued only after the previous one is completed and acknowledged.
@@ -52,14 +52,14 @@ Upload only `.pio/build/esp32dev/firmware.bin` in `/updater`. No ESP32 flash era
 
 With CP/M idle at the `A>` prompt and HP-85 normal, open `http://<EBTKS-IP>/spitest`.
 
-1. **MOSI only, 1 MHz, 1 sector, sequence/ramp** — regression; should match previous successful logic.
-2. **Full duplex, 1 MHz, 1 sector, sequence/ramp** — first MISO signal test. If it fails, capture the JSON and `/z80debug` before trying other rates.
-3. **Full duplex, 2 MHz, then 4 MHz, then 8 MHz, one sector each** — increase only after the prior rate passes.
+1. **Full duplex, SPI mode 1, 1 MHz, 1 sector, sequence/ramp** — first diagnostic of the new MISO timing. Collect `spi_mode`, `miso_first16_hex`, both MISO CRCs and `first_mismatch_miso` even if it fails.
+2. **MOSI only, SPI mode 0, 1 MHz, 1 sector, sequence/ramp** — check the proven regression path (switching mode triggers safe ESP32 SPI slave reinitialization between runs).
+3. If mode 1 succeeds at 1 MHz, repeat full duplex at **2 MHz, 4 MHz**, then optionally **8 MHz**, one sector each; do not run 128-sector stress before one sector passes.
 4. **Full duplex, 4 MHz, 128 sectors, Cycle five patterns** — stress 64 KiB in each direction.
 5. **Full duplex, 8 MHz, 128 sectors, Cycle five patterns** — final 64 KiB each way, if 8 MHz single-sector passes.
 6. Optionally run 16/128 sectors with fixed 00, FF, 55/AA or walking-one; confirm the HP-85 remains responsive throughout.
 
-At 8 MHz, MOSI input timing was previously reliable, but **MISO output timing is a different path** and may show failures at higher clocks. A high-speed MISO failure is not evidence of broken CP/M disks or a defective encoding library; record the *first* failing byte and clock.
+At 8 MHz, MOSI input timing was previously reliable, but **MISO output timing is a different path**. It has been failing *even at 1 MHz in mode 0*, with a CRC matching an all-zero 512-byte receive buffer. Inspect `miso_first16_hex`: 32 zero hex characters indicate the first 16 bytes are all zero; nonzero values suggest shifting or corruption. If mode 1 also yields all zeros, check MISO continuity from CN3-13 (ESP GPIO17) to CN3-29 (Teensy pin 12) **with power off**, then probe GPIO17/MISO with a logic analyzer or oscilloscope if available, rather than increasing clock speed. GPIO-matrix SPI MISO has a documented conservative ~7.2 MHz ceiling in ESP-IDF, so even a successful 8 MHz MOSI-only run does not establish an 8 MHz bidirectional margin. <https://docs.espressif.com/projects/esp-idf/en/v4.4/esp32/api-reference/peripherals/spi_slave.html>
 
 On a successful bidirectional 128-sector test, expect:
 
