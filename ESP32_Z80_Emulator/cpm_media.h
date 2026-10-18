@@ -458,6 +458,22 @@ inline bool cpmMountedDiskRead(uint8_t drive, uint32_t storageSector, uint8_t *d
 {
   if (!dst || !cpmValidDrive(drive) || !cpmActiveMounts[drive].mounted) return false;
 
+  const CpmMountEntry &mount = cpmActiveMounts[drive];
+  // Optional SPI read-ahead. Never copy partial/corrupt SPI data into Z80
+  // RAM. On any failure the SPI service disables itself for this boot and
+  // the unchanged, known-good UART/Base64 sector read runs below.
+  if (spiDiskReadsEnabled) {
+    const uint32_t sectors =
+        mount.profile == CPM_MEDIA_EBTKS8M ? CPM_NATIVE_SECTORS :
+        mount.profile == CPM_MEDIA_HP82900_LIF ? CPM_HP_LOGICAL_SECTORS : 0;
+    if (sectors && spiDiskReadCached(mount.path, storageSector, sectors, dst))
+      return true;
+    ++spiDiskFallbacks;
+    z80DebugLog("CP/M SPI read fallback: %c: sector=%lu reason=%s\n",
+                (char)('A' + drive), (unsigned long)storageSector,
+                spiDiskLastError);
+  }
+
   JsonDocument request;
   JsonObject disk = request["disk_read"].to<JsonObject>();
   disk["drive"] = drive;                 // retained for diagnostics/backward compatibility
@@ -478,6 +494,9 @@ inline bool cpmMountedDiskRead(uint8_t drive, uint32_t storageSector, uint8_t *d
 
 inline bool cpmMountedDiskWrite(uint8_t drive, uint32_t storageSector, const uint8_t *src)
 {
+  // CRITICAL: even an unsuccessful write must not leave any stale prefetched
+  // sector data to be served later. All actual writes remain on UART.
+  spiDiskInvalidateCache();
   if (!src || !cpmValidDrive(drive)) return false;
   const CpmMountEntry &entry = cpmActiveMounts[drive];
   if (!entry.mounted || entry.readOnly) return false;

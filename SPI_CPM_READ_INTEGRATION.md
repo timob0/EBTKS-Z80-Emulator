@@ -1,0 +1,91 @@
+# CP/M read-only SPI read-ahead trial — Multiplan benchmark
+
+> **LIVE CP/M SPI READ-AHEAD API SNAPSHOT — 2026-10-18, after successful Multiplan/Zork tests:** `GET /api/cpm/spireads` returned `enabled=true`, `boot_disabled=false`, `needs_reboot=false`, `active=false`, 8,192-byte heap-allocated cache (`cache_allocated=true`), valid cache path context with `cache_first=1152`, `cache_count=16`; `cache_hits=1026`, `cache_misses=234`, **1,260 logical 512-byte read requests / 81.43% cache-hit rate**; `batch_reads=234`, `frames=3744` (exactly 16 per batch = **1,872 KiB = 1.828 MiB** physical SPI payload). `uart_fallbacks=0`, `spi_failures=0`, `last_error=""`, `cache_invalidations=261`, 27 more than the 234 invalidations attributable to cache misses (likely writes, resets or mode changes, but per-cause counts not instrumented). Last batch **173.980 ms**; total batch time **39.746897 seconds** across 234 batches, average **169.859 ms per 16-sector batch**, physical-batch throughput **47.10 KiB/s** measured cumulatively. `free_heap=79376` bytes (~77.52 KiB); snapshot only, not full memory-leak/soak proof. Observed **5.38 logical read requests per physical batch**, so 16-sector fixed-window prefetch should eventually be profiled against smaller/adaptive windows; because read requests may repeat sectors, the number of distinct sectors actually consumed is unknown. Historical 128-sector standalone diagnostic reached 72.61 KiB/s and measured different batching sizes. Preserve working firmware and keep UART writes/cache invalidation + IRQ-free `poll_low_v2` unchanged during initial application testing. **Firmware unchanged** by this analysis. [Integration guide](SPI_CPM_READ_INTEGRATION.md).
+
+
+
+> **REAL CP/M MULTIPLAN/ZORK SPI READ-AHEAD HARDWARE PASS — 2026-10-18:** User successfully compiled/flashed ESP32 CP/M SPI integration after the `.dram0.bss` fix (8 KiB cache moved from static storage to lazy heap allocation). Live CP/M disk reads using the interrupt-free Teensy `poll_low_v2` / 4 MHz MODE0 framed SPI plus 16-sector read-ahead were tested on physical hardware, while writes remained UART. **Measured UART vs SPI:** Multiplan install **36 s → 23 s** (1.57× speedup; 36.1% elapsed-time reduction), Multiplan startup **10 s → 3.7 s** (2.70×; 63.0% reduction), Zork startup **8 s → 3 s** (2.67×; 62.5% reduction). Installer phase observations: reading product files ~**20 s → 10 s** (~2× faster), while linking selected products stayed ~**13 s**; the installer total improved 13 s, and the phase estimates need not sum exactly. User also copied a text file using CP/M and successfully reread it after the write, encouraging evidence that UART writes and SPI-cache invalidation/read coherence are functioning in that scenario. **Do not extrapolate all app speedups from standalone 8.75× stream throughput**; startup depends on access pattern/cache hits and UART writes remain unchanged. Hardware evidence is positive; **full `GET /api/cpm/spireads` snapshot, hit/miss/fallback counts, prolonged soak and write durability testing not yet supplied**. Preserve existing proven `poll_low_v2` firmware and UART fallback; avoid premature changes to READY or HP-85 bus interrupt setup. No source code changed during this report. [Integration details](SPI_CPM_READ_INTEGRATION.md).
+
+
+
+**Historical pretest status (now superseded):** The code was committed before local compilation and hardware validation. **The user has since built, flashed and successfully tested the live CP/M SPI read path with Multiplan and Zork; see the hardware results above.** The Teensy `poll_low_v2` framed stream sender has already passed the dedicated SD→SPI diagnostics and **does not change in this milestone**. Keep your known-good ESP32 and Teensy binaries, and finish your UART Multiplan baseline measurements **before flashing**.
+
+## Build fix: ESP32 static DRAM overflow
+
+> **ESP32 LINK-TIME DRAM FIX (2026-10-18, not yet rebuilt/tested):** First attempted ESP32 CP/M SPI integration build failed at the **linker**, not compilation: `.dram0.bss` overflowed `dram0_0_seg` by **6,728 bytes**. The new global `static uint8_t spiDiskCache[8192]` caused this. Patched `ESP32_Z80_Emulator/spi_disk_read.h` to store only a pointer in static DRAM and **allocate 8,192 bytes at runtime on first explicit SPI-enable request** via `heap_caps_malloc(..., MALLOC_CAP_8BIT)`, with a heap headroom and contiguous-block check. The buffer is deliberately retained for the ESP32 boot, even when switching back to UART, eliminating use-after-free and heap fragmentation from repeated toggles; SPI cache is never marked valid until a complete CRC-checked batch arrives. If allocation is impossible, POST `/api/cpm/spireads?enabled=1` now returns HTTP 503 and the interface remains in **UART mode**. GET status adds `cache_allocated` and `cache_bytes`. **Expected result:** removing the 8 KiB static array should recover enough linker DRAM to clear the 6,728-byte overflow, but a fresh local `pio run -e esp32dev -t clean && pio run -e esp32dev` is required to verify. The proven Teensy `poll_low_v2` firmware, original UART/Base64 CP/M read/write code, SPI READY polling and both `main` branches are unchanged. [Trial guide](SPI_CPM_READ_INTEGRATION.md).
+
+## Design and safety
+
+This is an *opt-in* replacement for **CP/M virtual disk reads only**. The established `diskRead()` → `cpmMapMountedSector()` → `cpmMountedDiskRead()` mapping and per-drive mounted media table remain the same. SPI is used **only** when enabled at `/cpmmedia` (or via `POST /api/cpm/spireads?enabled=1`). Otherwise the original UART/JSON/Base64 path is used. Default after every ESP32 boot: **UART**.
+
+### Read-ahead, protocol and correctness
+
+- On an SPI cache miss, fetch an **aligned 16 × 512-byte window** (8 KiB) from the correctly mounted image file using the hardware-verified **4 MHz SPI MODE0 / `poll_low_v2`** framed protocol. If the requested sector is too close to the exposed medium's end for a full window, fetch one sector instead.
+- The disk source is the **actual mounted image path**, not an assumed `A.dsk` filename. Native 8 MiB media are bounded by 16,384 × 512-byte sectors; HP 82900 LIF CP/M media by 512 × 512-byte sectors. Existing BIOS-to-file-sector mapping remains authoritative.
+- The ESP32 creates one persistent core-0 `SpiDisk` worker when first needed; the Z80 core-1 CPU task waits for the result. Only the core-0 worker accesses ESP32 SPI2 slave DMA. No Teensy GPIO IRQ is attached: the HP-85 bus still owns `IRQ_GPIO6789`.
+- Each 528-byte SPI frame is checked for protocol version, source type, session, sequence, payload length, header CRC and data CRC. The final Teensy UART reply's aggregate payload CRC and frame count must also match.
+- **The cache window becomes valid only after the entire batch passes.** A CRC error, DMA short transfer/timeout, missing final UART reply or incompatible Teensy firmware causes the SPI path to disable itself for the remainder of that ESP32 boot. A fallback to the **unchanged UART/Base64 CP/M read** is attempted; a bad partial SPI frame is never exposed to the Z80.
+- **All writes remain on the existing UART/Base64 `disk_write` service.** Cache is invalidated **before every CP/M disk write**, successful or not, and on CP/M Z80 bootstrap/reset or transport-mode change. This prevents stale prefetched sectors after installer writes. Mount changes still take effect only on the existing virtual Z80 reset.
+- SPI diagnostics at `/spitest` are rejected while live CP/M SPI reads are enabled (and vice versa), preventing DMA ownership conflicts.
+- For uncertain DMA ownership, set `needs_reboot=true` and do not retry SPI until ESP32 reboot. A failing UART fallback may still expose the historical CBIOS's weak disk error reporting; **back up disk images before using the Multiplan installer**. Nothing in this first version changes the CBIOS or claims write durability beyond the existing UART baseline.
+
+### Why batching matters
+
+The validated standalone batch test transferred 128 × 512 bytes in ~881 ms (72.61 KiB/s). A single framed 512-byte fetch still needs control-plane UART exchanges, so naively replacing one CP/M read with one SPI sector would not guarantee any speed improvement. The **16-sector read-ahead** design amortizes those exchanges; cache hits do not touch UART or SPI. Results depend on Multiplan's actual disk access locality and write/read interleaving. Installation may benefit less than ordinary executable loading because **writes stay on UART and invalidate the read cache**.
+
+## Rebuild
+
+**Teensy:** Stay on the existing, hardware-tested `feature/cn3-spi-read-test` revision using `poll_low_v2`. **No new Teensy build/flash is required for this milestone.**
+
+**ESP32 only** (after finishing the UART baseline):
+
+```sh
+git switch feature/cn3-spi-read-test
+git pull --ff-only
+pio run -e esp32dev -t clean
+pio run -e esp32dev
+```
+
+Flash `.pio/build/esp32dev/firmware.bin` using the existing `/updater`. Do not erase SPIFFS or NVS mount settings. Keep the working firmware image for rollback.
+
+## First-run test sequence
+
+1. Keep the Multiplan baseline timings and a **backup** of all writable CP/M disk images. Start the new ESP32 firmware with SPI still **OFF** by default. Verify HP BASIC/SIMON85, CP/M terminal, CP/M `DIR`, and ordinary CP/M disk writes (e.g., copy a disposable file); the UART code path should behave as before.
+2. With CP/M **idle at its prompt**, open `/cpmmedia`, look for **CP/M disk-read transport (experimental)**, and click **Enable SPI read-ahead (4 MHz)**. The selector applies immediately; no Z80 reset is required. If you prefer REST: `POST /api/cpm/spireads?enabled=1`.
+3. Run `DIR` on the mounted A: drive and on another mounted drive. Check `GET /api/cpm/spireads` for increasing `batch_reads`, `frames` and `cache_hits`; `spi_failures` and `uart_fallbacks` should remain 0. Watch HP-85 responsiveness.
+4. Run a simple CP/M copy to a **disposable** destination file/image and verify it afterward; all writes are still UART and cache invalidation must make subsequent reads coherent. Avoid the Multiplan installer until this passes.
+5. Only then compare **Multiplan executable startup** against your UART timing. For comparable cold reads, go back to UART and then re-enable SPI between benchmark runs (both mode switches invalidate the cache). Keep the same image and filesystem state where practical.
+6. After startup tests pass, exercise the Multiplan installer using **backed-up images**. Because it writes, don't assume the same speedup as read-heavy startup. Check actual results.
+7. Optionally run SIMON85 graphics while CP/M starts Multiplan, as in the previous proven SD/SPI stress tests. Do not run the standalone `/spitest` diagnostics while live SPI disk mode is enabled.
+
+Switch back at any time **when CP/M is idle** using the **Use UART (baseline)** button, or `POST /api/cpm/spireads?enabled=0`. This clears the cache. On any SPI failure, fallback occurs automatically and SPI stays disabled until the next ESP32 reboot; `/api/cpm/spireads` reports the reason. If the HP-85 bus becomes unresponsive at all, stop and power-cycle EBTKS and revert to the known-good binary.
+
+### Status / instrumentation
+
+```sh
+curl 'http://<EBTKS-IP>/api/cpm/spireads'
+curl -X POST 'http://<EBTKS-IP>/api/cpm/spireads?enabled=1'
+curl -X POST 'http://<EBTKS-IP>/api/cpm/spireads?enabled=0'
+```
+
+Important JSON fields:
+
+| Key | Interpretation |
+|---|---|
+| `enabled` | Active opt-in SPI read mode (default false) |
+| `boot_disabled`, `needs_reboot` | SPI disabled due to error, especially uncertain DMA ownership |
+| `cache_hits`, `cache_misses` | How often CP/M reads were served from read-ahead or needed a bulk fetch |
+| `batch_reads`, `frames` | Successful physical 1-/16-frame transfers |
+| `uart_fallbacks` | Failed SPI requests serviced via existing UART read |
+| `spi_failures`, `last_error` | Details of failures preventing further SPI requests |
+| `last_batch_us` | Elapsed time for most recent complete SPI batch |
+| `cache_invalidations` | Increases on writes, resets, mode changes and miss replacement |
+| `writes` | Always `UART` in this milestone |
+
+**Meaningful comparison:** note Multiplan startup duration on UART, same duration with SPI enabled, and a snapshot of cache hits/misses and fallback count. The batch's measured standalone speedup (~8.75× throughput) is **not a prediction of total application launch speedup**.
+
+## Next milestones
+
+If the Multiplan startup and installation regressions pass, profile read locality, evaluate larger/pipelined read-ahead or adaptive cache policy, and only then consider SPI disk writes with separate integrity/durability testing. Separately, a `KIND_CRT` adapter may supply HP-85 screen dumps on the same generic SPI framing transport; it is **not implemented here**.
+
+The ESP32 firmware **main branch remains unchanged**. Never add normal Arduino GPIO interrupts to the Teensy HP-85 bus IRQ group.

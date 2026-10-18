@@ -1,0 +1,165 @@
+# Generic CN3 SPI framed streaming — read-only SD producer, v1
+
+**Current status (2026-10-18): Interrupt-free `poll_low_v2` version rebuilt and HARDWARE-VALIDATED with repeated 1/16/128-sector runs, including SIMON85 graphics and concurrent SDCAT.** Retain known-good binaries for rollback. Working HP-85, SIMON85, Wi-Fi, Web UI, Z80/CP-M and the current UART/JSON/Base64 CP/M disk service are unaffected. No merge into `main`.
+
+## Current hardware validation (interrupt-free READY handshake)
+
+> **VALIDATED FRAMED SPI TRANSPORT BASELINE — 2026-10-18, REAL HARDWARE:** User rebuilt/flashed the **interrupt-free `poll_low_v2` READY handshake** (Teensy feature HEAD `beba160e` / ESP32 feature HEAD `16d0af46` at time of test) and reports stable behavior across approximately **60 repeated runs**; run counter **63**, with approximately **20 × 128-sector** batches, plus successful operation during SIMON85 graphics and an overlapping HP-85 `SDCAT` SD-directory read. The previously observed HP-85 bus hang is **not observed** with this revision; no worker launch or UART prepare errors. Latest **128 × 512 B = 65,536 B payload** from `/cpm/disks/A.dsk`, starting sector 0, **4 MHz SPI mode 0**, read-only, passed: `stream_frames_received=128`, `stream_bad_frames=0`, `needs_reboot=false`, `stream_wire_bytes=67584` (16 B header + 512 B data/frame), `stream_ready_low_phases=127`, `stream_ready_wait_failure=0`, `stream_crc_esp=stream_crc_teensy=42267`, `sd_crc_match=true`, `first_mismatch_byte=-1`, `failed_sector=-1`. Memory: `heap_before_stream=94208`, `heap_after_stream=98052`, `heap_free_now=94216`, `heap_min_free=73652`, `heap_largest_free_block=40948`, `stream_worker_stack_high_water=6008`, `stream_prepare_parse_failures=0`, `stream_worker_launch_failures=0`. Timing: `sd_read_us=44373`, `teensy_transfer_us=165398`, `stream_ready_wait_us=560916` (max one READY wait 9473 µs), `wall_us=881413`; net **72.6107 KiB/s** end-to-end, ~**8.75×** the earlier 128-sector per-sector UART handshake test (~8.30 KiB/s, 7.710 s) without increasing clock. Breakdown of wall time: SD 5.03%, SPI loop 18.77%, READY waiting 63.64%, remaining coordination 12.56% (time categories from separate counters, not a fully instrumented trace). `stream_dma_error=""`/code 0. Other generic DMA diagnostic fields (`stream_dma_actual_bits=0`, `stream_dma_descriptor_matches=false`) are **failure-only snapshots**, not errors when `state=passed`. **Engineering decision:** preserve this as the tested baseline. Do not reintroduce Arduino `attachInterrupt` on Teensy READY—EBTKS custom `IRQ_GPIO6789` owns HP bus servicing. Optional future goals: optimize READY hold only after another controlled baseline; then add opt-in **read-only** CP/M disk-over-SPI with CRC+UART fallback, and later a separate CRT/screen data producer using the reusable frame type. Live CP/M still uses UART/JSON/Base64; no writes or `main` merge.
+
+## Reliability repair after first hardware runs (2026-10-18)
+
+**Hardware report before repair:** User found that the batched read-only stream **usually passed** but after repeated tests sometimes returned `Stream prepare UART JSON malformed`, then `Could not launch SPI stream worker`. Subsequently the ESP32 web pages (`/z80`, CP/M Media Manager) became unavailable. Reported runs 19 and 20 were 16-sector tests that failed **before any SPI data was sent**: `stream_frames_received=0`, `completed_sectors=0`, `needs_reboot=false`. The successful batch timings and exact sector counts were not provided. **Do not use the earlier batched build for further stress testing.**
+
+**Likely root cause found in source:** The original `spiTestStreamWorker()` was dynamically created for every test and called FreeRTOS `vTaskDelete(nullptr)` directly while its function-scope Arduino `String` and `JsonDocument` variables were alive. Task deletion does not perform normal C++ stack unwinding, so their heap allocations can leak on both normal and early-return paths. Repeated runs can deplete/fragment heap, explaining both JSON parse errors and eventual FreeRTOS task creation failures; this is a strong code-level diagnosis, **not yet verified as the only runtime cause**.
+
+**ESP32-only repair committed; requires local rebuild/test:**
+
+- One persistent `SpiBatch` worker, allocated at most once, sleeping on a FreeRTOS task notification between sessions. The body now runs as an ordinary C++ function that **returns normally**, so local `String` and ArduinoJson destructors execute.
+- Worker stack increased from 6,144 to **8,192 bytes** (allocated once); task stack high-water mark and ESP heap telemetry published.
+- Stream starts are **refused before task creation** if free heap or largest contiguous block is too small, and likewise refused when subsequent run memory is critically low, preserving resources for Wi-Fi and HTTP. These low-memory refusals set `needs_reboot=true`.
+- A malformed or missing `spi_stream_prepare` UART response can be retried **once**, and only **before any SPI DMA is queued**. Raw decoded reply is captured as a bounded, printable sample (`stream_prepare_reply_sample`) with error category (`stream_prepare_error`) and cumulative counter; no stream-send phase is retried automatically.
+- Keep legacy CP/M UART transport, the old one-sector SD test and synthetic SPI test unchanged. Teensy firmware, SD images, Wi-Fi and OTA routes are unchanged by this repair.
+
+### Memory and stability regression (run this BEFORE 128 sectors)
+
+Power-cycle or reset the ESP32 to clear any heap already lost under the old firmware, then flash the **updated ESP32-only** firmware via `/updater`. There is no need to rebuild/flash Teensy since its framing and handler code did not change. Retain the previous stable ESP32 binary in case a rollback is needed.
+
+1. Verify `/z80`, `/cpmmedia`, `/updater`, and CP/M `DIR` on a fresh boot.
+2. Run existing **read-only SD sector test (4 MHz)** for **1 sector**, verifying the established baseline.
+3. Run new **batched framed SD stream** for **1 sector**, once. Save JSON including `heap_before_stream`, `heap_after_stream`, `heap_free_now`, `heap_min_free`, `heap_largest_free_block`, `stream_worker_stack_high_water`, `stream_worker_launch_failures` and `stream_prepare_parse_failures`.
+4. Repeat the **1-sector batch 20–30 times** without restarting ESP32, checking that `heap_after_stream` does not monotonically decline, the web UI keeps loading, and `stream_worker_launch_failures=0`. Initial allocation of the persistent worker should lower free heap **once**, not once per batch. The min-free value is a historic low-water mark, not the current heap.
+5. If heap remains stable, run **16 sectors** a few times, then **128 sectors** with HP-85 idle. Only then repeat 128 with SIMON85 graphics active. Stop at any fail or web-service issue.
+6. If PREPARE JSON still fails, send complete `/api/spitest` status plus `/z80debug` while reachable; the new bounded `stream_prepare_reply_sample` and `stream_prepare_error` should distinguish malformed UART frames from heap failures.
+
+The source change has been inspected for basic protocol compatibility, but **this revised ESP32 firmware has not been compiled or exercised on hardware**. Do not treat the resource leak as fully fixed until repeated runs and web regressions pass.
+
+## CRITICAL HP-85 bus crash and interrupt-free correction (2026-10-18)
+
+**STOP using the previous Teensy READY-interrupt firmware.** User's first 1-sector batched test after the edge-ISR update locked up the HP-85 immediately. ESP32 reported `ESP_ERR_TIMEOUT` (263) after 2,542,203 µs, `stream_frames_received=0`, `READY=1`, `needs_reboot=true`, healthy heap and no DMA-completed frame. This is consistent with the Teensy no longer servicing the bus or initiating SPI.
+
+**Verified source conflict:** EBTKS installs a custom high-priority `pinChange_isr` on **`IRQ_GPIO6789`** in `src/EBTKS_Bus_Interface_ISR.cpp` → `setupPinChange()`. The routine implements HP bus PHI1 rise/fall servicing. The new `attachInterrupt(...READY pin 6..., FALLING)` used that SAME shared interrupt infrastructure, jeopardizing the essential HP bus handler; this was an unsafe design mistake. **No ordinary Arduino GPIO attachInterrupt is permitted on this shared vector in EBTKS.**
+
+**New correction on BOTH feature branches (source review only, NOT compiled or hardware-tested):**
+
+- Completely eliminate READY `attachInterrupt()`, its callback and GPIO interrupt-mask changes. The Teensy now uses ordinary **digitalReadFast() level polling only**; HP bus interrupts remain enabled and their vector is untouched.
+- After sending each non-final frame and releasing CS, Teensy immediately waits for READY to go **LOW**, confirming the previous descriptor completed, then subsequently waits for READY to go **HIGH** before sending the next frame.
+- ESP32 holds READY LOW for **5 FreeRTOS ticks (nominally about 5 ms)** before arming each subsequent descriptor. This makes the low phase long enough to observe without interrupts. Both waits are bounded; this is an intentionally conservative diagnostic handshake, **not a mathematically race-free production protocol** under all workloads.
+- Teensy reports `ready_low_phases`, `ready_wait_us`, `ready_max_wait_us` and `ready_wait_failure`; ESP32 exposes `stream_ready_low_phases`.
+- Teensy preflight response `spi_stream_prepare` now includes `"ready_protocol":"poll_low_v2"`; ESP32 must verify the marker before queuing **any** DMA or sending `spi_stream_send`. This explicitly blocks accidental testing with the unsafe older Teensy firmware.
+- SPI stays 4 MHz, MODE0, 528-byte CRC/session-checked frames, read-only SD. Working CP/M UART/Base64, per-sector SD tests, Wi-Fi, HP-85 bus handling, and both `main` branches are unchanged.
+
+**Safety and first-run:** Power down/reset the HP-85 and EBTKS after a lockup. Retain known-good firmware binaries. Flash updated ESP32 **first**, then updated Teensy; no tests until both are flashed. Confirm ordinary HP-85 BASIC/SIMON85 and CP/M prompt without testing the stream. Then, only if comfortable performing another supervised hardware test, verify existing synthetic / legacy SD 4-MHz diagnostics and try **one** framed stream sector with HP-85 idle. Do not repeat a failure or attempt 128 sectors immediately. Stop on any HP lockup. The proven old per-sector read-only SD SPI diagnostic is the fallback. This version has **not** yet been compiled or tested on physical hardware.
+
+## Long-batch DMA failure and READY edge repair (2026-10-18, pending compilation/hardware test)
+
+**Observed post-leak-repair hardware run:** After roughly 60 batched stream runs, including successful 1- and 16-sector tests, the second 128-sector test failed at **frame/block 61** on run **72**. Status: `state=failed`, `needs_reboot=true`, `stream_frames_received=61`, `completed_sectors=61`, `stream_bad_frames=0`, `stream_wire_bytes=32,208` (61 × 528 bytes), `stream_crc_esp=30573`, `stream_crc_teensy=0`, `failed_sector=61`, `wall_us=176040`. **Memory looks healthy:** `heap_before_stream=94096`, `heap_after_stream=97928`, `heap_free_now=94104`, `heap_min_free=70764`, `heap_largest_free_block=36852`, `stream_worker_stack_high_water=6004`, `stream_worker_launch_failures=0` and `stream_prepare_parse_failures=0`. This strongly suggests the worker lifetime/memory leak repair was effective, though repeated tests are still needed.
+
+**Diagnosis:** The Teensy previously gated every frame on `READY == HIGH` alone. ESP32's `post_setup` callback sets READY HIGH when a descriptor is armed and `post_trans` drives READY LOW after a transfer; the ESP32 then requeues a fresh descriptor, driving READY HIGH again. A stale HIGH from the previous DMA descriptor, or an exceedingly short LOW pulse missed by polling while the Teensy is reading SD, could cause a premature next frame. The ESP32 grouped **early driver error**, **wrong returned descriptor** and **short completed frame** into the same `Stream SPI DMA incomplete` detail. The reported 176ms runtime is too short for the configured 2.5s `spi_slave_get_trans_result` timeout, therefore the exact failure may have been **an early error or a short transaction**, not a 2.5s hang. The stale-READY hypothesis is plausible, **not yet conclusively proven**.
+
+**Changes on BOTH feature branches:**
+
+- **Teensy:** `EBTKS_SPI_Stream.h` now installs a minimal **FALLING-edge interrupt on READY (Teensy pin 6 / CN3-26)**. The interrupt counts each falling edge even during `SD.read()` and CPU/HP-85 activity. The first frame can start as soon as its initial READY HIGH is observed; every subsequent frame must observe a **new READY falling event after the previous frame's CS-low start** AND a current READY HIGH before asserting CS. This works even if ESP32 requeues fast and the low pulse has ended by the time the Teensy polls. Edge and HIGH waits are bounded to 2 seconds, with no interrupts disabled. Teensy final batch reply records `ready_falling_edges`, `ready_wait_us`, `ready_max_wait_us` and `ready_wait_failure` (0=none, 1=missing new falling edge, 2=READY never returned HIGH).
+- **ESP32:** On failing DMA result, snapshot exact `esp_err_t`, returned descriptor match, actual bit count (expected **4224 bits / 528 bytes**), GPIO READY level, frame index and elapsed time, and expose them on `/api/spitest` via `stream_dma_error`, `stream_dma_error_code`, `stream_dma_actual_bits`, `stream_dma_expected_bits`, `stream_dma_descriptor_matches`, `stream_dma_ready_level`. If the transfer succeeded, Teensy's READY metrics are included in JSON under `stream_ready_*`. A failure still sets `needs_reboot=true` because descriptor state or the Teensy's in-progress burst may be uncertain.
+- **Unchanged:** 4 MHz SPI mode 0, 528-byte frames, CRC/session checks, the persistent ESP32 worker, read-only SD access, original individual-sector diagnostics and CP/M UART/Base64 transport. No changes to either `main` branch.
+
+**New test sequence:** Rebuild/flash **BOTH** Teensy and ESP32 feature branches for this fix. First confirm existing synthetic 4 MHz full-duplex and legacy single-sector SD test. Run batched **1 sector**, then **16 sectors**; if both pass, repeat **128 sectors** several times with the HP-85 idle, watching `stream_bad_frames=0`, matching aggregate CRCs and any `stream_dma_*` errors; finally repeat during SIMON85 graphics. If any `needs_reboot=true`, reboot ESP32 before retry. If a 128-sector run fails again, save **all** diagnostic JSON and `/z80debug` logs; the new fields are designed to tell short-frame errors from timeouts. This revised firmware has been source-reviewed for code consistency but has **not** been compiled locally or run on physical hardware.
+
+## Why this is generic
+
+The Teensy 4.1 remains the **SPI master**, the ESP32 SPI2 its **slave**. UART carries stream *control* and completion status; SPI carries opaque binary frames. The binary framing layer knows nothing about SD files or CRT layout. A source adapter on the Teensy supplies 512-byte payloads. The first `kind=1` producer reads CP/M image sectors **O_RDONLY**; a future `kind=2` producer could supply an HP-85 text/graphics screen dump (split into padded 512-byte blocks with logical length in stream metadata). That CRT producer is **not implemented in this build**, and no existing screen-copy command has been altered.
+
+The same unchanged version-1 frame codec exists in `EBTKS_SPI_Stream_Frame.h` (Teensy) and `spi_stream_frame.h` (ESP32). Both independently implement CRC-16/Modbus, little-endian fields, header generation/checking and packet type/sequence validation.
+
+### Frame format (528 bytes per transaction)
+
+| Offset | Bytes | Description |
+|---|---:|---|
+| 0–1 | 2 | Magic `85 53` |
+| 2 | 1 | Protocol version `1` |
+| 3 | 1 | Producer kind (`1` SD read; `2` reserved for CRT) |
+| 4–5 | 2 | Stream session ID (little-endian) |
+| 6–7 | 2 | Zero-based frame number within session |
+| 8–9 | 2 | Payload size, currently exactly 512 |
+| 10–11 | 2 | CRC-16/Modbus of 512-byte payload |
+| 12–13 | 2 | Flags; bit 0 means source read error |
+| 14–15 | 2 | CRC-16/Modbus of first 14 header bytes |
+| 16–527 | 512 | Unencoded binary data payload |
+
+Headers and payloads are CRC-checked separately. The ESP32 rejects wrong session IDs, frame indices, kinds and packet lengths. A failed SD read produces an error-flagged frame rather than silently substituting valid data. The receiver **drains remaining frames even on recoverable CRC/metadata errors** to keep DMA ownership safe; the test ultimately fails, with `stream_first_error` and `failed_sector`. A missing DMA completion forces `needs_reboot=true`.
+
+### Control flow — two UART round trips per *batch*, not per sector
+
+1. ESP32 sends `spi_stream_prepare` with a path, starting 512-byte sector, count and session ID. Teensy validates a direct `/cpm/disks/<filename>` path, opens it `O_RDONLY`, checks that **the entire requested range fits in the file**, closes it and responds. **On invalid path/range no DMA is queued.**
+2. ESP32 takes the existing serialized Teensy-UART mutex, queues its first DMA RX descriptor (528 bytes) and sends **one** `spi_stream_send` UART command for the whole session.
+3. Teensy opens/positions the file once, sequentially reads one 512-byte sector at a time, prepares a CRC-protected frame, waits for ESP32 `READY`, then clocks it over **SPI mode 0 at 4 MHz**, with HP-bus interrupts enabled. ESP32 reaps each DMA transaction, validates the frame, and queues the next descriptor. The Teensy does not send UART acknowledgments per sector.
+4. After transmitting the last frame, Teensy returns **one** UART reply with completed frame count, aggregate payload CRC, SD-read time, SPI loop time and min/max frame time. ESP32 verifies all frames and compares aggregate CRCs before claiming success; the mutex is then released.
+5. The original `spi_sd_prepare` / `spi_sd_send` **two-UART-round-trip-per-sector** diagnostic remains unchanged as a baseline, as does synthetic full-duplex `/spitest`.
+
+**Note:** Batching reduces *control-message overhead*, but it still uses one ESP32 slave DMA descriptor and one CS pulse per 528-byte frame. This is not a single continuous 64 KiB SPI transfer. We have not yet implemented retries or production-grade fallback; the batched path is opt-in diagnostic-only.
+
+### Concurrency and safety
+
+- **SPI mode 0, 4,000,000 Hz** fixed for this pilot (8 MHz mode 1 previously failed; 8 MHz mode 0 passed hardware stress but has margin concerns with Dupont jumpers).
+- The shared Teensy UART mutex remains locked throughout the burst, preventing CP/M UART requests from interleaving with control responses. Leave the Z80 at its command prompt. HP-85 bus **interrupts remain enabled** during SD reads and SPI loops.
+- SD access is strictly **read-only** and constrained to named files directly under `/cpm/disks/`. There is no modification of CP/M mounted drives, SD images or live CP/M disk reads/writes.
+- Do not attempt a new SPI test while a previous one runs. If JSON says `needs_reboot=true`, reboot the ESP32 before retrying. Preserve the proven binaries.
+- Tested board MISO jumper: **Teensy CN3-29 ↔ ESP32 CN3-17** (physically verified WROOM GPIO17/pad 28). The published EBTKS V3 schematic is incorrect on this mapping.
+
+## Optional frame-only host regression
+
+The ESP32 feature branch includes `tests/spi_stream_frame_selftest.cpp`, which has no Arduino dependencies. On a development machine with `g++` installed, run this before flashing:
+
+```sh
+g++ -std=c++11 -Wall -Wextra -pedantic tests/spi_stream_frame_selftest.cpp -o /tmp/ebtks_spi_frame_test
+/tmp/ebtks_spi_frame_test
+```
+
+The self-test checks the known CRC-16/Modbus vector `123456789` (expected `0x4B37`), successful SD/CRT typed frames, wrong session/frame/type, header corruption, payload corruption and source-error flags. This only checks the portable frame codec; **it does not replace PlatformIO compilation or physical SPI tests.**
+
+## Pull, compile, flash
+
+Use **both** repositories' `feature/cn3-spi-read-test` branches.
+
+Teensy:
+
+```sh
+git switch feature/cn3-spi-read-test
+git pull --ff-only
+pio run -e teensy41
+pio run -e teensy41 -t upload
+```
+
+ESP32:
+
+```sh
+git switch feature/cn3-spi-read-test
+git pull --ff-only
+pio run -e esp32dev -t clean
+pio run -e esp32dev
+```
+
+Upload only `.pio/build/esp32dev/firmware.bin` via the existing `/updater` page. No flash erase or SD formatting.
+
+### First-run test order
+
+1. Confirm HP-85 operation, the Z80 CP/M prompt, and `/spitest`. Run the **existing synthetic full-duplex 4 MHz mode 0, one sector** test.
+2. Run the **existing "Read SD sectors over SPI (4 MHz)"** diagnostic, using `/cpm/disks/A.dsk` if that file is present, sector 0 and count 1, to verify the previous baseline.
+3. With the same file and inputs, click **"Batched framed SD stream (4 MHz, read-only)"**, initially for **1 sector**. Inspect `state`, `test_kind=sd_stream_framed`, `stream_bad_frames`, `stream_crc_esp`, `stream_crc_teensy`, `stream_frames_received`, and `needs_reboot`.
+4. If step 3 passes, try **16 sectors**, then **128 sectors** with the HP-85 idle. Record `wall_us` and compare with the previous SD test's idle results: approximately **0.961 s for 16 sectors** and **7.710 s for 128 sectors**.
+5. Only then repeat **128 sectors while a SIMON85 HP BASIC graphics program draws/fills ellipses**, checking graphics responsiveness and sector CRCs.
+6. Finally retest Z80 CP/M `DIR`, Telnet, WebSocket terminal, main EBTKS Web UI and updater. The live disk path must still work on UART/Base64.
+
+REST endpoints:
+
+```sh
+curl -X POST 'http://<EBTKS-IP>/api/spitest/stream?path=%2Fcpm%2Fdisks%2FA.dsk&first=0&sectors=1'
+curl 'http://<EBTKS-IP>/api/spitest'
+```
+
+When `state=passed`, `stream_frames_received=sectors`, `completed_sectors=sectors`, `stream_bad_frames=0`, `stream_crc_esp=stream_crc_teensy`, and `sd_crc_match=true` should all hold. Each 512-byte payload receives a protected 16-byte header: 128 frames = **67,584 wire bytes** carrying **65,536 payload bytes** (3.125% packet-header overhead, before CS/delays).
+
+**Request/response examples** and a future CRT producer should reuse the framing layer, but the image-specific semantics (pixel format, resolution, logical length, capture synchronization) belong in separate metadata and source adapters, not in this SPI code.
+
+### Next milestone after physical passes
+
+Only after 1/16/128-sector tests succeed should we consider opt-in **read-only CP/M disk reads over the framed SPI transport**, with end-to-end CRCs, bounded retry, a UART/Base64 fallback, safe disk-image selection and no changes to writes until separately tested. Generalize the service further for CRT framebuffer uploads/downloads after defining ownership, buffer format and HP-85 screen-capture timing.
