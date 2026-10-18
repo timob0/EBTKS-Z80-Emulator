@@ -13,7 +13,7 @@
 
 static constexpr spi_host_device_t SPI_TEST_HOST = HSPI_HOST;
 static constexpr int SPI_TEST_MOSI = 22;   // CN3-21
-static constexpr int SPI_TEST_MISO = 17;   // WROOM pad 28; verify CN3 pin on PCB
+static constexpr int SPI_TEST_MISO = 17;   // CN3-17 on tested board; WROOM pad 28
 static constexpr int SPI_TEST_SCLK = 16;   // CN3-14
 static constexpr int SPI_TEST_CS = 32;     // CN3-4, external 10k pull-up
 static constexpr int SPI_TEST_READY = 27;  // CN3-8
@@ -34,7 +34,7 @@ static volatile uint32_t spiTestHz = 1000000;
 static volatile uint16_t spiTestSectors = 1;
 static volatile uint8_t spiTestPattern = 0; // 0..4 fixed; 5=cycle by sector
 static volatile bool spiTestBidi = false; // false keeps original MOSI-only test
-static volatile uint8_t spiTestMode = 1;  // ESP-IDF recommends mode 1 with DMA TX
+static volatile uint8_t spiTestMode = 0;  // 8 MHz mode 0 hardware-tested; mode 1 selectable
 static volatile bool spiTestGpioMode = false; // separate GPIO-only isolation check
 static volatile int spiTestGpioLow = -1;
 static volatile int spiTestGpioHigh = -1;
@@ -532,16 +532,17 @@ every byte at the receiving end and comparing independent CRCs via UART.
 No CP/M disks are read or written; normal CP/M still uses UART/Base64.</p>
 <p>Both test firmwares and the five CN3 jumpers + 10k CS pull-up are required.
 Leave CP/M idle at the prompt during stress testing. Start with a single
-1 MHz full-duplex sector in <strong>SPI mode 1</strong> before increasing the
-clock. ESP-IDF 4.4's SPI slave DMA TX timing recommends modes 1/3.
-Mode 0 remains available as a diagnostic comparison.</p>
+1 MHz full-duplex sector in <strong>SPI mode 0</strong> before increasing the
+clock. On this board SPI mode 0 repeatedly passed 8 MHz/128 sectors.
+Mode 1 is available for comparison but fails MISO at 8 MHz.
+ESP-IDF notes the GPIO-matrix MISO timing margin is limited at 8 MHz.</p>
 <label>Direction <select id="bidi">
 <option value="1" selected>Full duplex: Teensy ↔ ESP32</option>
 <option value="0">MOSI only: Teensy → ESP32 (regression)</option>
 </select></label>
 <label>SPI mode <select id="mode">
-<option value="1" selected>Mode 1 (DMA TX recommended)</option>
-<option value="0">Mode 0 (previous baseline)</option>
+<option value="0" selected>Mode 0 (8 MHz hardware-tested)</option>
+<option value="1">Mode 1 (8 MHz MISO failures observed)</option>
 </select></label>
 <label>SPI clock <select id="hz"><option value="1000000" selected>1 MHz</option>
 <option value="2000000">2 MHz</option><option value="4000000">4 MHz</option>
@@ -559,7 +560,7 @@ Mode 0 remains available as a diagnostic comparison.</p>
 <pre id="out">Loading status…</pre>
 <p>If MISO fails, inspect <code>miso_first16_hex</code>. Thirty-two zeros
 means the first 16 Teensy-received bytes were all zero; use a 1 MHz test
-and check the MISO jumper ESP GPIO17 (CN3 pin must be verified) ↔ CN3-29 (Teensy pin 12).
+and check the MISO jumper ESP GPIO17 (CN3-17 physically verified on this board) ↔ CN3-29 (Teensy pin 12).
 8 MHz MISO over GPIO matrix is beyond ESP-IDF's conservative timing limit.
 </p><p>In full duplex each 512-byte transaction carries 512 bytes <em>each way</em>.
 SPI KiB/s is quoted per direction and includes Teensy software CRC, pattern
