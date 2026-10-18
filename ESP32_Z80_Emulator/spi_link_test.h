@@ -762,7 +762,7 @@ static const char SPI_TEST_PAGE[] PROGMEM = R"SPIHTML(
 <title>EBTKS CN3 SPI full-duplex diagnostics</title>
 <style>
 body{font:16px system-ui;background:#202124;color:#f0f0f0;max-width:780px;margin:30px auto;padding:15px}
-button,select{font:inherit;padding:10px;border-radius:5px}
+button,select,input{font:inherit;padding:10px;border-radius:5px}
 button{background:#2383d1;color:white;border:0;cursor:pointer}
 button:disabled{opacity:.45}
 label{display:inline-block;margin:8px 16px 8px 0}
@@ -770,10 +770,11 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#111;padding:15px;bor
 a{color:#80c4ff}
 </style></head><body><h2>CN3 SPI speed &amp; bidirectional reliability</h2>
 <p><strong>Feature branch only.</strong> Teensy SPI master / ESP32 SPI slave.
-Each block is an independently checked 512-byte DMA transaction. Full duplex
-transmits different patterns in both directions simultaneously, checking
-every byte at the receiving end and comparing independent CRCs via UART.
-No CP/M disks are read or written; normal CP/M still uses UART/Base64.</p>
+Choose the proven synthetic SPI diagnostic or the new <strong>read-only
+SD disk-image sector test</strong>. Synthetic full duplex verifies both
+directions. The SD test reads actual sectors from a file in /cpm/disks/
+with O_RDONLY, validates SD/read/SPI CRCs, and sends raw bytes without
+Base64. It never writes an image. Normal CP/M still uses UART/Base64.</p>
 <p>Both test firmwares and the five CN3 jumpers + 10k CS pull-up are required.
 Leave CP/M idle at the prompt during stress testing. Start with a single
 1 MHz full-duplex sector in <strong>SPI mode 0</strong> before increasing the
@@ -788,8 +789,8 @@ ESP-IDF notes the GPIO-matrix MISO timing margin is limited at 8 MHz.</p>
 <option value="0" selected>Mode 0 (8 MHz hardware-tested)</option>
 <option value="1">Mode 1 (8 MHz MISO failures observed)</option>
 </select></label>
-<label>SPI clock <select id="hz"><option value="1000000" selected>1 MHz</option>
-<option value="2000000">2 MHz</option><option value="4000000">4 MHz</option>
+<label>SPI clock <select id="hz"><option value="1000000">1 MHz</option>
+<option value="2000000">2 MHz</option><option value="4000000" selected>4 MHz</option>
 <option value="8000000">8 MHz</option></select></label>
 <label>Transfer count <select id="sectors"><option value="1" selected>1 sector (512 B)</option>
 <option value="16">16 sectors (8 KiB)</option>
@@ -799,8 +800,16 @@ ESP-IDF notes the GPIO-matrix MISO timing margin is limited at 8 MHz.</p>
 <option value="0">Sequence/ramp</option><option value="1">All 00</option>
 <option value="2">All FF</option><option value="3">Alternating 55/AA</option>
 <option value="4">Walking one</option></select></label>
-<p><button id="run" onclick="start()">Run SPI test</button>
+<p><button id="run" onclick="start()">Run synthetic SPI test</button>
 <button id="gpio" onclick="gpioCheck()">Check MISO wire (GPIO LOW/HIGH)</button></p>
+<hr><h3>Real SD sector read → SPI (4 MHz, mode 0, READ-ONLY)</h3>
+<p>Leave CP/M at the prompt. Enter the exact image filename from
+<a href="/cpmmedia">CP/M Media Manager</a>, under <code>/cpm/disks/</code>.
+The test opens it <code>O_RDONLY</code>; it does not mount, modify or write
+the image. Select 1 sector first, then 16 and 128 while SIMON85 draws.</p>
+<label>SD image <input id="sdpath" size="30" value="/cpm/disks/A.dsk"></label>
+<label>Starting 512-byte sector <input id="sdsector" type="number" min="0" step="1" value="0" size="8"></label>
+<p><button id="sdRun" onclick="startSd()">Read SD sectors over SPI (4 MHz)</button></p>
 <pre id="out">Loading status…</pre>
 <p>If MISO fails, inspect <code>miso_first16_hex</code>. Thirty-two zeros
 means the first 16 Teensy-received bytes were all zero; use a 1 MHz test
@@ -820,6 +829,7 @@ async function refresh(){
     document.getElementById('out').textContent=JSON.stringify(j,null,2);
     document.getElementById('run').disabled=j.state==='running'||j.needs_reboot;
     document.getElementById('gpio').disabled=j.state==='running'||j.needs_reboot;
+    document.getElementById('sdRun').disabled=j.state==='running'||j.needs_reboot;
   } catch(e) {document.getElementById('out').textContent=String(e)}
 }
 async function start(){
@@ -838,6 +848,16 @@ async function gpioCheck(){
   if(!r.ok)alert(await r.text());
   refresh();
 }
+async function startSd(){
+  const path=document.getElementById('sdpath').value.trim(),
+    first=document.getElementById('sdsector').value,
+    sectors=document.getElementById('sectors').value;
+  const u='/api/spitest/sd?path='+encodeURIComponent(path)+'&first='+
+    encodeURIComponent(first)+'&sectors='+encodeURIComponent(sectors);
+  const r=await fetch(u,{method:'POST'});
+  if(!r.ok)alert(await r.text());
+  refresh();
+}
 setInterval(refresh,700);refresh();
 </script></body></html>
 )SPIHTML";
@@ -846,6 +866,35 @@ inline void spiTestRegister(AsyncWebServer &server)
 {
   server.on("/spitest", HTTP_GET, [](AsyncWebServerRequest *r) {
     r->send(200, "text/html", SPI_TEST_PAGE);
+  });
+  server.on("/api/spitest/sd", HTTP_POST, [](AsyncWebServerRequest *r) {
+    if (!r->hasParam("path") || !r->hasParam("first") ||
+        !r->hasParam("sectors")) {
+      r->send(400, "text/plain", "SD test needs path, first, sectors");
+      return;
+    }
+    const String path = r->getParam("path")->value();
+    const String startText = r->getParam("first")->value();
+    const String sectorsText = r->getParam("sectors")->value();
+    // Strict unsigned decimal parsing, including rejecting negatives and
+    // overflow; no accidental wraparound before the bounds check.
+    bool validDigits = startText.length() > 0 && startText.length() <= 7;
+    for (size_t i = 0; i < startText.length(); ++i)
+      if (startText[i] < '0' || startText[i] > '9') validDigits = false;
+    const uint32_t first = validDigits ?
+        (uint32_t)strtoul(startText.c_str(), nullptr, 10) : UINT32_MAX;
+    const uint16_t sectors = (sectorsText == "1") ? 1 :
+                             (sectorsText == "16") ? 16 :
+                             (sectorsText == "128") ? 128 : 0;
+    if (!validDigits || !spiTestSdPathValid(path) || !sectors ||
+        first > ((UINT32_MAX / SPI_TEST_BYTES) - SPI_TEST_MAX_SECTORS)) {
+      r->send(400, "text/plain",
+              "Invalid SD file, start sector or count; use /cpm/disks/<file>");
+    } else if (!spiTestSdStart(path, first, sectors)) {
+      r->send(409, "text/plain", "SD SPI test busy or ESP32 reboot required");
+    } else {
+      r->send(202, "application/json", "{\"started\":true,\"read_only\":true,\"clock_hz\":4000000}");
+    }
   });
   server.on("/api/spitest/gpio", HTTP_POST, [](AsyncWebServerRequest *r) {
     if (!spiTestGpioStart())
@@ -880,7 +929,8 @@ inline void spiTestRegister(AsyncWebServer &server)
     doc["state"] = state == 0 ? "idle" : state == 1 ? "running" :
                    state == 2 ? "passed" : "failed";
     doc["detail"] = spiTestDetail;
-    doc["test_kind"] = spiTestGpioMode ? "gpio_miso" : "spi";
+    doc["test_kind"] = spiTestGpioMode ? "gpio_miso" :
+                       spiTestSdMode ? "sd_readonly_spi" : "spi";
     doc["gpio_low_read"] = (int)spiTestGpioLow;
     doc["gpio_high_read"] = (int)spiTestGpioHigh;
     doc["needs_reboot"] = (bool)spiTestNeedsReboot;
@@ -896,6 +946,18 @@ inline void spiTestRegister(AsyncWebServer &server)
     doc["completed_bytes"] = (uint32_t)spiTestCompleted * SPI_TEST_BYTES;
     doc["completed_bytes_total"] = (uint32_t)spiTestCompleted *
                                     SPI_TEST_BYTES * (spiTestBidi ? 2U : 1U);
+    doc["sd_read_only"] = (bool)spiTestSdMode;
+    if (spiTestSdMode) {
+      doc["sd_file"] = spiTestSdPath;
+      doc["sd_start_sector"] = (uint32_t)spiTestSdFirstSector;
+      doc["sd_file_bytes"] = (uint32_t)spiTestSdFileSize;
+      doc["sd_read_us"] = (uint32_t)spiTestSdReadUs;
+      doc["sd_crc_prepared"] = (uint16_t)spiTestSdPreparedCrc;
+      doc["sd_crc_sent"] = (uint16_t)spiTestSdSentCrc;
+      doc["sd_first16_hex"] = spiTestSdFirst16Hex;
+      doc["sd_crc_match"] = spiTestSdPreparedCrc == spiTestSdSentCrc &&
+                            spiTestCrcLocal == spiTestSdPreparedCrc;
+    }
     doc["failed_sector"] = (int)spiTestFailSector;
     doc["failed_pattern"] = (int)spiTestFailPattern;
     doc["first_mismatch_byte"] = (int)spiTestMismatchAt; // MOSI on ESP32
