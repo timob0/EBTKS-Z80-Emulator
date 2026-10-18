@@ -11,6 +11,8 @@ The two matching branches are:
 
 The original purpose is to measure reliability at 1, 2, 4, and 8 MHz and verify 128 consecutive 512-byte transactions (64 KiB), without modifying any live disk image. The new optional full-duplex mode also transmits a distinct 512-byte pattern from ESP32 SPI2 TX DMA to Teensy SPI0 RX during each transaction. **Normal CP/M disk access still uses UART/JSON/Base64.** The web UI, OTA, HP bus ISR, SD handling, and UART control protocol are preserved.
 
+**Important 2026-10-18 wiring correction:** The MISO entry in older test instructions and SVG was wrong. Do not connect Teensy CN3-29 to ESP CN3-13 for the GPIO17 MISO test. Compare EBTKS V3.0 published drawing to actual PCB by power-off continuity: WROOM pin 28 (GPIO17) to CN3-15 versus CN3-17. The user reports CN3-17 on the actual board, while published schematic appears to show E17 at CN3-15. The firmware deliberately uses GPIO17. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md).
+
 ## Wiring and prerequisites
 
 Use exactly the wiring verified for the first SPI test. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md) for detailed orientation and 3.3 V cautions.
@@ -18,7 +20,7 @@ Use exactly the wiring verified for the first SPI test. See [CN3_SPI_PROPOSAL.md
 | Wire | Teensy / CN3 | ESP32 / CN3 |
 |---|---|---|
 | MOSI | T11 / pin 33 | E22 / pin 21, GPIO22 |
-| MISO | T12 / pin 29 | E17 / pin 13, GPIO17 |
+| MISO | T12 / pin 29 | **GPIO17 / WROOM module pad 28 — CN3 pin must be measured** (published EBTKS schematic suggests CN3-15; user reports actual board CN3-17). **CN3-13 is GPIO4 and was WRONG in prior instructions.** |
 | CLK | T13 / pin 24 | E16 / pin 14, GPIO16 |
 | CS_N | T26 / pin 30 | E34 / pin 4, GPIO32 |
 | READY | T06 / pin 26 | E27 / pin 8, GPIO27 |
