@@ -896,7 +896,18 @@ inline void spiTestStreamRun()
   const int returnedSession = pr["session"] | -1;
   const uint32_t returnedFirst = pr["first"] | UINT32_MAX;
   const int returnedCount = pr["count"] | -1;
+  const char *readyProtocol = pr["ready_protocol"] | "";
   spiTestSdFileSize = pr["file_size"] | 0UL;
+  // ABSOLUTE safety gate: older Teensy framed sender used attachInterrupt()
+  // on READY, which conflicts with EBTKS's custom IRQ_GPIO6789 bus handler.
+  // Reject that firmware BEFORE queuing any SPI DMA or issuing stream_send.
+  if (strcmp(readyProtocol, "poll_low_v2") != 0) {
+    spiTestFailure("Unsafe/mismatched Teensy stream firmware: flash both boards; no DMA queued");
+    spiTestWallUs = (uint32_t)(micros() - started);
+    Serial.printf("SPI stream REFUSED: Teensy READY protocol '%s' (need poll_low_v2)\n",
+                  readyProtocol);
+    return;
+  }
   if (!ready || returnedSession != session || returnedFirst != first ||
       returnedCount != count) {
     spiTestFailure("Stream prepare rejected path or sector span; no DMA queued");
