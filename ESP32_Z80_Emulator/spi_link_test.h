@@ -35,6 +35,9 @@ static volatile uint16_t spiTestSectors = 1;
 static volatile uint8_t spiTestPattern = 0; // 0..4 fixed; 5=cycle by sector
 static volatile bool spiTestBidi = false; // false keeps original MOSI-only test
 static volatile uint8_t spiTestMode = 1;  // ESP-IDF recommends mode 1 with DMA TX
+static volatile bool spiTestGpioMode = false; // separate GPIO-only isolation check
+static volatile int spiTestGpioLow = -1;
+static volatile int spiTestGpioHigh = -1;
 static char spiTestMisoHeadHex[33] = {}; // first 16 actual Teensy RX bytes
 static volatile uint16_t spiTestCompleted = 0;
 static volatile int spiTestFailSector = -1;
@@ -377,6 +380,113 @@ inline void spiTestWorker(void *)
   vTaskDelete(nullptr);
 }
 
+// GPIO-only isolation test; no SCLK/CS pulses, no SPI DMA or disk I/O.
+// The UART handler on Teensy temporarily makes pin 12 a plain GPIO input.
+// ESP32 GPIO17 is released from the SPI slave driver before GPIO drive.
+// The two software samples decide whether the conductor/pin path works.
+inline bool spiTestGpioCheckLevel(int level, int &sample)
+{
+  digitalWrite(SPI_TEST_MISO, level ? HIGH : LOW);
+  vTaskDelay(pdMS_TO_TICKS(10)); // settle before serialized Teensy request
+  JsonDocument req;
+  JsonObject p = req["spi_gpio_probe"].to<JsonObject>();
+  p["level"] = level;
+  String message;
+  serializeJson(req, message);
+  String response;
+  if (!ebtksLinkTransaction(message, response, 1500)) return false;
+  JsonDocument reply;
+  if (deserializeJson(reply, response)) return false;
+  sample = reply["spi_gpio_probe"]["read"] | -1;
+  const int echoed = reply["spi_gpio_probe"]["level"] | -1;
+  return echoed == level && sample >= 0 && sample <= 1;
+}
+
+inline void spiTestGpioWorker(void *)
+{
+  const uint32_t started = micros();
+  spiTestDetail = "GPIO MISO test: releasing ESP32 SPI2";
+  spiTestGpioLow = -1;
+  spiTestGpioHigh = -1;
+  spiTestCompleted = 0;
+  spiTestFailSector = -1;
+  spiTestMismatchAt = -1;
+  spiTestMisoMismatchAt = -1;
+  spiTestCrcLocal = 0;
+  spiTestCrcRemote = 0;
+  spiTestMisoTxCrc = 0;
+  spiTestMisoRxCrc = 0;
+  spiTestElapsedUs = 0;
+  spiTestMinUs = 0;
+  spiTestMaxUs = 0;
+  spiTestWallUs = 0;
+  spiTestMisoHeadHex[0] = '\0';
+
+  // Never free a slave while DMA owns a transaction. The API refuses
+  // running concurrent tests, and incomplete SPI DMA sets needs_reboot.
+  if (spiTestInitialized) {
+    const esp_err_t err = spi_slave_free(SPI_TEST_HOST);
+    if (err != ESP_OK) {
+      spiTestFailure("GPIO test: SPI2 release failed; reboot required", true);
+      Serial.printf("SPI GPIO probe: spi_slave_free failed: %s\n",
+                    esp_err_to_name(err));
+      vTaskDelete(nullptr);
+      return;
+    }
+    spiTestInitialized = false;
+    spiTestInitializedMode = 255;
+  }
+
+  // SPI driver is now detached from GPIO17. Drive it as an ordinary output
+  // for two separate UART-triggered Teensy digital input samples.
+  pinMode(SPI_TEST_MISO, OUTPUT);
+  digitalWrite(SPI_TEST_MISO, LOW);
+  spiTestDetail = "GPIO MISO test: sampling LOW then HIGH";
+  int low = -1, high = -1;
+  const bool lowReply = spiTestGpioCheckLevel(0, low);
+  const bool highReply = spiTestGpioCheckLevel(1, high);
+  spiTestGpioLow = low;
+  spiTestGpioHigh = high;
+
+  // Return this pin to high impedance. The next SPI run reinitializes SPI2
+  // and its GPIO matrix mapping. Avoid leaving GPIO17 driven after a test.
+  digitalWrite(SPI_TEST_MISO, LOW);
+  pinMode(SPI_TEST_MISO, INPUT);
+  spiTestWallUs = (uint32_t)(micros() - started);
+
+  if (!lowReply || !highReply) {
+    spiTestFailure("GPIO MISO test: Teensy UART sample/status failed");
+  } else if (low != 0 || high != 1) {
+    spiTestFailure("GPIO MISO test: pin 12 did not follow ESP GPIO17 LOW/HIGH");
+  } else {
+    spiTestDetail = "GPIO17 -> Teensy pin 12 LOW/HIGH passed; test SPI TX next";
+    spiTestState = 2;
+  }
+  Serial.printf("SPI GPIO MISO probe: low=%d (%u) high=%d (%u) status=%s\n",
+                low, lowReply ? 1U : 0U, high, highReply ? 1U : 0U,
+                spiTestDetail);
+  vTaskDelete(nullptr);
+}
+
+inline bool spiTestGpioStart()
+{
+  if (spiTestState == 1 || spiTestNeedsReboot) return false;
+  spiTestState = 1;
+  spiTestGpioMode = true;
+  spiTestHz = 0;
+  spiTestSectors = 0;
+  spiTestPattern = 0;
+  spiTestBidi = false;
+  ++spiTestRunNumber;
+  const BaseType_t ok = xTaskCreatePinnedToCore(
+      spiTestGpioWorker, "SpiMisoGpio", 4096, nullptr, 1, nullptr, 0);
+  if (ok != pdPASS) {
+    spiTestFailure("Could not create GPIO MISO worker");
+    return false;
+  }
+  return true;
+}
+
 inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
                          uint8_t pattern = 0, bool bidi = false,
                          uint8_t mode = 0)
@@ -389,6 +499,9 @@ inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
   spiTestPattern = pattern;
   spiTestBidi = bidi;
   spiTestMode = mode;
+  spiTestGpioMode = false;
+  spiTestGpioLow = -1;
+  spiTestGpioHigh = -1;
   spiTestState = 1;
   ++spiTestRunNumber;
   const BaseType_t ok = xTaskCreatePinnedToCore(
@@ -441,7 +554,8 @@ Mode 0 remains available as a diagnostic comparison.</p>
 <option value="0">Sequence/ramp</option><option value="1">All 00</option>
 <option value="2">All FF</option><option value="3">Alternating 55/AA</option>
 <option value="4">Walking one</option></select></label>
-<p><button id="run" onclick="start()">Run SPI test</button></p>
+<p><button id="run" onclick="start()">Run SPI test</button>
+<button id="gpio" onclick="gpioCheck()">Check MISO wire (GPIO LOW/HIGH)</button></p>
 <pre id="out">Loading status…</pre>
 <p>If MISO fails, inspect <code>miso_first16_hex</code>. Thirty-two zeros
 means the first 16 Teensy-received bytes were all zero; use a 1 MHz test
@@ -460,6 +574,7 @@ async function refresh(){
     const r=await fetch('/api/spitest'), j=await r.json();
     document.getElementById('out').textContent=JSON.stringify(j,null,2);
     document.getElementById('run').disabled=j.state==='running'||j.needs_reboot;
+    document.getElementById('gpio').disabled=j.state==='running'||j.needs_reboot;
   } catch(e) {document.getElementById('out').textContent=String(e)}
 }
 async function start(){
@@ -473,6 +588,11 @@ async function start(){
   if(!r.ok)alert(await r.text());
   refresh();
 }
+async function gpioCheck(){
+  const r=await fetch('/api/spitest/gpio',{method:'POST'});
+  if(!r.ok)alert(await r.text());
+  refresh();
+}
 setInterval(refresh,700);refresh();
 </script></body></html>
 )SPIHTML";
@@ -481,6 +601,12 @@ inline void spiTestRegister(AsyncWebServer &server)
 {
   server.on("/spitest", HTTP_GET, [](AsyncWebServerRequest *r) {
     r->send(200, "text/html", SPI_TEST_PAGE);
+  });
+  server.on("/api/spitest/gpio", HTTP_POST, [](AsyncWebServerRequest *r) {
+    if (!spiTestGpioStart())
+      r->send(409, "text/plain", "GPIO MISO test busy or requires ESP32 reboot");
+    else
+      r->send(202, "application/json", "{\"started\":true}");
   });
   server.on("/api/spitest", HTTP_POST, [](AsyncWebServerRequest *r) {
     uint32_t hz = 1000000;
@@ -509,6 +635,9 @@ inline void spiTestRegister(AsyncWebServer &server)
     doc["state"] = state == 0 ? "idle" : state == 1 ? "running" :
                    state == 2 ? "passed" : "failed";
     doc["detail"] = spiTestDetail;
+    doc["test_kind"] = spiTestGpioMode ? "gpio_miso" : "spi";
+    doc["gpio_low_read"] = (int)spiTestGpioLow;
+    doc["gpio_high_read"] = (int)spiTestGpioHigh;
     doc["needs_reboot"] = (bool)spiTestNeedsReboot;
     doc["runs"] = (uint32_t)spiTestRunNumber;
     doc["bytes"] = (uint32_t)spiTestSectors * SPI_TEST_BYTES;
