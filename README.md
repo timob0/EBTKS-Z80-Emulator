@@ -1,14 +1,10 @@
-# EBTKS Z80 / CP/M integration — current project links
-
-**New user?** Follow the [Getting started guide](GETTING_STARTED.md) for the Teensy/ESP32 flashing sequence, SD-card layout, 8 MiB disk and HP 82900 LIF images, and a web UI walkthrough.
-
-**Hardware experiments:** [Proposed CN3 SPI pin assignment and 5-wire jumper diagram](CN3_SPI_PROPOSAL.md) (Teensy master ↔ ESP32 slave; **not yet hardware-tested**). TFT wiring remains deferred.
-
-> **Current development status (2026-10-19):** The authoritative **living** branch table and development checkpoint are in [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md). Do not assume `main` or matching ESP32/Teensy feature branches. The last user-tested ESP32 baseline is `feature/spi-readahead-liveness-diagnostics`; this `feature/esp32-stable-web-mainline` candidate preserves only the flash-backed page/liveness fixes and future CP/M file API design documents, deliberately leaving whole-image HTTP/SPI transfers out. It still needs a local build and hardware regression before merging into `main`. Teensy development baseline is now `main` after [PR #2](https://github.com/timob0/ebtks-alt-firmware/pull/2).
+> **Current verified baseline (2026-10-19):** Both the [ESP32 repository](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main) and [Teensy 4.1 repository](https://github.com/timob0/ebtks-alt-firmware/tree/main) now use `main`. The user compiled, flashed and successfully tested the latest firmwares on the physical HP-85. ESP32 clean Web UI consolidation merged in [PR #2](https://github.com/timob0/EBTKS-Z80-Emulator/pull/2); Teensy Media Manager upload support merged in [PR #2](https://github.com/timob0/ebtks-alt-firmware/pull/2). The obsolete experimental feature branches have been removed.
 >
-> The integrated EBTKS firmware runs Z80/CP/M alongside the HP-85, with Teensy SD-backed media, browser VT100 terminal independent of Telnet, CP/M warm-boot recovery, and CP/M media mounting. Next planned feature: create a blank native 8 MiB CP/M disk directly on the Teensy SD card. The original emulator README below is historical and may describe hardware not used by this integrated build.
+> **Branch policy:** **Never create a new feature branch without first asking the user and receiving explicit approval.** Development requests are not blanket permission to branch. The authoritative, living source status and next engineering goal are documented at the top of [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md). The immediate goal is a locally generated empty native 8 MiB CP/M disk image on Teensy SD, not accelerating whole-disk transfers.
+>
+> This integrated EBTKS firmware runs Z80/CP/M alongside HP-85 BASIC, uses Teensy SD-backed media, supports the browser VT100 terminal, CP/M warm-boot recovery and Media Manager. The original standalone emulator README below is historical and can describe different hardware.
 
-**For a new AI-assisted development chat:** Open [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md), follow the exact current branch links in its first section, and use the user-tested ESP32 rollback until the consolidation candidate has passed regression testing.
+**For new development conversations:** Read [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) first, then inspect the listed repository branches. Only branch if the user authorizes it.
 
 ---
 
