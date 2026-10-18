@@ -29,6 +29,23 @@ Power-cycle or reset the ESP32 to clear any heap already lost under the old firm
 
 The source change has been inspected for basic protocol compatibility, but **this revised ESP32 firmware has not been compiled or exercised on hardware**. Do not treat the resource leak as fully fixed until repeated runs and web regressions pass.
 
+## CRITICAL HP-85 bus crash and interrupt-free correction (2026-10-18)
+
+**STOP using the previous Teensy READY-interrupt firmware.** User's first 1-sector batched test after the edge-ISR update locked up the HP-85 immediately. ESP32 reported `ESP_ERR_TIMEOUT` (263) after 2,542,203 µs, `stream_frames_received=0`, `READY=1`, `needs_reboot=true`, healthy heap and no DMA-completed frame. This is consistent with the Teensy no longer servicing the bus or initiating SPI.
+
+**Verified source conflict:** EBTKS installs a custom high-priority `pinChange_isr` on **`IRQ_GPIO6789`** in `src/EBTKS_Bus_Interface_ISR.cpp` → `setupPinChange()`. The routine implements HP bus PHI1 rise/fall servicing. The new `attachInterrupt(...READY pin 6..., FALLING)` used that SAME shared interrupt infrastructure, jeopardizing the essential HP bus handler; this was an unsafe design mistake. **No ordinary Arduino GPIO attachInterrupt is permitted on this shared vector in EBTKS.**
+
+**New correction on BOTH feature branches (source review only, NOT compiled or hardware-tested):**
+
+- Completely eliminate READY `attachInterrupt()`, its callback and GPIO interrupt-mask changes. The Teensy now uses ordinary **digitalReadFast() level polling only**; HP bus interrupts remain enabled and their vector is untouched.
+- After sending each non-final frame and releasing CS, Teensy immediately waits for READY to go **LOW**, confirming the previous descriptor completed, then subsequently waits for READY to go **HIGH** before sending the next frame.
+- ESP32 holds READY LOW for **5 FreeRTOS ticks (nominally about 5 ms)** before arming each subsequent descriptor. This makes the low phase long enough to observe without interrupts. Both waits are bounded; this is an intentionally conservative diagnostic handshake, **not a mathematically race-free production protocol** under all workloads.
+- Teensy reports `ready_low_phases`, `ready_wait_us`, `ready_max_wait_us` and `ready_wait_failure`; ESP32 exposes `stream_ready_low_phases`.
+- Teensy preflight response `spi_stream_prepare` now includes `"ready_protocol":"poll_low_v2"`; ESP32 must verify the marker before queuing **any** DMA or sending `spi_stream_send`. This explicitly blocks accidental testing with the unsafe older Teensy firmware.
+- SPI stays 4 MHz, MODE0, 528-byte CRC/session-checked frames, read-only SD. Working CP/M UART/Base64, per-sector SD tests, Wi-Fi, HP-85 bus handling, and both `main` branches are unchanged.
+
+**Safety and first-run:** Power down/reset the HP-85 and EBTKS after a lockup. Retain known-good firmware binaries. Flash updated ESP32 **first**, then updated Teensy; no tests until both are flashed. Confirm ordinary HP-85 BASIC/SIMON85 and CP/M prompt without testing the stream. Then, only if comfortable performing another supervised hardware test, verify existing synthetic / legacy SD 4-MHz diagnostics and try **one** framed stream sector with HP-85 idle. Do not repeat a failure or attempt 128 sectors immediately. Stop on any HP lockup. The proven old per-sector read-only SD SPI diagnostic is the fallback. This version has **not** yet been compiled or tested on physical hardware.
+
 ## Long-batch DMA failure and READY edge repair (2026-10-18, pending compilation/hardware test)
 
 **Observed post-leak-repair hardware run:** After roughly 60 batched stream runs, including successful 1- and 16-sector tests, the second 128-sector test failed at **frame/block 61** on run **72**. Status: `state=failed`, `needs_reboot=true`, `stream_frames_received=61`, `completed_sectors=61`, `stream_bad_frames=0`, `stream_wire_bytes=32,208` (61 × 528 bytes), `stream_crc_esp=30573`, `stream_crc_teensy=0`, `failed_sector=61`, `wall_us=176040`. **Memory looks healthy:** `heap_before_stream=94096`, `heap_after_stream=97928`, `heap_free_now=94104`, `heap_min_free=70764`, `heap_largest_free_block=36852`, `stream_worker_stack_high_water=6004`, `stream_worker_launch_failures=0` and `stream_prepare_parse_failures=0`. This strongly suggests the worker lifetime/memory leak repair was effective, though repeated tests are still needed.
