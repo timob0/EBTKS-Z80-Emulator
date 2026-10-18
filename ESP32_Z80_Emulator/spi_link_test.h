@@ -824,17 +824,47 @@ inline void spiTestStreamRun()
   pre["session"] = session;
   String req, reply;
   serializeJson(prepRequest, req);
-  if (!ebtksLinkTransaction(req, reply, 3000)) {
-    spiTestFailure("Stream prepare UART timeout (DMA not queued)");
-    
-    return;
-  }
   JsonDocument preDoc;
-  if (deserializeJson(preDoc, reply)) {
-    spiTestFailure("Stream prepare UART JSON malformed");
-    
+  bool preparedJson = false;
+  // No SPI descriptor exists yet. It is safe to retry a malformed/missing
+  // UART PREPARE once; never blindly retry after streaming has begun.
+  for (uint8_t attempt = 0; attempt < 2 && !preparedJson; ++attempt) {
+    reply = "";
+    preDoc.clear();
+    const bool transportOk = ebtksLinkTransaction(req, reply, 3000);
+    const DeserializationError parseError = transportOk ?
+        deserializeJson(preDoc, reply) : DeserializationError::EmptyInput;
+    preparedJson = transportOk && !parseError &&
+                   preDoc["spi_stream_prepare"].is<JsonObject>();
+    if (!preparedJson) {
+      ++spiTestStreamPrepareParseFailures;
+      const char *reason = !transportOk ? "UART_timeout_or_CRC" :
+          parseError ? parseError.c_str() : "missing_spi_stream_prepare";
+      strlcpy(spiTestPrepareError, reason, sizeof(spiTestPrepareError));
+      // Sanitized bounded sample of decoded reply (no unbounded JSON logs).
+      for (size_t i = 0; i < sizeof(spiTestPrepareReplySample) - 1; ++i) {
+        if (i >= reply.length()) {
+          spiTestPrepareReplySample[i] = '\0';
+          break;
+        }
+        const char c = reply[i];
+        spiTestPrepareReplySample[i] = (c >= 32 && c < 127) ? c : '?';
+        spiTestPrepareReplySample[i + 1] = '\0';
+      }
+      Serial.printf("SPI stream PREPARE invalid attempt=%u cause=%s "
+                    "len=%u heap=%lu sample='%s'\n",
+                    (unsigned)(attempt + 1), reason, (unsigned)reply.length(),
+                    (unsigned long)ESP.getFreeHeap(), spiTestPrepareReplySample);
+      if (attempt == 0) vTaskDelay(pdMS_TO_TICKS(20));
+    }
+  }
+  if (!preparedJson) {
+    spiTestFailure("Stream prepare failed JSON/UART after 2 attempts; no DMA queued");
+    spiTestWallUs = (uint32_t)(micros() - started);
     return;
   }
+  spiTestPrepareError[0] = '\0';
+  spiTestPrepareReplySample[0] = '\0';
   JsonVariantConst pr = preDoc["spi_stream_prepare"];
   const bool ready = pr["ok"] | false;
   const int returnedSession = pr["session"] | -1;
@@ -1357,6 +1387,18 @@ inline void spiTestRegister(AsyncWebServer &server)
       doc["stream_bad_frames"] = (uint16_t)spiTestStreamBadFrames;
       doc["stream_wire_bytes"] = (uint32_t)spiTestStreamWireBytes;
       doc["stream_first_error"] = spiTestStreamError;
+      doc["stream_prepare_error"] = spiTestPrepareError;
+      doc["stream_prepare_reply_sample"] = spiTestPrepareReplySample;
+      doc["stream_prepare_parse_failures"] = (uint32_t)spiTestStreamPrepareParseFailures;
+      doc["stream_runs_started"] = (uint32_t)spiTestStreamRunsStarted;
+      doc["stream_worker_launch_failures"] = (uint32_t)spiTestStreamLaunchFailures;
+      doc["heap_before_stream"] = (uint32_t)spiTestHeapAtLaunch;
+      doc["heap_after_stream"] = (uint32_t)spiTestHeapAtFinish;
+      doc["heap_free_now"] = (uint32_t)ESP.getFreeHeap();
+      doc["heap_min_free"] = (uint32_t)ESP.getMinFreeHeap();
+      doc["heap_largest_free_block"] =
+          (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      doc["stream_worker_stack_high_water"] = (uint32_t)spiTestStreamStackFree;
       doc["stream_crc_esp"] = (uint16_t)spiTestAggregateCrc;
       doc["stream_crc_teensy"] = (uint16_t)spiTestCrcRemote;
     }
