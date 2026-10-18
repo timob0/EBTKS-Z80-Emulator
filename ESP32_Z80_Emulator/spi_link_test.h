@@ -879,6 +879,7 @@ inline void spiTestStreamWorker(void *)
   int firstBad = -1;
   static const char hd[] = "0123456789ABCDEF";
   for (uint16_t block = 0; block < count; ++block) {
+    spiTestFailSector = (int)block; // retain DMA timeout location
     spi_slave_transaction_t *done = nullptr;
     const esp_err_t err = spi_slave_get_trans_result(
         SPI_TEST_HOST, &done, pdMS_TO_TICKS(2500));
@@ -1286,8 +1287,10 @@ inline void spiTestRegister(AsyncWebServer &server)
       doc["sd_start_sector"] = (uint32_t)spiTestSdFirstSector;
       doc["sd_file_bytes"] = (uint32_t)spiTestSdFileSize;
       doc["sd_read_us"] = (uint32_t)spiTestSdReadUs;
-      doc["sd_crc_prepared"] = (uint16_t)spiTestSdPreparedCrc;
-      doc["sd_crc_sent"] = (uint16_t)spiTestSdSentCrc;
+      if (spiTestSdMode) {
+        doc["sd_crc_prepared"] = (uint16_t)spiTestSdPreparedCrc;
+        doc["sd_crc_sent"] = (uint16_t)spiTestSdSentCrc;
+      }
       doc["sd_first16_hex"] = spiTestSdFirst16Hex;
       doc["sd_crc_match"] = spiTestStreamMode ?
           (spiTestState == 2 && spiTestAggregateCrc == spiTestSdSentCrc) :
