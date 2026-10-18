@@ -77,7 +77,20 @@ inline void webTerminalRegister(AsyncWebServer &server){
     if(info->opcode==WS_TEXT){if(len>=10&&len<=220&&!memcmp(data,"TERMTRACE ",10)){char msg[232];memcpy(msg,data,len);msg[len]=0;z80DebugLog("Web terminal %s\n",msg+10);}return;}
     if(info->opcode!=WS_BINARY)return;for(size_t i=0;i<len;++i){uint8_t c=data[i];if(c==127)c=8;consoleRxEnqueue(c);}
   });
-  server.on("/z80",HTTP_GET,[](AsyncWebServerRequest *r){r->send(200,"text/html",EBTKS_TERM_PAGE);});
+  server.on("/z80",HTTP_GET,[](AsyncWebServerRequest *r){
+    // This page is ~17 KiB. Never materialize it as a heap String, which
+    // becomes fragile when live SPI read-ahead retains its cache and worker.
+    AsyncWebServerResponse *response=r->beginResponse(
+      200,"text/html; charset=utf-8",
+      reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE),
+      sizeof(EBTKS_TERM_PAGE)-1U);
+    if(!response) {
+      r->send(503,"text/plain","Terminal page response allocation failed");
+      return;
+    }
+    response->addHeader("Cache-Control","no-store");
+    r->send(response);
+  });
   server.on("/crt",HTTP_GET,ebtksServeCrtDisplay);
   server.on("/z80/reset",HTTP_POST,[](AsyncWebServerRequest *r){RUN=false;r->send(200,"application/json","{\"ok\":true}");});
   server.on("/z80debug",HTTP_GET,[](AsyncWebServerRequest *r){r->send(200,"text/plain",z80DebugSnapshot());});
