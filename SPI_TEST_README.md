@@ -2,7 +2,9 @@
 
 **Status (2026-10-18): HARDWARE TEST PASSED.** Both firmware builds were flashed and user tested 1–8 MHz, sector counts 1–128 and multiple data patterns, with no failures. The 8 MHz / 128-sector (64 KiB) run passed. This is a *receive-only MOSI* SPI transport diagnostic; it does **not** prove MISO transfers or CP/M binary sector I/O, which still use the original UART/Base64 path. Do not merge to `main` without dedicated CP/M regressions.
 
-**New pending test:** [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md) covers the newly committed, **not yet hardware-tested** optional MISO/full-duplex extension. The confirmed results below are for the *older, MOSI-only* firmware. The browser now has a mode selector; start with 1 MHz / 1 full-duplex sector and retain MOSI-only as a baseline. All normal CP/M disk accesses remain unchanged.
+**Hardware-test progress:** The original one-way results below are preserved for comparison. Bidirectional mode 0 / 8 MHz is now hardware-confirmed; mode 1 / 8 MHz fails MISO. See [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md). Normal CP/M disk accesses remain unchanged.
+
+**Updated bidirectional baseline:** SPI full duplex **mode 0 at 8 MHz** passed 128 sectors repeatedly; the actual MISO jumper on the tested board is **Teensy CN3-29 ↔ ESP32 CN3-17** (ESP module GPIO17/pad 28), proven by physical multimeter continuity. 8 MHz mode 1 repeatedly fails MISO although it works at ≤4 MHz. Details: [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md). Historical MOSI-only figures below remain valid, but statements calling bidirectional untested have been superseded.
 
 The two matching branches are:
 
@@ -11,7 +13,7 @@ The two matching branches are:
 
 The original purpose is to measure reliability at 1, 2, 4, and 8 MHz and verify 128 consecutive 512-byte transactions (64 KiB), without modifying any live disk image. The new optional full-duplex mode also transmits a distinct 512-byte pattern from ESP32 SPI2 TX DMA to Teensy SPI0 RX during each transaction. **Normal CP/M disk access still uses UART/JSON/Base64.** The web UI, OTA, HP bus ISR, SD handling, and UART control protocol are preserved.
 
-**Important 2026-10-18 wiring correction:** The MISO entry in older test instructions and SVG was wrong. Do not connect Teensy CN3-29 to ESP CN3-13 for the GPIO17 MISO test. Compare EBTKS V3.0 published drawing to actual PCB by power-off continuity: WROOM pin 28 (GPIO17) to CN3-15 versus CN3-17. The user reports CN3-17 on the actual board, while published schematic appears to show E17 at CN3-15. The firmware deliberately uses GPIO17. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md).
+**Measured 2026-10-18 wiring correction:** The MISO entry in older instructions was wrong. The user verified with a multimeter that **ESP WROOM pad 28 / GPIO17 physically goes to CN3-17** and Teensy module pin12 to CN3-29, then verified continuity end-to-end. The successful MISO jumper is **CN3-29 ↔ CN3-17** on the tested board. Published schematic's CN3-15 E17 assignment is inconsistent with that board. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md).
 
 ## Wiring and prerequisites
 
@@ -20,7 +22,7 @@ Use exactly the wiring verified for the first SPI test. See [CN3_SPI_PROPOSAL.md
 | Wire | Teensy / CN3 | ESP32 / CN3 |
 |---|---|---|
 | MOSI | T11 / pin 33 | E22 / pin 21, GPIO22 |
-| MISO | T12 / pin 29 | **GPIO17 / WROOM module pad 28 — CN3 pin must be measured** (published EBTKS schematic suggests CN3-15; user reports actual board CN3-17). **CN3-13 is GPIO4 and was WRONG in prior instructions.** |
+| MISO | T12 / **CN3-29**, Teensy module pin **12** | **CN3-17**, continuity-verified to ESP GPIO17 / WROOM module pad **28** (published schematic wrongly calls E17 CN3-15; CN3-13 is GPIO4) |
 | CLK | T13 / pin 24 | E16 / pin 14, GPIO16 |
 | CS_N | T26 / pin 30 | E34 / pin 4, GPIO32 |
 | READY | T06 / pin 26 | E27 / pin 8, GPIO27 |
@@ -146,10 +148,10 @@ At 8 MHz the ideal 512-byte wire time is 512 us; the measured software `SPI.tran
 
 ## What this does NOT test
 
-- SPI MISO data returning from ESP32 to Teensy (still unverified).
+- No longer unverified: full-duplex **mode 0 / 8 MHz** MISO passed on tested hardware; **mode 1 / 8 MHz** repeatedly fails.
 - Real file access, sector reads, disk writes, or CP/M ABI.
 - A pipelined/burst binary sector transport (that is a later step).
 - Data integrity during arbitrary DMA timeouts; incomplete transactions force reboot before retry.
-- Changes beyond the hardware-tested stress firmware (e.g. MISO testing, optimized protocol) until explicitly validated.
+- Real CP/M disk integration and optimized binary protocol remain untested; full-duplex diagnostic is now hardware-tested.
 
 **Regression after flashing:** CP/M `DIR`, browser-only VT100, Telnet, main EBTKS web UI and updater, `/ws`, Teensy SD services, and uninterrupted HP-85 operation. See [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) for the known-good baseline.
