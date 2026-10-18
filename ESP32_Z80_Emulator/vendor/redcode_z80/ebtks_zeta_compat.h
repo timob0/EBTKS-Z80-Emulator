@@ -17,6 +17,11 @@
 #endif
 typedef uint8_t zuint8;
 typedef int8_t zsint8;
+/* The upstream Zeta integral.h exposes these natural C scalar types.
+ * Omission caused cascades of REGISTER_16/INX/OUTX parser errors. */
+typedef char zchar;
+typedef unsigned int zuint;
+typedef int zsint;
 typedef uint16_t zuint16;
 typedef uint32_t zuint32;
 typedef size_t zusize;
