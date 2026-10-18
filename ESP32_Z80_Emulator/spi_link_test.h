@@ -832,19 +832,21 @@ inline void spiTestStreamRun()
     reply = "";
     preDoc.clear();
     const bool transportOk = ebtksLinkTransaction(req, reply, 3000);
-    const char *reason = transportOk ? "missing_spi_stream_prepare" :
-                                       "UART_timeout_or_CRC";
+    strlcpy(spiTestPrepareError,
+            transportOk ? "missing_spi_stream_prepare" : "UART_timeout_or_CRC",
+            sizeof(spiTestPrepareError));
     bool jsonParsed = false;
     if (transportOk) {
       const DeserializationError error = deserializeJson(preDoc, reply);
       jsonParsed = !error;
-      if (error) reason = error.c_str();
+      if (error) strlcpy(spiTestPrepareError, error.c_str(),
+                         sizeof(spiTestPrepareError));
     }
     preparedJson = transportOk && jsonParsed &&
                    preDoc["spi_stream_prepare"].is<JsonObject>();
     if (!preparedJson) {
       ++spiTestStreamPrepareParseFailures;
-      strlcpy(spiTestPrepareError, reason, sizeof(spiTestPrepareError));
+      const char *reason = spiTestPrepareError;
       // Sanitized bounded sample of decoded reply (no unbounded JSON logs).
       for (size_t i = 0; i < sizeof(spiTestPrepareReplySample) - 1; ++i) {
         if (i >= reply.length()) {
