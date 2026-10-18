@@ -2,6 +2,9 @@
 
 ## CURRENT WORKING BRANCHES — LIVING CHECKPOINT (2026-10-19)
 
+**Consolidation PR:** [ESP32 PR #2 (draft)](https://github.com/timob0/EBTKS-Z80-Emulator/pull/2), source commit `f7f41e372598a054ddcd36bf9c38048c9702ac8a`, pending local build and hardware regression. This PR intentionally excludes whole-image transfer code. GitHub branch references are not yet deleted.
+
+
 **Update this table whenever a new branch is created, switched, merged, or retired. Branch names are not permanent.**
 
 | Firmware | CURRENT working source | Status |
