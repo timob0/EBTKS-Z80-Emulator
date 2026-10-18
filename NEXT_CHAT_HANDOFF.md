@@ -1,22 +1,21 @@
 # Handoff / durable project memory for the next development chat
 
-## CURRENT WORKING BRANCHES — LIVING CHECKPOINT (2026-10-19)
+## CURRENT WORKING BRANCHES — USER-TESTED MAIN BASELINE (2026-10-19)
 
-**Consolidation PR:** [ESP32 PR #2 (draft)](https://github.com/timob0/EBTKS-Z80-Emulator/pull/2), source commit `f7f41e372598a054ddcd36bf9c38048c9702ac8a`, pending local build and hardware regression. This PR intentionally excludes whole-image transfer code. GitHub branch references are not yet deleted.
+**AUTHORITATIVE CURRENT STATE. Both ESP32 and Teensy 4.1 use their respective `main` branches. The user reports that the latest builds were compiled, flashed and tested successfully on the physical HP-85.** This checkpoint supersedes older branch names, proposed transfers, and untested-status instructions later in this long historical handoff.
 
+| Firmware | Repository | CURRENT working branch | Merge and hardware status |
+| --- | --- | --- | --- |
+| ESP32 Z80/CP-M emulator, Media Manager and Web UI | [timob0/EBTKS-Z80-Emulator](https://github.com/timob0/EBTKS-Z80-Emulator) | [`main`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main) | Clean flash-backed Web UI consolidation merged by [PR #2](https://github.com/timob0/EBTKS-Z80-Emulator/pull/2), merge commit [`d18bdcf`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/d18bdcf92b7bfc7786d0c130ca3615ff639d5365); **user compiled, flashed and tested** |
+| Teensy 4.1 EBTKS SD/SPI/HP-85 firmware | [timob0/ebtks-alt-firmware](https://github.com/timob0/ebtks-alt-firmware) | [`main`](https://github.com/timob0/ebtks-alt-firmware/tree/main) | Media Manager upload support merged by [PR #2](https://github.com/timob0/ebtks-alt-firmware/pull/2), merge commit [`1cfb546`](https://github.com/timob0/ebtks-alt-firmware/commit/1cfb5464eec196438a5f6848e34c60547296e035); **user confirms latest firmware flashed and tested on the HP-85** |
 
-**Update this table whenever a new branch is created, switched, merged, or retired. Branch names are not permanent.**
+**MANDATORY BRANCH CREATION POLICY — EXPLICIT USER REQUEST (2026-10-19): Never create a new Git feature branch on your own. BEFORE creating ANY new branch, ask the user and obtain explicit approval.** A request to develop, analyze, edit or implement something does *not* constitute automatic permission to create a branch. Do not infer permission from an earlier workflow. The user controls whether and when we branch. Both working branches are `main` until the user approves another arrangement.
 
-| Firmware | CURRENT working source | Status |
-| --- | --- | --- |
-| ESP32 | [`feature/esp32-stable-web-mainline`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/esp32-stable-web-mainline) | **Clean consolidation candidate — not built or hardware-tested** |
-| Teensy 4.1 | [`main`](https://github.com/timob0/ebtks-alt-firmware/tree/main) | Previously tested SPI/SD; staged image upload merged by [Teensy PR #2](https://github.com/timob0/ebtks-alt-firmware/pull/2) |
+**Keep this checkpoint LIVE, not permanently pinned:** Whenever the user authorizes creation of a new working branch, switches branches, merges, or deletes/retire branches, update this table and commit the new status so the next chat does not need the user to reconstruct source locations. Before any change, read both actual repositories at their listed refs and verify GitHub state. Do not open branches solely to update documentation.
 
-**Critical last-tested ESP32 rollback baseline:** [`feature/spi-readahead-liveness-diagnostics`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/spi-readahead-liveness-diagnostics). **Do not retire/delete this branch or merge the new candidate into `main` until a fresh compile and user hardware regression test passes.** The existing flashed device is still on the tested liveness build; the new clean source branch is a candidate only.
+**Clean-up completed:** ESP32 [PR #2](https://github.com/timob0/EBTKS-Z80-Emulator/pull/2) was built, tested and merged by the user, and the user deleted the obsolete ESP32 feature branches (`feature/spi-readahead-liveness-diagnostics`, `feature/esp32-memory-audit`, `feature/media-manager-api-cleanup`, `feature/media-manager-spi-upload` and the temporary `feature/esp32-stable-web-mainline`). Teensy `feature/media-manager-spi-upload` was also merged and retired. GitHub branch listings verified no remaining `feature/` branches in either repository at this checkpoint. Archived mentions of these branches below record *history*, not current checkouts or pending work.
 
-**ESP32 cleanup:** `feature/media-manager-spi-upload`, `feature/media-manager-api-cleanup` and `feature/esp32-memory-audit` are **superseded as working branches**; their GitHub refs remain until deleted through the GitHub UI (connector lacks branch deletion). The clean candidate is based on ESP32 `main` and retains the flash-backed HTML responses for Home/updater, Z80 Terminal, CRT and the simpler Media Manager, plus the read-only `GET /api/system/health`. It also retains the CP/M file API, ZIP and empty image design documentation and the tested Web UI liveness report. It deliberately **does not** include `cpm_image_transfer.h`, slow whole-image HTTP upload/download, the unsafe AsyncChunkedResponse stream, `/cpmdiag` image transfer benchmarks, or the untested memory-audit endpoint. Later single-CP/M-file transfer must be redesigned with bounded memory, not blindly reuse whole-image paths.
-
-**Next step:** compile/flash/test this consolidation branch (SPI off and on, CP/M DIR and UART write/readback, /z80, /crt, /cpmmedia, /updater, Wi-Fi/Telnet). After it passes, merge via PR to ESP32 `main`, update this living branch table to `main` and retire the tested liveness branch. Teensy `main` must not change in this cleanup. Only after baseline consolidation, proceed with user-approved Teensy-side creation of an empty native 8 MiB CP/M disk. Preserve HP-85 bus ISR and 4 MHz SPI read-ahead.
+**Current engineering priority:** Add **New Empty Hard Disk**, creating and verifying a fresh native 8,388,608-byte CP/M disk image locally on Teensy SD with bounded memory and progress reporting, safe naming/mount checks and no 8 MiB network transfer. Afterward, explore a reusable headless single-CP/M-file API and eventual ZIP exchange, not full-image HTTP/WebSocket transfer. Preserve proven 4 MHz SPI read-ahead, UART CP/M writes, HP-85 ISR, responsive flash-backed Web UI, Telnet, Wi-Fi and firmware updater. No firmware changes are made by this documentation checkpoint.
 
 ---
 
