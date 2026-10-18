@@ -36,6 +36,14 @@ static volatile uint8_t spiTestPattern = 0; // 0..4 fixed; 5=cycle by sector
 static volatile bool spiTestBidi = false; // false keeps original MOSI-only test
 static volatile uint8_t spiTestMode = 0;  // 8 MHz mode 0 hardware-tested; mode 1 selectable
 static volatile bool spiTestGpioMode = false; // separate GPIO-only isolation check
+static volatile bool spiTestSdMode = false; // separate SD-to-SPI read-only diagnostic
+static char spiTestSdPath[120] = "/cpm/disks/A.dsk";
+static volatile uint32_t spiTestSdFirstSector = 0;
+static volatile uint32_t spiTestSdReadUs = 0;
+static volatile uint32_t spiTestSdFileSize = 0;
+static volatile uint16_t spiTestSdPreparedCrc = 0;
+static volatile uint16_t spiTestSdSentCrc = 0;
+static char spiTestSdFirst16Hex[33] = {}; // first 16 actual SD bytes received
 static volatile int spiTestGpioLow = -1;
 static volatile int spiTestGpioHigh = -1;
 static char spiTestMisoHeadHex[33] = {}; // first 16 actual Teensy RX bytes
@@ -473,6 +481,7 @@ inline bool spiTestGpioStart()
   if (spiTestState == 1 || spiTestNeedsReboot) return false;
   spiTestState = 1;
   spiTestGpioMode = true;
+  spiTestSdMode = false;
   spiTestHz = 0;
   spiTestSectors = 0;
   spiTestPattern = 0;
@@ -482,6 +491,240 @@ inline bool spiTestGpioStart()
       spiTestGpioWorker, "SpiMisoGpio", 4096, nullptr, 1, nullptr, 0);
   if (ok != pdPASS) {
     spiTestFailure("Could not create GPIO MISO worker");
+    return false;
+  }
+  return true;
+}
+
+// Real SD read-only sector diagnostic. This is NOT a CP/M disk transport.
+// It uses two UART commands per sector: prepare (SD O_RDONLY open/seek/read
+// and CRC before DMA), then send (only after ESP32 queues 512-byte RX DMA).
+// No Base64 data and no writes anywhere in this test. The path is restricted
+// to a single file below /cpm/disks; no CP/M image is mounted or changed.
+inline bool spiTestSdPathValid(const String &path)
+{
+  const String root = "/cpm/disks/";
+  return path.startsWith(root) && path.length() > root.length() &&
+         path.length() < sizeof(spiTestSdPath) &&
+         path.indexOf("..") < 0 &&
+         path.indexOf('/', root.length()) < 0 &&
+         path.indexOf('\\', root.length()) < 0;
+}
+
+inline void spiTestSdWorker(void *)
+{
+  spiTestDetail = "Initializing SPI for read-only SD sector test";
+  spiTestCompleted = 0;
+  spiTestFailSector = -1;
+  spiTestFailPattern = -1;
+  spiTestMismatchAt = -1;
+  spiTestMisoMismatchAt = -1;
+  spiTestCrcLocal = 0;
+  spiTestCrcRemote = 0;
+  spiTestAggregateCrc = 0xFFFF;
+  spiTestMisoTxCrc = 0;
+  spiTestMisoRxCrc = 0;
+  spiTestAggregateMisoTxCrc = 0xFFFF;
+  spiTestMisoHeadHex[0] = '\0';
+  spiTestSdFirst16Hex[0] = '\0';
+  spiTestSdPreparedCrc = 0;
+  spiTestSdSentCrc = 0;
+  spiTestSdReadUs = 0;
+  spiTestSdFileSize = 0;
+  spiTestWallUs = 0;
+  spiTestElapsedUs = 0;
+  spiTestMinUs = 0;
+  spiTestMaxUs = 0;
+
+  // The test always uses MODE0 / 4 MHz, regardless of synthetic-test UI.
+  if (!spiTestInit(0)) {
+    spiTestFailure("SD SPI test: ESP32 slave init failed");
+    vTaskDelete(nullptr);
+    return;
+  }
+  const uint16_t sectors = spiTestSectors;
+  const uint32_t first = spiTestSdFirstSector;
+  const uint32_t started = micros();
+  spiTestDetail = "Reading real SD sectors via SPI (4 MHz, read-only)";
+
+  for (uint16_t block = 0; block < sectors; ++block) {
+    const uint8_t seq = (uint8_t)((spiTestRunNumber + block) & 0xFFU);
+    const uint32_t absoluteSector = first + block;
+    spiTestFailSector = (int)block;
+
+    // Stage 1: read the SD file before committing a DMA descriptor.
+    // On open/EOF errors no SPI DMA is queued: safe to retry with a new path.
+    JsonDocument prepReq;
+    JsonObject p = prepReq["spi_sd_prepare"].to<JsonObject>();
+    p["seq"] = seq;
+    p["sector"] = absoluteSector;
+    p["path"] = spiTestSdPath;
+    String req, response;
+    serializeJson(prepReq, req);
+    const bool prepReplied = ebtksLinkTransaction(req, response, 3000);
+    if (!prepReplied) {
+      spiTestFailure("SD prepare UART timeout (no DMA was queued)");
+      Serial.printf("SPI SD prepare UART timeout: path=%s sector=%lu\n",
+                    spiTestSdPath, (unsigned long)absoluteSector);
+      break;
+    }
+    JsonDocument prep;
+    if (deserializeJson(prep, response)) {
+      spiTestFailure("Malformed Teensy SD prepare reply (no DMA queued)");
+      break;
+    }
+    JsonVariantConst pr = prep["spi_sd_prepare"];
+    const bool prepared = pr["ok"] | false;
+    const int prepSeq = pr["seq"] | -1;
+    const uint32_t prepSector = pr["sector"] | UINT32_MAX;
+    const int prepLen = pr["len"] | -1;
+    const uint16_t preparedCrc = (uint16_t)(pr["crc"] | 0);
+    const uint32_t sdUs = pr["sd_us"] | 0UL;
+    const uint32_t fileSize = pr["file_size"] | 0UL;
+    const char *why = pr["reason"] | "unknown";
+    spiTestSdPreparedCrc = preparedCrc;
+    spiTestSdFileSize = fileSize;
+    spiTestSdReadUs += sdUs;
+    if (!prepared || prepSeq != seq || prepSector != absoluteSector ||
+        prepLen != (int)SPI_TEST_BYTES || sdUs == 0) {
+      spiTestFailure("SD file read failed or invalid prepare reply (no DMA queued)");
+      Serial.printf("SPI SD prepare failed: %s sector=%lu reason=%s len=%d\n",
+                    spiTestSdPath, (unsigned long)absoluteSector, why, prepLen);
+      break;
+    }
+
+    // Stage 2: queue DMA THEN ask Teensy to clock its prepared sector.
+    memset(spiTestRx, 0, SPI_TEST_BYTES);
+    memset(&spiTestTrans, 0, sizeof(spiTestTrans));
+    spiTestTrans.length = SPI_TEST_BYTES * 8;
+    spiTestTrans.rx_buffer = spiTestRx; // Teensy -> ESP32; RX only
+    spiTestTrans.tx_buffer = nullptr;
+    gpio_set_level((gpio_num_t)SPI_TEST_READY, 0);
+    const esp_err_t queued = spi_slave_queue_trans(
+        SPI_TEST_HOST, &spiTestTrans, pdMS_TO_TICKS(1000));
+    if (queued != ESP_OK) {
+      spiTestFailure("SD test SPI DMA queue failed; reboot before retry", true);
+      Serial.printf("SPI SD DMA queue: %s\n", esp_err_to_name(queued));
+      break;
+    }
+
+    JsonDocument sendReq;
+    JsonObject send = sendReq["spi_sd_send"].to<JsonObject>();
+    send["seq"] = seq;
+    send["sector"] = absoluteSector;
+    req = "";
+    response = "";
+    serializeJson(sendReq, req);
+    const bool sentReplied = ebtksLinkTransaction(req, response, 3000);
+
+    spi_slave_transaction_t *done = nullptr;
+    const esp_err_t received = spi_slave_get_trans_result(
+        SPI_TEST_HOST, &done, pdMS_TO_TICKS(200));
+    if (received != ESP_OK || done != &spiTestTrans) {
+      // Could still be DMA-owned, even if Teensy replied with a failure.
+      spiTestFailure("SD test SPI DMA incomplete; ESP32 reboot required", true);
+      Serial.printf("SPI SD DMA incomplete: %s sector=%lu UART=%s\n",
+                    esp_err_to_name(received), (unsigned long)absoluteSector,
+                    sentReplied ? response.c_str() : "<timeout>");
+      break;
+    }
+
+    if (spiTestTrans.trans_len != SPI_TEST_BYTES * 8) {
+      spiTestFailure("SD test SPI short transaction");
+      break;
+    }
+
+    uint16_t actualCrc = 0xFFFF;
+    static const char hexDigits[] = "0123456789ABCDEF";
+    for (uint16_t i = 0; i < SPI_TEST_BYTES; ++i) {
+      const uint8_t b = spiTestRx[i];
+      actualCrc = spiTestCrcByte(actualCrc, b);
+      spiTestAggregateCrc = spiTestCrcByte(spiTestAggregateCrc, b);
+      if (i < 16) {
+        spiTestSdFirst16Hex[2U*i] = hexDigits[b >> 4];
+        spiTestSdFirst16Hex[2U*i+1] = hexDigits[b & 15U];
+      }
+    }
+    spiTestSdFirst16Hex[32] = '\0';
+    spiTestCrcLocal = actualCrc;
+    if (!sentReplied) {
+      spiTestFailure("SD sector arrived but Teensy UART send reply timed out");
+      break;
+    }
+
+    JsonDocument sendReply;
+    if (deserializeJson(sendReply, response)) {
+      spiTestFailure("Malformed Teensy SD send reply");
+      break;
+    }
+    JsonVariantConst sr = sendReply["spi_sd_send"];
+    const bool sendOk = sr["ok"] | false;
+    const int sendSeq = sr["seq"] | -1;
+    const uint32_t sendSector = sr["sector"] | UINT32_MAX;
+    const int sendLen = sr["len"] | -1;
+    const uint16_t sendCrc = (uint16_t)(sr["crc"] | 0);
+    const uint32_t spiUs = sr["us"] | 0UL;
+    spiTestCrcRemote = sendCrc;
+    spiTestSdSentCrc = sendCrc;
+
+    if (!sendOk || sendSeq != seq || sendSector != absoluteSector ||
+        sendLen != (int)SPI_TEST_BYTES || spiUs == 0 ||
+        actualCrc != preparedCrc || sendCrc != preparedCrc) {
+      spiTestFailure("SD/SPI data CRC, length or sequencing mismatch");
+      Serial.printf("SPI SD FAIL: path=%s sector=%lu ESP_RX=%04X SD=%04X SPI_TX=%04X "
+                    "len=%d us=%lu first16=%s\n",
+                    spiTestSdPath, (unsigned long)absoluteSector, actualCrc,
+                    preparedCrc, sendCrc, sendLen, (unsigned long)spiUs,
+                    spiTestSdFirst16Hex);
+      break;
+    }
+
+    spiTestElapsedUs += spiUs;
+    if (block == 0 || spiUs < spiTestMinUs) spiTestMinUs = spiUs;
+    if (spiUs > spiTestMaxUs) spiTestMaxUs = spiUs;
+    ++spiTestCompleted;
+    spiTestFailSector = -1;
+  }
+
+  spiTestWallUs = (uint32_t)(micros() - started);
+  if (spiTestCompleted == sectors && spiTestState == 1) {
+    spiTestDetail = "Real SD sectors verified over 4 MHz SPI; no disk writes";
+    spiTestState = 2;
+    Serial.printf("SPI SD READ PASS: %s first=%lu count=%u spi_us=%lu sd_us=%lu wall_us=%lu\n",
+                  spiTestSdPath, (unsigned long)first, sectors,
+                  (unsigned long)spiTestElapsedUs,
+                  (unsigned long)spiTestSdReadUs,
+                  (unsigned long)spiTestWallUs);
+  } else {
+    Serial.printf("SPI SD READ FAILED: %s first=%lu passed=%u/%u at=%d: %s\n",
+                  spiTestSdPath, (unsigned long)first, spiTestCompleted,
+                  sectors, spiTestFailSector, spiTestDetail);
+  }
+  vTaskDelete(nullptr);
+}
+
+inline bool spiTestSdStart(const String &path, uint32_t first, uint16_t sectors)
+{
+  // No automatic writes, retries or live CP/M transport switching.
+  if (!spiTestSdPathValid(path) ||
+      !(sectors == 1 || sectors == 16 || sectors == SPI_TEST_MAX_SECTORS) ||
+      first > ((UINT32_MAX / SPI_TEST_BYTES) - SPI_TEST_MAX_SECTORS) ||
+      spiTestState == 1 || spiTestNeedsReboot) return false;
+  strlcpy(spiTestSdPath, path.c_str(), sizeof(spiTestSdPath));
+  spiTestSdFirstSector = first;
+  spiTestSectors = sectors;
+  spiTestSdMode = true;
+  spiTestGpioMode = false;
+  spiTestHz = 4000000;
+  spiTestMode = 0;
+  spiTestPattern = 0;
+  spiTestBidi = false;
+  spiTestState = 1;
+  ++spiTestRunNumber;
+  const BaseType_t ok = xTaskCreatePinnedToCore(
+      spiTestSdWorker, "SpiSdRead", 6144, nullptr, 1, nullptr, 0);
+  if (ok != pdPASS) {
+    spiTestFailure("Could not create SD SPI worker");
     return false;
   }
   return true;
@@ -500,6 +743,7 @@ inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
   spiTestBidi = bidi;
   spiTestMode = mode;
   spiTestGpioMode = false;
+  spiTestSdMode = false;
   spiTestGpioLow = -1;
   spiTestGpioHigh = -1;
   spiTestState = 1;
