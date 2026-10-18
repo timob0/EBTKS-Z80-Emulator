@@ -938,7 +938,7 @@ inline void spiTestStreamWorker(void *)
     return;
   }
   spiTestWallUs = (uint32_t)(micros() - started);
-  spiTestFailSector = firstBad;
+  if (firstBad >= 0) spiTestFailSector = firstBad;
   if (!uartOk) {
     spiTestFailure("Stream UART final reply invalid/timed out (all DMA received)");
     vTaskDelete(nullptr);
