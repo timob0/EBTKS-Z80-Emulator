@@ -14,6 +14,8 @@
 
 > **MISO isolation follow-up, 2026-10-18:** Even after correcting Teensy CN3-29 ↔ ESP CN3-13, **1 MHz SPI mode 1 full duplex fails** with Teensy `miso_first16_hex=00000000000000000000000000000000`, MISO receive CRC **47937** (512 zero bytes), expected ESP TX CRC **13577**, while MOSI CRCs match (**60981**); first MISO mismatch 0. A new **GPIO-only MISO line test**, not yet built/flashed, is committed to BOTH feature branches: POST `/api/spitest/gpio` or press **Check MISO wire (GPIO LOW/HIGH)** on `/spitest`. ESP32 releases SPI2, drives GPIO17 low and high; Teensy temporarily releases SPI0 and samples pin12 digitally through UART. Inspect `gpio_low_read` and `gpio_high_read`: expected 0/1. See [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md) for build/use/interpretation. Disk path unaffected.
 
+> **Critical SPI wiring correction (2026-10-18):** Previous project wiring docs incorrectly equated ESP GPIO17 with CN3-13; **CN3-13 is E04/GPIO4**. The published EBTKS V3.0 drawing appears to show E17 on CN3-15, whereas the user reports WROOM pad 28 (GPIO17) wired to CN3-17 on the actual board. **Do not assume either pin without power-off continuity.** All-zero MISO tests so far may reflect incorrect physical routing. No firmware GPIO renumbering: ESP slave MISO remains GPIO17. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md).
+
 ## What is confirmed on physical EBTKS hardware
 
 | Subsystem / test | Result |
