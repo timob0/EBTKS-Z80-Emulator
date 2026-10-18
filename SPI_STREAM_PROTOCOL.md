@@ -43,6 +43,17 @@ Headers and payloads are CRC-checked separately. The ESP32 rejects wrong session
 - Do not attempt a new SPI test while a previous one runs. If JSON says `needs_reboot=true`, reboot the ESP32 before retrying. Preserve the proven binaries.
 - Tested board MISO jumper: **Teensy CN3-29 ↔ ESP32 CN3-17** (physically verified WROOM GPIO17/pad 28). The published EBTKS V3 schematic is incorrect on this mapping.
 
+## Optional frame-only host regression
+
+The ESP32 feature branch includes `tests/spi_stream_frame_selftest.cpp`, which has no Arduino dependencies. On a development machine with `g++` installed, run this before flashing:
+
+```sh
+g++ -std=c++11 -Wall -Wextra -pedantic tests/spi_stream_frame_selftest.cpp -o /tmp/ebtks_spi_frame_test
+/tmp/ebtks_spi_frame_test
+```
+
+The self-test checks the known CRC-16/Modbus vector `123456789` (expected `0x4B37`), successful SD/CRT typed frames, wrong session/frame/type, header corruption, payload corruption and source-error flags. This only checks the portable frame codec; **it does not replace PlatformIO compilation or physical SPI tests.**
+
 ## Pull, compile, flash
 
 Use **both** repositories' `feature/cn3-spi-read-test` branches.
