@@ -40,6 +40,10 @@ static volatile uint8_t spiTestMode = 0;  // 8 MHz mode 0 hardware-tested; mode 
 static volatile bool spiTestGpioMode = false; // separate GPIO-only isolation check
 static volatile bool spiTestSdMode = false; // separate SD-to-SPI read-only diagnostic
 static volatile bool spiTestStreamMode = false; // batched, CRC-framed diagnostic
+// Live CP/M framed SPI is explicitly opt-in. No concurrent SPI diagnostic
+// may access the ESP32 slave DMA while CP/M read-ahead is enabled.
+static volatile bool spiDiskReadsEnabled = false;
+static volatile bool spiDiskJobActive = false;
 static volatile uint16_t spiTestStreamSession = 0;
 static volatile uint16_t spiTestStreamFrames = 0;
 static volatile uint16_t spiTestStreamBadFrames = 0;
@@ -509,7 +513,8 @@ inline void spiTestGpioWorker(void *)
 
 inline bool spiTestGpioStart()
 {
-  if (spiTestState == 1 || spiTestNeedsReboot) return false;
+  if (spiTestState == 1 || spiTestNeedsReboot ||
+      spiDiskReadsEnabled || spiDiskJobActive) return false;
   spiTestState = 1;
   spiTestGpioMode = true;
   spiTestSdMode = false;
@@ -741,7 +746,8 @@ inline bool spiTestSdStart(const String &path, uint32_t first, uint16_t sectors)
   if (!spiTestSdPathValid(path) ||
       !(sectors == 1 || sectors == 16 || sectors == SPI_TEST_MAX_SECTORS) ||
       first > ((UINT32_MAX / SPI_TEST_BYTES) - SPI_TEST_MAX_SECTORS) ||
-      spiTestState == 1 || spiTestNeedsReboot) return false;
+      spiTestState == 1 || spiTestNeedsReboot ||
+      spiDiskReadsEnabled || spiDiskJobActive) return false;
   strlcpy(spiTestSdPath, path.c_str(), sizeof(spiTestSdPath));
   spiTestSdFirstSector = first;
   spiTestSectors = sectors;
@@ -1123,7 +1129,8 @@ inline bool spiTestStreamStart(const String &path, uint32_t first, uint16_t sect
   if (!spiTestSdPathValid(path) ||
       !(sectors == 1 || sectors == 16 || sectors == SPI_TEST_MAX_SECTORS) ||
       first > ((UINT32_MAX / SPI_TEST_BYTES) - SPI_TEST_MAX_SECTORS) ||
-      spiTestState == 1 || spiTestNeedsReboot) return false;
+      spiTestState == 1 || spiTestNeedsReboot ||
+      spiDiskReadsEnabled || spiDiskJobActive) return false;
   strlcpy(spiTestSdPath, path.c_str(), sizeof(spiTestSdPath));
   spiTestSdFirstSector = first;
   spiTestStreamSession = (uint16_t)((spiTestRunNumber + 1U) & 0xFFFFU);
@@ -1185,7 +1192,8 @@ inline bool spiTestStart(uint32_t hz = 1000000, uint16_t sectors = 1,
 {
   if (mode > 1 || !spiTestValidHz(hz) ||
       !(sectors == 1 || sectors == 16 || sectors == SPI_TEST_MAX_SECTORS) ||
-      pattern > 5 || spiTestState == 1 || spiTestNeedsReboot) return false;
+      pattern > 5 || spiTestState == 1 || spiTestNeedsReboot ||
+      spiDiskReadsEnabled || spiDiskJobActive) return false;
   spiTestHz = hz;
   spiTestSectors = sectors;
   spiTestPattern = pattern;
