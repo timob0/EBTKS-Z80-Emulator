@@ -78,14 +78,14 @@ async function refreshDiskTransport(){
   document.getElementById('spiDiskStatus').textContent=
    (j.enabled?'SPI read-ahead ENABLED':'UART baseline active')+
    (j.boot_disabled?' — SPI disabled following a transport error until ESP32 reboot':'')+
-   '\\nBatches: '+j.batch_reads+' · Frames: '+j.frames+
+   '\nBatches: '+j.batch_reads+' · Frames: '+j.frames+
    ' · Cache hits/misses: '+j.cache_hits+'/'+j.cache_misses+
    ' · UART fallbacks: '+j.uart_fallbacks+
    ' · SPI failures: '+j.spi_failures+
    ' · Last batch: '+(j.last_batch_us/1000).toFixed(1)+' ms'+
-   '\\nCache: '+(j.cache_valid?'valid':'empty')+
+   '\nCache: '+(j.cache_valid?'valid':'empty')+
    ' · Last error: '+(j.last_error||'none')+
-   '\\nAll writes: '+j.writes;
+   '\nAll writes: '+j.writes;
  }catch(e){document.getElementById('spiDiskStatus').textContent=String(e)}
 }
 async function setDiskTransport(enabled){
