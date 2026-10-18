@@ -2,6 +2,8 @@
 
 ## CURRENT HANDOFF — authoritative decisions (2026-10-18)
 
+**MERGE CHECKPOINT — 2026-10-18:** Both hardware-tested `feature/cn3-spi-read-test` branches have been merged to **`main`**, preserving history with normal merge commits. ESP32 `main` merge **`ca35447527fb9663618b1cffbc315d333a6eb098`** ([PR #1](https://github.com/timob0/EBTKS-Z80-Emulator/pull/1)); Teensy `main` merge **`a0bcc10a6158c1a48f101a38ef7dc05a6888e6f5`** ([PR #1](https://github.com/timob0/ebtks-alt-firmware/pull/1)). The new dedicated next-milestone branch name is **`feature/media-manager-spi-upload`** on BOTH repositories, starting from these merged baselines plus documentation-only checkpoint adjustments. Firmware contents are the same tested SPI/CP-M implementation; commits that only edit docs are not new hardware-validation events. The old SPI branches remain available as archival references, and **`main` becomes the stable baseline**. Next work: reverse-direction RAM-only SPI transfer, followed by safe verified Media Manager staging uploads; **do not change live CP/M disk writes**.
+
 **Start here; dated material is archived at the end.** This is the hardware-tested **EBTKS v3 / HP-85 + ESP32 Z80 CP/M 2.2** integration. The HP-85 continues normal BASIC/SIMON85 operation while the Teensy 4.1 services its bus and SD card and the ESP32 independently runs CP/M. The user considers current read performance *finished* and asks for new functionality, not more SPI/cache tuning.
 
 **Established baseline:**
@@ -10,7 +12,7 @@
 - Opt-in live **CP/M disk READS** over SPI use aligned **16-sector / 8 KiB read-ahead**, allocated lazily from ESP32 heap to avoid `.dram0.bss` overflow, verified before publishing the cache, with UART/Base64 fallback on errors. **All live CP/M disk WRITES remain on UART/Base64**, and writes/reset/mode switches invalidate the read cache. SPI read mode is **OFF by default after ESP32 reboot**; enabled from `/cpmmedia`. Keep firmware and user disk-image backups.
 - Real hardware results: **Multiplan install 36 → 23 s**, **Multiplan startup 10 → 3.7 s**, **Zork startup 8 → 3 s** (UART → SPI). CP/M write/copy/readback passed. During a later cumulative sample, **1,026 cache hits / 234 misses = 81.43%**, 234 successful 16-sector batches / 3,744 frames, **0 SPI failures / 0 UART fallbacks**, free heap **79,376 B**. Standalone 128-sector SPI streaming passed repeatedly with SIMON85 graphics and HP `SDCAT` concurrently. `DIR` is fast enough that the browser renderer can now be slower than a Telnet client.
 - Keep **Z80 CP/M 2.2 warm boot, Web terminal VT100 backpressure, native 8 MiB and read-only HP 82900 LIF media mounts, NVS drive assignments, Wi-Fi, /updater, /ws and normal HP BASIC services** untouched.
-- Working code was flashed and tested by the user before the later docs-only commits. Current working repository branches are **`feature/cn3-spi-read-test` on BOTH ESP32 and Teensy**, not assumed merged to `main`. Tested code pointers and build details follow below.
+- Working code was flashed and tested by the user before later docs-only commits. The historical SPI feature branches have now been **merged into `main` on BOTH ESP32 and Teensy**; new experimental Media Manager code belongs **only on `feature/media-manager-spi-upload`**. Tested code pointers and build details follow below.
 
 ## Seven user-approved milestones — preserve this order
 
@@ -53,21 +55,21 @@
 - **Physical SPI mapping and original proposal:** [`CN3_SPI_PROPOSAL.md`](CN3_SPI_PROPOSAL.md) (historic proposal; verify against the **tested wiring** in stream docs and actual hardware before assuming pins).
 - **Original HP 82900A research:** [`HP82900_STAGE1.md`](HP82900_STAGE1.md) (distinct historical project).
 - **GSX historical overview/source files:** [John Elliott's GSX-80 archive](https://www.seasip.info/Cpm/gsx.html); [Digital Research GSX-80 Programmer's Guide (Nov. 1982, Bitsavers)](https://bitsavers.org/pdf/digitalResearch/gsx/GSX-80_Graphics_Extension_Programmers_Guide_Nov82.pdf). For the CP/M Turbo Pascal question, [discussion of PolyPascal/GSX bindings](https://retrocomputing.stackexchange.com/questions/31326/how-can-i-use-gsx-in-turbo-pascal-for-cpm-80). Treat any third-party code/license separately from our own firmware.
-- **Established ESP32 update workflow:** on `feature/cn3-spi-read-test`, `pio run -e esp32dev -t clean && pio run -e esp32dev`, flash `.pio/build/esp32dev/firmware.bin` via `/updater`. Teensy builds with `pio run -e teensy41`; never flash Teensy merely for an ESP32-only UI change.
+- **Established build/update workflow:** check out `main` for the stable baseline or `feature/media-manager-spi-upload` for new experiments; run `pio run -e esp32dev -t clean && pio run -e esp32dev`, and flash `.pio/build/esp32dev/firmware.bin` using `/updater`. Teensy builds using `pio run -e teensy41`; never flash Teensy merely for an ESP32-only UI change.
 
-**Unbreakable constraints:** preserve tested HP bus ISR; do not attach an Arduino READY pin interrupt; no edits to `main` unless user authorizes a merge; no direct ESP32 access to HP-85 bus or SD card; keep UART1 protocol-only (no logs/console bytes), serialized; normal CP/M disk writes and current read cache must keep working; no unbounded buffers or large `.bss` allocations; distinguish source-reviewed/build-tested from *physical hardware-tested* at every step.
+**Unbreakable constraints:** preserve tested HP bus ISR; do not attach an Arduino READY pin interrupt; **keep `main` as the stable merged baseline and make all new experimental source changes on `feature/media-manager-spi-upload` until separately validated**; no direct ESP32 access to HP-85 bus or SD card; keep UART1 protocol-only (no logs/console bytes), serialized; normal CP/M disk writes and current read cache must keep working; no unbounded buffers or large `.bss` allocations; distinguish source-reviewed/build-tested from *physical hardware-tested* at every step.
 
 ---
 
 ## Starting a new chat
 
-Suggested message:
+Use this message:
 
-> Continue the HP-85 EBTKS / parallel Z80 CP/M project. Open the **`feature/cn3-spi-read-test`** branch of `timob0/EBTKS-Z80-Emulator` and read **`NEXT_CHAT_HANDOFF.md`**, **`HP_CPM_INTEGRATION_ROADMAP.md`**, **`PROJECT_STATUS.md`** and **`SPI_CPM_READ_INTEGRATION.md`**. We have hardware-validated the IRQ-free 4 MHz SPI CP/M read transport. **Next task is Media Manager disk-image upload/download with a separately tested ESP32-to-Teensy SPI payload path**. Leave live CP/M disk writes on UART and don't alter the proven READY handshake. The TFT hasn't arrived yet; its native-terminal integration is milestone 2. Read the source and confirm branch heads before editing.
+> Continue the HP-85 EBTKS / parallel Z80 CP/M project. The validated SPI read transport was merged into **`main` in both repos**. Please work on the **`feature/media-manager-spi-upload`** branches of `timob0/EBTKS-Z80-Emulator` and `timob0/ebtks-alt-firmware`. First read **`NEXT_CHAT_HANDOFF.md`**, **`HP_CPM_INTEGRATION_ROADMAP.md`**, **`SPI_CPM_READ_INTEGRATION.md`** and **`SPI_STREAM_PROTOCOL.md`**, then inspect the branch heads and source. Our next task is isolated RAM-only **ESP32→Teensy SPI transfer** for safe, verified disk-image uploads. Keep normal CP/M disk writes on UART and never add Teensy READY interrupts.
 
-**Repository pointers:** ESP32 [`timob0/EBTKS-Z80-Emulator`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/cn3-spi-read-test) and Teensy [`timob0/ebtks-alt-firmware`](https://github.com/timob0/ebtks-alt-firmware/tree/feature/cn3-spi-read-test), **both on `feature/cn3-spi-read-test`**. Do not silently use `main`. Historic firmware-state pointers: ESP32 CP/M SPI read-path/cache-allocation fix [`5a1ac6e5`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/5a1ac6e5d6ada475e3f4489ff44eabc61e910b8e), Teensy tested IRQ-free sender [`beba160e`](https://github.com/timob0/ebtks-alt-firmware/commit/beba160e51d403700f069b9ebf3de956ed4bd6f5). Later documentation commits do **not** imply a new hardware-tested binary. Inspect exact current source/HEAD before modifying anything.
+**Repository links:** [ESP32 `main`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main), [Teensy `main`](https://github.com/timob0/ebtks-alt-firmware/tree/main), and the **`feature/media-manager-spi-upload`** branches when starting the new milestone. Old `feature/cn3-spi-read-test` branches remain for history. The ESP32 firmware was hardware-tested through commit `5a1ac6e5` before later docs changes; Teensy safe stream source was tested at `beba160e`. Merging does not change the on-device firmware or count as a new hardware test.
 
-**Do not rely on chat memory:** this repository handoff and linked design records are intended to restore context independently.
+**No reliance on chat memory is needed:** this file and linked version-controlled documents are the handoff. Verify current source and Git heads before changing anything.
 
 ## Project goal and architecture
 
