@@ -1,6 +1,10 @@
 # Read-only SD sector → SPI transport test (4 MHz, mode 0)
 
-**Status: source committed, NOT YET COMPILED OR TESTED ON PHYSICAL EBTKS.** This is a diagnostic step between the proven *synthetic* SPI tests and changing the live CP/M disk transport. The real CP/M `disk_read`/`disk_write` requests still use the established UART/JSON/Base64 path. **This new test never writes to SD or changes CP/M mounts.** Both feature branches must be pulled and flashed together.
+**Status: first 512-byte real SD-to-SPI hardware test PASSED at 4 MHz, SPI mode 0 on 2026-10-18.** This is a diagnostic step between the proven *synthetic* SPI tests and changing the live CP/M disk transport. The real CP/M `disk_read`/`disk_write` requests still use the established UART/JSON/Base64 path. **This new test never writes to SD or changes CP/M mounts.** Both feature branches must be pulled and flashed together.
+
+## Hardware results
+
+> **FIRST REAL SD-SECTOR→SPI HARDWARE PASS — 2026-10-18:** User rebuilt/flashed both feature-branch firmwares and ran `/spitest`'s **read-only SD sector test**, **SPI mode 0 at 4 MHz**. Source file `/cpm/disks/A.dsk` (8,388,608 bytes), starting file sector **0**, **1 × 512-byte** sector, run **32**, `state=passed`, `completed_sectors=1`, `needs_reboot=false`, no mismatches. **Three independently reported CRC-16/Modbus values all 14717:** `sd_crc_prepared=14717` (Teensy after SD read), `sd_crc_sent=14717` (Teensy SPI TX), `crc_esp=14717` (ESP32 SPI RX). `sd_first16_hex=00444F574E4C4F4144434F4D00000004`. Teensy measured SD open/seek/read/CRC/close **2,514 µs**, SPI transfer loop **1,444 µs**, total wall **66,117 µs** (other coordination ≈62,159 µs), loop throughput **346.26 KiB/s**, wall throughput **7.56 KiB/s** for this single sector. **This establishes read-only SD→SPI byte integrity for ONE actual file sector on hardware.** It does NOT yet establish 16/128-sector sustained SD reliability, SD+SIMON85 concurrent operation, CP/M disk reads using SPI, any write path, or production transport throughput. Next: run 16, then 128 sectors from an existing image at 4 MHz/mode 0, then repeat 128 sectors while SIMON85 graphics draws/fills ellipses. The working CP/M disk transport remains UART/JSON/Base64; neither `main` nor media modified by these tests. [Test guide](SPI_SD_READ_TEST.md).
 
 ## Exactly what is being tested
 
