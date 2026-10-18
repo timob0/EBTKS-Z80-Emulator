@@ -1100,6 +1100,11 @@ the image. Select 1 sector first, then 16 and 128 while SIMON85 draws.</p>
 <label>SD image <input id="sdpath" size="30" value="/cpm/disks/A.dsk"></label>
 <label>Starting 512-byte sector <input id="sdsector" type="number" min="0" step="1" value="0" size="8"></label>
 <p><button id="sdRun" onclick="startSd()">Read SD sectors over SPI (4 MHz)</button></p>
+<p><button id="streamRun" onclick="startStream()">Batched framed SD stream (4 MHz, read-only)</button></p>
+<p><small>The batched test uses a reusable 16-byte session/block/CRC header
+plus 512 raw bytes per SPI frame, two UART commands per entire batch rather
+than per sector. The type field can later identify an HP-85 screen stream.
+The working CP/M disk service is not affected.</small></p>
 <pre id="out">Loading status…</pre>
 <p>If MISO fails, inspect <code>miso_first16_hex</code>. Thirty-two zeros
 means the first 16 Teensy-received bytes were all zero; use a 1 MHz test
@@ -1120,6 +1125,7 @@ async function refresh(){
     document.getElementById('run').disabled=j.state==='running'||j.needs_reboot;
     document.getElementById('gpio').disabled=j.state==='running'||j.needs_reboot;
     document.getElementById('sdRun').disabled=j.state==='running'||j.needs_reboot;
+    document.getElementById('streamRun').disabled=j.state==='running'||j.needs_reboot;
   } catch(e) {document.getElementById('out').textContent=String(e)}
 }
 async function start(){
@@ -1135,6 +1141,16 @@ async function start(){
 }
 async function gpioCheck(){
   const r=await fetch('/api/spitest/gpio',{method:'POST'});
+  if(!r.ok)alert(await r.text());
+  refresh();
+}
+async function startStream(){
+  const path=document.getElementById('sdpath').value.trim(),
+    first=document.getElementById('sdsector').value,
+    sectors=document.getElementById('sectors').value;
+  const u='/api/spitest/stream?path='+encodeURIComponent(path)+'&first='+
+    encodeURIComponent(first)+'&sectors='+encodeURIComponent(sectors);
+  const r=await fetch(u,{method:'POST'});
   if(!r.ok)alert(await r.text());
   refresh();
 }
@@ -1156,6 +1172,33 @@ inline void spiTestRegister(AsyncWebServer &server)
 {
   server.on("/spitest", HTTP_GET, [](AsyncWebServerRequest *r) {
     r->send(200, "text/html", SPI_TEST_PAGE);
+  });
+  server.on("/api/spitest/stream", HTTP_POST, [](AsyncWebServerRequest *r) {
+    if (!r->hasParam("path") || !r->hasParam("first") ||
+        !r->hasParam("sectors")) {
+      r->send(400, "text/plain", "Stream needs path, first, sectors");
+      return;
+    }
+    const String path = r->getParam("path")->value();
+    const String firstText = r->getParam("first")->value();
+    const String countText = r->getParam("sectors")->value();
+    bool digits = firstText.length() > 0 && firstText.length() <= 7;
+    for (size_t i = 0; i < firstText.length(); ++i)
+      if (firstText[i] < '0' || firstText[i] > '9') digits = false;
+    const uint32_t first = digits ?
+        (uint32_t)strtoul(firstText.c_str(), nullptr, 10) : UINT32_MAX;
+    const uint16_t count = countText == "1" ? 1 :
+                           countText == "16" ? 16 :
+                           countText == "128" ? 128 : 0;
+    if (!digits || !spiTestSdPathValid(path) || !count ||
+        first > ((UINT32_MAX / SPI_TEST_BYTES) - SPI_TEST_MAX_SECTORS)) {
+      r->send(400, "text/plain", "Invalid /cpm/disks file, sector or count");
+    } else if (!spiTestStreamStart(path, first, count)) {
+      r->send(409, "text/plain", "Stream busy or ESP32 reboot required");
+    } else {
+      r->send(202, "application/json",
+              "{\"started\":true,\"framed\":true,\"read_only\":true,\"clock_hz\":4000000}");
+    }
   });
   server.on("/api/spitest/sd", HTTP_POST, [](AsyncWebServerRequest *r) {
     if (!r->hasParam("path") || !r->hasParam("first") ||
@@ -1220,6 +1263,7 @@ inline void spiTestRegister(AsyncWebServer &server)
                    state == 2 ? "passed" : "failed";
     doc["detail"] = spiTestDetail;
     doc["test_kind"] = spiTestGpioMode ? "gpio_miso" :
+                       spiTestStreamMode ? "sd_stream_framed" :
                        spiTestSdMode ? "sd_readonly_spi" : "spi";
     doc["gpio_low_read"] = (int)spiTestGpioLow;
     doc["gpio_high_read"] = (int)spiTestGpioHigh;
@@ -1236,8 +1280,8 @@ inline void spiTestRegister(AsyncWebServer &server)
     doc["completed_bytes"] = (uint32_t)spiTestCompleted * SPI_TEST_BYTES;
     doc["completed_bytes_total"] = (uint32_t)spiTestCompleted *
                                     SPI_TEST_BYTES * (spiTestBidi ? 2U : 1U);
-    doc["sd_read_only"] = (bool)spiTestSdMode;
-    if (spiTestSdMode) {
+    doc["sd_read_only"] = (bool)(spiTestSdMode || spiTestStreamMode);
+    if (spiTestSdMode || spiTestStreamMode) {
       doc["sd_file"] = spiTestSdPath;
       doc["sd_start_sector"] = (uint32_t)spiTestSdFirstSector;
       doc["sd_file_bytes"] = (uint32_t)spiTestSdFileSize;
@@ -1245,8 +1289,21 @@ inline void spiTestRegister(AsyncWebServer &server)
       doc["sd_crc_prepared"] = (uint16_t)spiTestSdPreparedCrc;
       doc["sd_crc_sent"] = (uint16_t)spiTestSdSentCrc;
       doc["sd_first16_hex"] = spiTestSdFirst16Hex;
-      doc["sd_crc_match"] = spiTestSdPreparedCrc == spiTestSdSentCrc &&
-                            spiTestCrcLocal == spiTestSdPreparedCrc;
+      doc["sd_crc_match"] = spiTestStreamMode ?
+          (spiTestState == 2 && spiTestAggregateCrc == spiTestSdSentCrc) :
+          (spiTestSdPreparedCrc == spiTestSdSentCrc &&
+           spiTestCrcLocal == spiTestSdPreparedCrc);
+    }
+    if (spiTestStreamMode) {
+      doc["stream_header_bytes"] = (unsigned)EbtksStream::HEADER_BYTES;
+      doc["stream_frame_bytes"] = (unsigned)EbtksStream::FRAME_BYTES;
+      doc["stream_session"] = (uint16_t)spiTestStreamSession;
+      doc["stream_frames_received"] = (uint16_t)spiTestStreamFrames;
+      doc["stream_bad_frames"] = (uint16_t)spiTestStreamBadFrames;
+      doc["stream_wire_bytes"] = (uint32_t)spiTestStreamWireBytes;
+      doc["stream_first_error"] = spiTestStreamError;
+      doc["stream_crc_esp"] = (uint16_t)spiTestAggregateCrc;
+      doc["stream_crc_teensy"] = (uint16_t)spiTestCrcRemote;
     }
     doc["failed_sector"] = (int)spiTestFailSector;
     doc["failed_pattern"] = (int)spiTestFailPattern;
