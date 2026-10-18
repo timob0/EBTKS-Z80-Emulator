@@ -14,6 +14,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string.h>
+#include <esp_heap_caps.h>
 #include "spi_stream_frame.h"
 
 // Globals declared in spi_link_test.h, included before this header:
@@ -23,7 +24,11 @@
 static constexpr uint16_t SPI_DISK_CACHE_SECTORS = 16;
 static constexpr size_t SPI_DISK_CACHE_BYTES =
     SPI_DISK_CACHE_SECTORS * EbtksStream::PAYLOAD_BYTES;
-static uint8_t spiDiskCache[SPI_DISK_CACHE_BYTES] = {};
+// DO NOT reserve 8 KiB in .dram0.bss: the classic ESP32's static DRAM
+// linker region is almost full. This buffer is allocated from the runtime
+// heap on first SPI enable, retained for the boot, and NEVER freed while
+// a core-0 DMA worker might still reference it.
+static uint8_t *spiDiskCache = nullptr;
 static char spiDiskCachePath[96] = {};
 static uint32_t spiDiskCacheFirst = 0;
 static uint16_t spiDiskCacheCount = 0;
@@ -49,6 +54,30 @@ static volatile uint32_t spiDiskTotalReadUs = 0;
 static volatile uint32_t spiDiskLastBatchUs = 0;
 static volatile uint32_t spiDiskLastBatchFrames = 0;
 static volatile uint32_t spiDiskCacheInvalidations = 0;
+
+// Allocate only when the operator enables SPI reads. With the original
+// static 8192-byte array, dram0_0_seg overflowed by 6728 bytes at link.
+// Keeping the pointer in .bss restores >8 KiB of link-time DRAM budget.
+// Never use PSRAM or a DMA buffer for this cache: SPI driver owns its own
+// DMA-capable receive buffers, and this is only a validated payload staging
+// area. Keep substantial RAM for Z80, AsyncTCP, Wi-Fi and other workers.
+inline bool spiDiskEnsureCache()
+{
+  if (spiDiskCache) return true;
+  const size_t reserveAfterAlloc = 32768;
+  const size_t minLargestBlock = SPI_DISK_CACHE_BYTES + 4096;
+  if (ESP.getFreeHeap() < SPI_DISK_CACHE_BYTES + reserveAfterAlloc ||
+      heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < minLargestBlock)
+    return false;
+
+  uint8_t *buffer = static_cast<uint8_t *>(
+      heap_caps_malloc(SPI_DISK_CACHE_BYTES, MALLOC_CAP_8BIT));
+  if (!buffer) return false;
+  spiDiskCache = buffer;
+  // Cache is never valid until a complete CRC/sequence-checked SPI batch
+  // commits it; no need to clear uninitialized bytes here.
+  return true;
+}
 
 inline void spiDiskInvalidateCache()
 {
@@ -257,6 +286,7 @@ inline bool spiDiskEnsureWorker()
 {
   if (!spiDiskDone) spiDiskDone = xSemaphoreCreateBinary();
   if (!spiDiskDone) return false;
+  if (!spiDiskCache && !spiDiskEnsureCache()) return false;
   if (spiDiskWorkerHandle) return true;
   if (ESP.getFreeHeap() < 32000 ||
       heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 16000)
@@ -272,6 +302,13 @@ inline bool spiDiskReadCached(const char *path, uint32_t sector,
   if (!dst || !path || !spiDiskReadsEnabled || spiDiskBootDisabled ||
       spiTestNeedsReboot || spiTestState == 1 || spiDiskJobActive ||
       sector >= totalSectors) return false;
+  // Defensive guard if a future caller bypasses the mode-switch allocation.
+  if (!spiDiskCache && !spiDiskEnsureCache()) {
+    spiDiskBootDisabled = true;
+    spiDiskReadsEnabled = false;
+    spiDiskSetError("Cannot allocate 8 KiB SPI disk cache");
+    return false;
+  }
 
   if (spiDiskCacheValid && !strcmp(spiDiskCachePath, path) &&
       sector >= spiDiskCacheFirst &&
@@ -331,14 +368,30 @@ inline bool spiDiskReadCached(const char *path, uint32_t sector,
   return true;
 }
 
-inline void spiDiskSetEnabled(bool requested)
+inline bool spiDiskSetEnabled(bool requested)
 {
-  // Disabling is always possible and invalidates caches. Re-enabling after a
-  // link error requires an ESP32 reboot to reset uncertain SPI DMA state.
-  spiDiskReadsEnabled = requested && !spiDiskBootDisabled &&
-                        !spiTestNeedsReboot && !spiDiskJobActive &&
-                        spiTestState != 1;
+  // The read-ahead allocation is intentionally retained after disable:
+  // mode changes don't fragment heap or free a buffer possibly in use
+  // by the Z80 or the persistent core-0 worker.
+  if (!requested) {
+    spiDiskReadsEnabled = false;
+    spiDiskInvalidateCache();
+    return true;
+  }
+  if (spiDiskBootDisabled || spiTestNeedsReboot ||
+      spiDiskJobActive || spiTestState == 1) return false;
+
+  // Refuse the switch instead of reporting SPI enabled when memory is short.
+  // No DMA, UART command, image read or Z80 RAM modification has occurred.
+  if (!spiDiskEnsureCache()) {
+    spiDiskReadsEnabled = false;
+    strlcpy(spiDiskLastError, "Cannot allocate 8 KiB SPI cache; UART remains active",
+            sizeof(spiDiskLastError));
+    return false;
+  }
+  spiDiskReadsEnabled = true;
   spiDiskInvalidateCache();
+  return true;
 }
 
 inline void spiDiskRegister(AsyncWebServer &server)
@@ -350,6 +403,8 @@ inline void spiDiskRegister(AsyncWebServer &server)
     doc["needs_reboot"] = (bool)spiTestNeedsReboot;
     doc["active"] = (bool)spiDiskJobActive;
     doc["cache_valid"] = (bool)spiDiskCacheValid;
+    doc["cache_allocated"] = spiDiskCache != nullptr;
+    doc["cache_bytes"] = spiDiskCache ? (uint32_t)SPI_DISK_CACHE_BYTES : 0U;
     doc["cache_first"] = (uint32_t)spiDiskCacheFirst;
     doc["cache_count"] = (unsigned)spiDiskCacheCount;
     doc["cache_hits"] = (uint32_t)spiDiskHits;
@@ -391,7 +446,11 @@ inline void spiDiskRegister(AsyncWebServer &server)
       r->send(409, "text/plain", "Wait for in-flight SPI read to finish");
       return;
     }
-    spiDiskSetEnabled(value == "1");
+    if (!spiDiskSetEnabled(value == "1")) {
+      r->send(503, "text/plain", spiDiskLastError[0] ?
+              spiDiskLastError : "SPI mode switch refused");
+      return;
+    }
     r->send(200, "application/json", spiDiskReadsEnabled ?
             "{\"ok\":true,\"enabled\":true}" :
             "{\"ok\":true,\"enabled\":false}");
