@@ -16,5 +16,6 @@
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <Update.h>
+#include <Preferences.h>
 
 #include "../ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino"
