@@ -130,7 +130,17 @@ inline int cpmParseDriveParam(AsyncWebServerRequest *request)
 inline void cpmMediaRegister(AsyncWebServer &server)
 {
   server.on("/cpmmedia", HTTP_GET, [](AsyncWebServerRequest *request) {
-    request->send(200, "text/html", CPM_MEDIA_PAGE);
+    // Serve flash-backed HTML without copying the entire page to heap.
+    AsyncWebServerResponse *response=request->beginResponse(
+      200,"text/html; charset=utf-8",
+      reinterpret_cast<const uint8_t *>(CPM_MEDIA_PAGE),
+      sizeof(CPM_MEDIA_PAGE)-1U);
+    if(!response) {
+      request->send(503,"text/plain","Media Manager response unavailable");
+      return;
+    }
+    response->addHeader("Cache-Control","no-store");
+    request->send(response);
   });
 
   server.on("/api/cpm/media", HTTP_GET, [](AsyncWebServerRequest *request) {

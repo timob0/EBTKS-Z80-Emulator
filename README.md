@@ -4,11 +4,11 @@
 
 **Hardware experiments:** [Proposed CN3 SPI pin assignment and 5-wire jumper diagram](CN3_SPI_PROPOSAL.md) (Teensy master ↔ ESP32 slave; **not yet hardware-tested**). TFT wiring remains deferred.
 
-> **Current hardware-tested status (2026-10-17):** See [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md). The last hardware-tested *firmware* commit is [`5f586f3`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/5f586f35197627319e7b8280ef62e3807b6ceee3); newer commits only add project documentation.
+> **Current development status (2026-10-19):** The authoritative **living** branch table and development checkpoint are in [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md). Do not assume `main` or matching ESP32/Teensy feature branches. The last user-tested ESP32 baseline is `feature/spi-readahead-liveness-diagnostics`; this `feature/esp32-stable-web-mainline` candidate preserves only the flash-backed page/liveness fixes and future CP/M file API design documents, deliberately leaving whole-image HTTP/SPI transfers out. It still needs a local build and hardware regression before merging into `main`. Teensy development baseline is now `main` after [PR #2](https://github.com/timob0/ebtks-alt-firmware/pull/2).
 >
-> The integrated EBTKS firmware runs Z80/CP/M alongside the HP-85, with Teensy SD-backed media, a working browser VT100 terminal (independent of Telnet), CP/M warm-boot recovery and a Media Manager. **Next milestone:** optional 4-inch SPI TFT. The README content below is inherited from the original standalone emulator and contains hardware, SD and UART details which **do not apply** to this integrated build.
+> The integrated EBTKS firmware runs Z80/CP/M alongside the HP-85, with Teensy SD-backed media, browser VT100 terminal independent of Telnet, CP/M warm-boot recovery, and CP/M media mounting. Next planned feature: create a blank native 8 MiB CP/M disk directly on the Teensy SD card. The original emulator README below is historical and may describe hardware not used by this integrated build.
 
-For a new AI-assisted development chat, point it at this GitHub repo's `main` branch and ask it to read both linked documents **before editing code**.
+**For a new AI-assisted development chat:** Open [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md), follow the exact current branch links in its first section, and use the user-tested ESP32 rollback until the consolidation candidate has passed regression testing.
 
 ---
 

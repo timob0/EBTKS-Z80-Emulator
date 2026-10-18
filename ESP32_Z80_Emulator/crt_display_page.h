@@ -290,5 +290,17 @@ connect();
 
 inline void ebtksServeCrtDisplay(AsyncWebServerRequest *request)
 {
-  request->send(200, "text/html", EBTKS_CRT_DISPLAY_PAGE);
+  // Always transmit large static pages directly from flash. Building an
+  // AsyncBasicResponse first copies the entire page to a heap String and
+  // repeatedly fragments it on ACK, unsafe once SPI caching uses heap.
+  AsyncWebServerResponse *response=request->beginResponse(
+      200,"text/html; charset=utf-8",
+      reinterpret_cast<const uint8_t *>(EBTKS_CRT_DISPLAY_PAGE),
+      sizeof(EBTKS_CRT_DISPLAY_PAGE)-1U);
+  if(!response) {
+    request->send(503,"text/plain","CRT page response allocation failed");
+    return;
+  }
+  response->addHeader("Cache-Control","no-store");
+  request->send(response);
 }

@@ -6,6 +6,9 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPAsyncWiFiManager.h>
 #include <Update.h>
+#include <ArduinoJson.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
 #include "sd_test_page.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
@@ -41,15 +44,31 @@ body{font-family:Verdana,sans-serif;text-align:center;background:#222;color:#fff
 <form method="POST" action="/updater" enctype="multipart/form-data"><input type="file" class="bt" name="update" required><br><input type="submit" class="bt" value="Update!"></form>
 <p><button class="bt" onclick="history.back()">Back</button></p></body></html>)HTML";
 
+// All static pages use AsyncProgmemResponse. It never duplicates whole
+// HTML bodies as mutable heap Strings, unlike AsyncBasicResponse.
+inline void ebtksServeFlashPage(AsyncWebServerRequest *request,
+                                const char *data,size_t bytes) {
+  AsyncWebServerResponse *response=request->beginResponse(
+      200,"text/html; charset=utf-8",
+      reinterpret_cast<const uint8_t *>(data),bytes);
+  if(!response) {
+    request->send(503,"text/plain","HTML response allocation failed");
+    return;
+  }
+  response->addHeader("Cache-Control","no-store");
+  request->send(response);
+}
 inline void ebtksServeHome(AsyncWebServerRequest *request)
 {
-  request->send(200, "text/html", EBTKS_HOME_FALLBACK);
+  ebtksServeFlashPage(request,EBTKS_HOME_FALLBACK,
+                       sizeof(EBTKS_HOME_FALLBACK)-1U);
 }
 
 inline void ebtksServeUpdater(AsyncWebServerRequest *request)
 {
   if (SPIFFS.exists("/updater.html")) request->send(SPIFFS, "/updater.html", "text/html");
-  else request->send(200, "text/html", EBTKS_UPDATER_FALLBACK);
+  else ebtksServeFlashPage(request,EBTKS_UPDATER_FALLBACK,
+                            sizeof(EBTKS_UPDATER_FALLBACK)-1U);
 }
 
 inline void ebtksQueueWebSocketMessage(void *arg, uint8_t *data, size_t len)
@@ -154,6 +173,37 @@ inline bool ebtksWebBegin()
     else request->send(404, "text/plain", "Not found");
   });
 
+  // RAM-only liveness and reset forensics, no SPI/UART/SD work.
+  // Read BEFORE and AFTER enabling 4MHz read-ahead from Media Manager.
+  // If the ESP resets, its next boot retains the hardware reset reason.
+  ebtksServer.on("/api/system/health",HTTP_GET,
+    [](AsyncWebServerRequest *r){
+      const esp_reset_reason_t reason=esp_reset_reason();
+      JsonDocument v;
+      v["uptime_ms"]=(uint32_t)millis();
+      v["reset_reason"]=(int)reason;
+      v["reset_watchdog"]=(reason==ESP_RST_INT_WDT ||
+                            reason==ESP_RST_TASK_WDT ||
+                            reason==ESP_RST_WDT);
+      v["reset_panic"]=(reason==ESP_RST_PANIC);
+      v["reset_brownout"]=(reason==ESP_RST_BROWNOUT);
+      v["heap_free"]=(uint32_t)ESP.getFreeHeap();
+      v["heap_min_free"]=(uint32_t)ESP.getMinFreeHeap();
+      v["largest_free_8bit_block"]=(uint32_t)
+          heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      v["internal_free"]=(uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+      v["internal_largest_block"]=(uint32_t)
+          heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+      v["spi_enabled"]=(bool)spiDiskReadsEnabled;
+      v["spi_cache_allocated"]=spiDiskCache!=nullptr;
+      v["spi_worker_created"]=spiDiskWorkerHandle!=nullptr;
+      v["spi_dma_initialized"]=(bool)spiTestInitialized;
+      v["spi_job_active"]=(bool)spiDiskJobActive;
+      v["spi_requires_reboot"]=(bool)spiTestNeedsReboot;
+      v["spi_read_failures"]=(uint32_t)spiDiskReadFailures;
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
   ebtksServer.on("/sdtest", HTTP_GET, ebtksServeSdTest);
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
 
