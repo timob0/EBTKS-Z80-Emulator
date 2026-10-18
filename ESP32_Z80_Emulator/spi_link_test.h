@@ -832,14 +832,18 @@ inline void spiTestStreamRun()
     reply = "";
     preDoc.clear();
     const bool transportOk = ebtksLinkTransaction(req, reply, 3000);
-    const DeserializationError parseError = transportOk ?
-        deserializeJson(preDoc, reply) : DeserializationError::EmptyInput;
-    preparedJson = transportOk && !parseError &&
+    const char *reason = transportOk ? "missing_spi_stream_prepare" :
+                                       "UART_timeout_or_CRC";
+    bool jsonParsed = false;
+    if (transportOk) {
+      const DeserializationError error = deserializeJson(preDoc, reply);
+      jsonParsed = !error;
+      if (error) reason = error.c_str();
+    }
+    preparedJson = transportOk && jsonParsed &&
                    preDoc["spi_stream_prepare"].is<JsonObject>();
     if (!preparedJson) {
       ++spiTestStreamPrepareParseFailures;
-      const char *reason = !transportOk ? "UART_timeout_or_CRC" :
-          parseError ? parseError.c_str() : "missing_spi_stream_prepare";
       strlcpy(spiTestPrepareError, reason, sizeof(spiTestPrepareError));
       // Sanitized bounded sample of decoded reply (no unbounded JSON logs).
       for (size_t i = 0; i < sizeof(spiTestPrepareReplySample) - 1; ++i) {
@@ -1074,10 +1078,20 @@ inline bool spiTestStreamStart(const String &path, uint32_t first, uint16_t sect
   spiTestHeapAtLaunch = (uint32_t)ESP.getFreeHeap();
   spiTestHeapLargestBlock =
       (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  // Even when the worker already exists, leave room for AsyncTCP,
+  // Wi-Fi, Z80 and web-server allocations. Never run on exhausted heap.
+  if (spiTestHeapAtLaunch < 16384 || spiTestHeapLargestBlock < 4096) {
+    ++spiTestStreamLaunchFailures;
+    spiTestFailure("Stream refused: low ESP32 heap, reboot before more tests", true);
+    Serial.printf("SPI stream LOW HEAP: free=%lu largest=%lu\n",
+                  (unsigned long)spiTestHeapAtLaunch,
+                  (unsigned long)spiTestHeapLargestBlock);
+    return false;
+  }
   if (!spiTestStreamTaskHandle) {
     if (spiTestHeapAtLaunch < 24576 || spiTestHeapLargestBlock < 12288) {
       ++spiTestStreamLaunchFailures;
-      spiTestFailure("Insufficient ESP32 heap for stream worker; reboot or roll back");
+      spiTestFailure("Insufficient ESP32 heap for stream worker; reboot or roll back", true);
       Serial.printf("SPI stream REFUSED: free=%lu largest=%lu\n",
                     (unsigned long)spiTestHeapAtLaunch,
                     (unsigned long)spiTestHeapLargestBlock);
@@ -1088,7 +1102,7 @@ inline bool spiTestStreamStart(const String &path, uint32_t first, uint16_t sect
         &spiTestStreamTaskHandle, 0);
     if (created != pdPASS || !spiTestStreamTaskHandle) {
       ++spiTestStreamLaunchFailures;
-      spiTestFailure("Could not allocate persistent SPI worker; heap diagnostic available");
+      spiTestFailure("Could not allocate persistent SPI worker; heap diagnostic available", true);
       Serial.printf("SPI stream task ALLOCATION FAILED: free=%lu largest=%lu\n",
                     (unsigned long)spiTestHeapAtLaunch,
                     (unsigned long)spiTestHeapLargestBlock);
