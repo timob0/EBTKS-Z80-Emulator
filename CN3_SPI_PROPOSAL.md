@@ -1,5 +1,7 @@
 # Proposed CN3 wiring: Teensy-master SPI storage link
 
+> **SAFETY CORRECTION — CN3 MISO PIN NOT YET RESOLVED (2026-10-18).** Our previous table incorrectly claimed **CN3-13 = ESP GPIO17**. In the **published EBTKS V3.0 schematic**, CN3-13 is `E04` / GPIO4; `E17` appears at **CN3-15**. The user reports that the *actual board* connects ESP32-WROOM module pad **28** (GPIO17) to **CN3-17**, which conflicts with that published drawing. **DO NOT use the old MISO diagram/table as a wiring instruction.** Power off and check continuity from module pad 28 to CN3-15 and CN3-17 (and no continuity to CN3-13). The firmware GPIO remains **17**, not 4 or 18. Update the final jumper assignment only after the physical connection is established.
+
 **Original proposal (historical):** The wiring was subsequently installed, and the first 1 MHz / 512-byte SPI transfer passed on physical hardware on 2026-10-18 (run 13, 4543 us, matching CRC 59244). The 1–8 MHz / 128-sector extension remains unverified; see [SPI_TEST_README.md](SPI_TEST_README.md). The following is retained as the original proposal, including older tentative test steps. Based on the supplied *EBTKS V3.0 schematic* (2021-04-10), **sheet 1 (CN3 and Teensy U4.1)** and **sheet 2 (ESP32 U7)**.
 
 This is the optional bulk-data link for speeding up CP/M SD operations. The Teensy 4.1 would be the **SPI0 master** and initiate each transfer when its HP bus work permits; the ESP32-WROOM-32D would be an **SPI2/HSPI slave**. The existing ESP↔Teensy UART1 (GPIO3/GPIO1, 115200 baud) continues carrying JSON commands/status and must **not** be repurposed. The Teensy's microSD socket uses its own SDIO interface, not these SPI0 pins.
@@ -13,12 +15,12 @@ This is the optional bulk-data link for speeding up CP/M SD operations. The Teen
 | Signal | Teensy endpoint on CN3 | ESP32 endpoint on CN3 | Direction |
 |---|---|---|---|
 | MOSI | **33** — `T11`, Teensy pin **11** | **21** — `E22`, ESP32 **GPIO22** | Teensy → ESP32 |
-| MISO | **29** — `T12`, Teensy pin **12** | **13** — `E17`, ESP32 **GPIO17** | ESP32 → Teensy |
+| MISO | **29** — `T12`, Teensy pin **12** | **UNRESOLVED** — ESP32 module **GPIO17/pad 28**; schematic `E17` at **CN3-15**, user reports real board **CN3-17**. Verify continuity first. | ESP32 → Teensy |
 | SCK | **24** — `T13`, Teensy pin **13** | **14** — `E16`, ESP32 **GPIO16** | Teensy → ESP32 |
 | CS_N (active low) | **30** — `T26`, Teensy pin **26** | **4** — `E34`, ESP32 **GPIO32** | Teensy → ESP32 |
 | ESP_READY (active high) | **26** — `T06`, Teensy pin **6** | **8** — `E27`, ESP32 **GPIO27** | ESP32 → Teensy |
 
-**Correction to earlier discussion:** `E17` / GPIO17 is **CN3 pin 13**, **not pin 15**. Pin 15 is `E18` / GPIO18, reserved for the potential future TFT.
+**Retraction:** The earlier correction claiming `E17` / GPIO17 was at CN3 pin 13 was incorrect. Published V3.0 drawing and observed board connection disagree on CN3-15 versus CN3-17. See the safety warning above; do not decide from labels without an ohmmeter.
 
 ### Additional passive component (required)
 
