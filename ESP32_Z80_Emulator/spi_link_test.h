@@ -45,6 +45,17 @@ static volatile uint16_t spiTestStreamFrames = 0;
 static volatile uint16_t spiTestStreamBadFrames = 0;
 static volatile uint32_t spiTestStreamWireBytes = 0;
 static char spiTestStreamError[40] = {};
+// Detailed DMA diagnostics distinguish short frame, ESP-IDF driver error,
+// and unexpected descriptor pointer; previously all said "DMA incomplete".
+static volatile int spiTestStreamDmaErr = 0;
+static volatile uint32_t spiTestStreamDmaBits = 0;
+static volatile bool spiTestStreamDmaDescriptorMatch = false;
+static volatile int spiTestStreamReadyPin = -1;
+static char spiTestStreamDmaCause[48] = {};
+static volatile uint32_t spiTestStreamReadyEdges = 0;
+static volatile uint32_t spiTestStreamReadyWaitUs = 0;
+static volatile uint32_t spiTestStreamReadyMaxWaitUs = 0;
+static volatile uint8_t spiTestStreamReadyWaitFailure = 0;
 // One persistent worker avoids repeated FreeRTOS task-stack allocation and
 // deferred vTaskDelete heap reclamation after every browser-triggered run.
 static TaskHandle_t spiTestStreamTaskHandle = nullptr;
@@ -795,6 +806,15 @@ inline void spiTestStreamRun()
   spiTestStreamBadFrames = 0;
   spiTestStreamWireBytes = 0;
   spiTestStreamError[0] = '\0';
+  spiTestStreamDmaErr = 0;
+  spiTestStreamDmaBits = 0;
+  spiTestStreamDmaDescriptorMatch = false;
+  spiTestStreamReadyPin = -1;
+  spiTestStreamDmaCause[0] = '\0';
+  spiTestStreamReadyEdges = 0;
+  spiTestStreamReadyWaitUs = 0;
+  spiTestStreamReadyMaxWaitUs = 0;
+  spiTestStreamReadyWaitFailure = 0;
   spiTestPrepareReplySample[0] = '\0';
   spiTestPrepareError[0] = '\0';
   spiTestMisoHeadHex[0] = '\0';
@@ -934,13 +954,29 @@ inline void spiTestStreamRun()
     spi_slave_transaction_t *done = nullptr;
     const esp_err_t err = spi_slave_get_trans_result(
         SPI_TEST_HOST, &done, pdMS_TO_TICKS(2500));
-    if (err != ESP_OK || done != &spiTestTrans ||
-        spiTestTrans.trans_len != wireBits) {
-      // Queued descriptor might STILL be DMA-owned after a timeout.
-      spiTestFailure("Stream SPI DMA incomplete; ESP32 reboot required", true);
-      Serial.printf("SPI stream DMA error at %u: %s bits=%u\n",
-                    (unsigned)block, esp_err_to_name(err),
-                    (unsigned)spiTestTrans.trans_len);
+    // Record all branches of the failure separately. At 176ms wall time
+    // an early short transaction is more plausible than a 2.5s timeout.
+    const bool descriptorMatch = err == ESP_OK && done == &spiTestTrans;
+    const uint32_t actualBits = descriptorMatch ?
+        (uint32_t)spiTestTrans.trans_len : 0;
+    if (err != ESP_OK || !descriptorMatch || actualBits != wireBits) {
+      spiTestStreamDmaErr = (int)err;
+      spiTestStreamDmaBits = actualBits;
+      spiTestStreamDmaDescriptorMatch = descriptorMatch;
+      spiTestStreamReadyPin = digitalRead(SPI_TEST_READY) ? 1 : 0;
+      const char *why = err != ESP_OK ? esp_err_to_name(err) :
+                        !descriptorMatch ? "wrong_dma_descriptor" :
+                                           "short_spi_transaction";
+      strlcpy(spiTestStreamDmaCause, why,
+              sizeof(spiTestStreamDmaCause));
+      spiTestFailure("Stream SPI DMA result failed; ESP32 reboot required", true);
+      Serial.printf("SPI stream DMA FAIL frame=%u cause=%s esp_err=%d "
+                    "bits=%lu/%lu desc_match=%u READY=%d time_ms=%lu\n",
+                    (unsigned)block, why, (int)err,
+                    (unsigned long)actualBits, (unsigned long)wireBits,
+                    descriptorMatch ? 1U : 0U,
+                    (int)spiTestStreamReadyPin,
+                    (unsigned long)((micros() - started) / 1000U));
       dmaOk = false;
       break;
     }
@@ -1014,6 +1050,10 @@ inline void spiTestStreamRun()
   spiTestMaxUs = sr["max_us"] | 0UL;
   spiTestCrcRemote = senderAggregate;
   spiTestSdSentCrc = senderAggregate;
+  spiTestStreamReadyEdges = sr["ready_falling_edges"] | 0UL;
+  spiTestStreamReadyWaitUs = sr["ready_wait_us"] | 0UL;
+  spiTestStreamReadyMaxWaitUs = sr["ready_max_wait_us"] | 0UL;
+  spiTestStreamReadyWaitFailure = sr["ready_wait_failure"] | 0;
 
   if (!ok || replySession != session || framesSent != count ||
       sourceGood != count || replyCount != count || firstBad >= 0 ||
@@ -1403,6 +1443,17 @@ inline void spiTestRegister(AsyncWebServer &server)
       doc["stream_bad_frames"] = (uint16_t)spiTestStreamBadFrames;
       doc["stream_wire_bytes"] = (uint32_t)spiTestStreamWireBytes;
       doc["stream_first_error"] = spiTestStreamError;
+      doc["stream_dma_error"] = spiTestStreamDmaCause;
+      doc["stream_dma_error_code"] = (int)spiTestStreamDmaErr;
+      doc["stream_dma_actual_bits"] = (uint32_t)spiTestStreamDmaBits;
+      doc["stream_dma_expected_bits"] =
+          (uint32_t)EbtksStream::FRAME_BYTES * 8U;
+      doc["stream_dma_descriptor_matches"] = (bool)spiTestStreamDmaDescriptorMatch;
+      doc["stream_dma_ready_level"] = (int)spiTestStreamReadyPin;
+      doc["stream_ready_falling_edges"] = (uint32_t)spiTestStreamReadyEdges;
+      doc["stream_ready_wait_us"] = (uint32_t)spiTestStreamReadyWaitUs;
+      doc["stream_ready_max_wait_us"] = (uint32_t)spiTestStreamReadyMaxWaitUs;
+      doc["stream_ready_wait_failure"] = (unsigned)spiTestStreamReadyWaitFailure;
       doc["stream_prepare_error"] = spiTestPrepareError;
       doc["stream_prepare_reply_sample"] = spiTestPrepareReplySample;
       doc["stream_prepare_parse_failures"] = (uint32_t)spiTestStreamPrepareParseFailures;
