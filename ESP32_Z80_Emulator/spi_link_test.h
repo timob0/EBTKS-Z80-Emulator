@@ -52,7 +52,7 @@ static volatile uint32_t spiTestStreamDmaBits = 0;
 static volatile bool spiTestStreamDmaDescriptorMatch = false;
 static volatile int spiTestStreamReadyPin = -1;
 static char spiTestStreamDmaCause[48] = {};
-static volatile uint32_t spiTestStreamReadyEdges = 0;
+static volatile uint32_t spiTestStreamReadyLowPhases = 0;
 static volatile uint32_t spiTestStreamReadyWaitUs = 0;
 static volatile uint32_t spiTestStreamReadyMaxWaitUs = 0;
 static volatile uint8_t spiTestStreamReadyWaitFailure = 0;
@@ -811,7 +811,7 @@ inline void spiTestStreamRun()
   spiTestStreamDmaDescriptorMatch = false;
   spiTestStreamReadyPin = -1;
   spiTestStreamDmaCause[0] = '\0';
-  spiTestStreamReadyEdges = 0;
+  spiTestStreamReadyLowPhases = 0;
   spiTestStreamReadyWaitUs = 0;
   spiTestStreamReadyMaxWaitUs = 0;
   spiTestStreamReadyWaitFailure = 0;
@@ -1007,10 +1007,20 @@ inline void spiTestStreamRun()
     }
     // We still drain all requested frames after CRC errors. This prevents
     // leaving DMA queued or truncating a session on a recoverable mismatch.
-    if (block + 1 < count && !arm()) {
-      spiTestFailure("Stream next DMA queue failed; ESP32 reboot required", true);
-      dmaOk = false;
-      break;
+    if (block + 1 < count) {
+      // CRITICAL: No attachInterrupt() is permitted on Teensy READY because
+      // the HP-85 timing ISR owns IRQ_GPIO6789. Keep READY LOW for several
+      // milliseconds between DMA descriptors so Teensy's ordinary GPIO
+      // polling cannot miss the completion (LOW) phase. On the Teensy
+      // this is checked immediately after CS goes HIGH, before SD.read().
+      // The delay affects only this opt-in diagnostic, not normal CP/M I/O.
+      gpio_set_level((gpio_num_t)SPI_TEST_READY, 0);
+      vTaskDelay(pdMS_TO_TICKS(5));
+      if (!arm()) {
+        spiTestFailure("Stream next DMA queue failed; ESP32 reboot required", true);
+        dmaOk = false;
+        break;
+      }
     }
   }
 
@@ -1050,7 +1060,7 @@ inline void spiTestStreamRun()
   spiTestMaxUs = sr["max_us"] | 0UL;
   spiTestCrcRemote = senderAggregate;
   spiTestSdSentCrc = senderAggregate;
-  spiTestStreamReadyEdges = sr["ready_falling_edges"] | 0UL;
+  spiTestStreamReadyLowPhases = sr["ready_low_phases"] | 0UL;
   spiTestStreamReadyWaitUs = sr["ready_wait_us"] | 0UL;
   spiTestStreamReadyMaxWaitUs = sr["ready_max_wait_us"] | 0UL;
   spiTestStreamReadyWaitFailure = sr["ready_wait_failure"] | 0;
@@ -1450,7 +1460,7 @@ inline void spiTestRegister(AsyncWebServer &server)
           (uint32_t)EbtksStream::FRAME_BYTES * 8U;
       doc["stream_dma_descriptor_matches"] = (bool)spiTestStreamDmaDescriptorMatch;
       doc["stream_dma_ready_level"] = (int)spiTestStreamReadyPin;
-      doc["stream_ready_falling_edges"] = (uint32_t)spiTestStreamReadyEdges;
+      doc["stream_ready_low_phases"] = (uint32_t)spiTestStreamReadyLowPhases;
       doc["stream_ready_wait_us"] = (uint32_t)spiTestStreamReadyWaitUs;
       doc["stream_ready_max_wait_us"] = (uint32_t)spiTestStreamReadyMaxWaitUs;
       doc["stream_ready_wait_failure"] = (unsigned)spiTestStreamReadyWaitFailure;
