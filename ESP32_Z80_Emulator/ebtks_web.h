@@ -188,6 +188,7 @@ inline bool ebtksWebBegin()
 
   webTerminalRegister(ebtksServer);
   spiTestRegister(ebtksServer);
+  spiDiskRegister(ebtksServer); // opt-in CP/M read transport and stats
 
   ebtksServer.onNotFound([](AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
