@@ -13,7 +13,7 @@
 
 static constexpr spi_host_device_t SPI_TEST_HOST = HSPI_HOST;
 static constexpr int SPI_TEST_MOSI = 22;   // CN3-21
-static constexpr int SPI_TEST_MISO = 17;   // CN3-13
+static constexpr int SPI_TEST_MISO = 17;   // WROOM pad 28; verify CN3 pin on PCB
 static constexpr int SPI_TEST_SCLK = 16;   // CN3-14
 static constexpr int SPI_TEST_CS = 32;     // CN3-4, external 10k pull-up
 static constexpr int SPI_TEST_READY = 27;  // CN3-8
@@ -559,7 +559,7 @@ Mode 0 remains available as a diagnostic comparison.</p>
 <pre id="out">Loading status…</pre>
 <p>If MISO fails, inspect <code>miso_first16_hex</code>. Thirty-two zeros
 means the first 16 Teensy-received bytes were all zero; use a 1 MHz test
-and check the MISO jumper CN3-13 (ESP GPIO17) ↔ CN3-29 (Teensy pin 12).
+and check the MISO jumper ESP GPIO17 (CN3 pin must be verified) ↔ CN3-29 (Teensy pin 12).
 8 MHz MISO over GPIO matrix is beyond ESP-IDF's conservative timing limit.
 </p><p>In full duplex each 512-byte transaction carries 512 bytes <em>each way</em>.
 SPI KiB/s is quoted per direction and includes Teensy software CRC, pattern
