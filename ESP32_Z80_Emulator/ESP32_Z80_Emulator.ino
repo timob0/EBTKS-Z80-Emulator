@@ -84,10 +84,10 @@ void setup() {
 #if EBTKS_SPI_READAHEAD_DEFAULT_ON
   if (sdfound) {
     const bool enabled = spiDiskSetEnabled(true);
-    Serial.printf("CP/M SPI read-ahead boot default: %s\\n",
+    Serial.printf("CP/M SPI read-ahead boot default: %s\n",
                   enabled ? "enabled (4 MHz, 16-sector cache)" : "UART fallback");
     if (!enabled && spiDiskLastError[0])
-      Serial.printf("CP/M SPI read-ahead unavailable: %s\\n", spiDiskLastError);
+      Serial.printf("CP/M SPI read-ahead unavailable: %s\n", spiDiskLastError);
   } else {
     Serial.println("CP/M SPI read-ahead: no Teensy storage; staying on UART");
   }
