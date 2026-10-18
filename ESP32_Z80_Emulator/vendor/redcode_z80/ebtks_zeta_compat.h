@@ -34,7 +34,7 @@ typedef union {
 #define Z_TRUE ((zbool)1)
 #define Z_FALSE ((zbool)0)
 #define Z_EMPTY
-#define Z_UNUSED(expr) ((void)(expr))
+#define Z_UNUSED(expr) ((void)(expr));
 #define Z_CAST(type) (type)
 #define Z_USIZE(v) ((zusize)(v))
 #define Z_USIZE_MAXIMUM SIZE_MAX
