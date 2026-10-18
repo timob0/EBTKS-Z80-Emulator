@@ -6,6 +6,10 @@
 
 ## Verified bidirectional hardware results (2026-10-18; supersedes earlier bring-up notes)
 
+> **Concurrent HP-85 graphics + SPI load test (2026-10-18; physical EBTKS):** User ran a graphics-intensive HP BASIC program using **SIMON85** to draw and fill ellipses *while* exercising the CN3 SPI diagnostic at **8 MHz for 128 × 512-byte sectors**. The SPI test passed, the HP-85 continued drawing throughout, and the user observed **no perceptible graphics slowdown or interference**. This is meaningful hardware evidence that Teensy 4.1 services the live HP-85 bus while running the SPI transfer loop with interrupts enabled. The speed comparison is qualitative (not instrumented), and the SPI sectors were synthetic patterns, **not simultaneous SD-card or CP/M disk I/O**. Continue with opt-in binary sector integration at conservative SPI mode 0 / 4 MHz, retaining the existing UART/Base64 fallback; test SD I/O + HP graphics together before treating the new disk protocol as validated.
+
+
+
 **Physical mapping settled by user multimeter tests:** On the tested EBTKS board, ESP32-WROOM module **pad 28 (GPIO17)** is connected to **CN3-17**. The Teensy module **pin 12** connects to **CN3-29**. The actual successful MISO jumper is **CN3-17 ↔ CN3-29**. Published EBTKS V3.0 schematic labels E17 on CN3-15, while CN3-13 is E04/GPIO4; **our earlier CN3-13 prescription was incorrect**. The user verified end-to-end connectivity between both module pins after rewiring. Do not assume the same assignment for other board revisions without continuity checks.
 
 **Full-duplex mode 0 at 8 MHz: repeatably PASSED** with 128 sectors / 512 bytes per sector / pattern mode 5 (cycling all five data patterns), both directions verified byte for byte and with CRCs. User repeated this several times successfully:
