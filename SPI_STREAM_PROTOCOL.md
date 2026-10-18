@@ -2,6 +2,33 @@
 
 **Status:** Both feature-branch source trees contain this opt-in implementation; **NOT yet locally compiled, flashed or hardware-validated**. Retain known-good binaries for rollback. Working HP-85, SIMON85, Wi-Fi, Web UI, Z80/CP-M and the current UART/JSON/Base64 CP/M disk service are unaffected. No merge into `main`.
 
+## Reliability repair after first hardware runs (2026-10-18)
+
+**Hardware report before repair:** User found that the batched read-only stream **usually passed** but after repeated tests sometimes returned `Stream prepare UART JSON malformed`, then `Could not launch SPI stream worker`. Subsequently the ESP32 web pages (`/z80`, CP/M Media Manager) became unavailable. Reported runs 19 and 20 were 16-sector tests that failed **before any SPI data was sent**: `stream_frames_received=0`, `completed_sectors=0`, `needs_reboot=false`. The successful batch timings and exact sector counts were not provided. **Do not use the earlier batched build for further stress testing.**
+
+**Likely root cause found in source:** The original `spiTestStreamWorker()` was dynamically created for every test and called FreeRTOS `vTaskDelete(nullptr)` directly while its function-scope Arduino `String` and `JsonDocument` variables were alive. Task deletion does not perform normal C++ stack unwinding, so their heap allocations can leak on both normal and early-return paths. Repeated runs can deplete/fragment heap, explaining both JSON parse errors and eventual FreeRTOS task creation failures; this is a strong code-level diagnosis, **not yet verified as the only runtime cause**.
+
+**ESP32-only repair committed; requires local rebuild/test:**
+
+- One persistent `SpiBatch` worker, allocated at most once, sleeping on a FreeRTOS task notification between sessions. The body now runs as an ordinary C++ function that **returns normally**, so local `String` and ArduinoJson destructors execute.
+- Worker stack increased from 6,144 to **8,192 bytes** (allocated once); task stack high-water mark and ESP heap telemetry published.
+- Stream starts are **refused before task creation** if free heap or largest contiguous block is too small, and likewise refused when subsequent run memory is critically low, preserving resources for Wi-Fi and HTTP. These low-memory refusals set `needs_reboot=true`.
+- A malformed or missing `spi_stream_prepare` UART response can be retried **once**, and only **before any SPI DMA is queued**. Raw decoded reply is captured as a bounded, printable sample (`stream_prepare_reply_sample`) with error category (`stream_prepare_error`) and cumulative counter; no stream-send phase is retried automatically.
+- Keep legacy CP/M UART transport, the old one-sector SD test and synthetic SPI test unchanged. Teensy firmware, SD images, Wi-Fi and OTA routes are unchanged by this repair.
+
+### Memory and stability regression (run this BEFORE 128 sectors)
+
+Power-cycle or reset the ESP32 to clear any heap already lost under the old firmware, then flash the **updated ESP32-only** firmware via `/updater`. There is no need to rebuild/flash Teensy since its framing and handler code did not change. Retain the previous stable ESP32 binary in case a rollback is needed.
+
+1. Verify `/z80`, `/cpmmedia`, `/updater`, and CP/M `DIR` on a fresh boot.
+2. Run existing **read-only SD sector test (4 MHz)** for **1 sector**, verifying the established baseline.
+3. Run new **batched framed SD stream** for **1 sector**, once. Save JSON including `heap_before_stream`, `heap_after_stream`, `heap_free_now`, `heap_min_free`, `heap_largest_free_block`, `stream_worker_stack_high_water`, `stream_worker_launch_failures` and `stream_prepare_parse_failures`.
+4. Repeat the **1-sector batch 20–30 times** without restarting ESP32, checking that `heap_after_stream` does not monotonically decline, the web UI keeps loading, and `stream_worker_launch_failures=0`. Initial allocation of the persistent worker should lower free heap **once**, not once per batch. The min-free value is a historic low-water mark, not the current heap.
+5. If heap remains stable, run **16 sectors** a few times, then **128 sectors** with HP-85 idle. Only then repeat 128 with SIMON85 graphics active. Stop at any fail or web-service issue.
+6. If PREPARE JSON still fails, send complete `/api/spitest` status plus `/z80debug` while reachable; the new bounded `stream_prepare_reply_sample` and `stream_prepare_error` should distinguish malformed UART frames from heap failures.
+
+The source change has been inspected for basic protocol compatibility, but **this revised ESP32 firmware has not been compiled or exercised on hardware**. Do not treat the resource leak as fully fixed until repeated runs and web regressions pass.
+
 ## Why this is generic
 
 The Teensy 4.1 remains the **SPI master**, the ESP32 SPI2 its **slave**. UART carries stream *control* and completion status; SPI carries opaque binary frames. The binary framing layer knows nothing about SD files or CRT layout. A source adapter on the Teensy supplies 512-byte payloads. The first `kind=1` producer reads CP/M image sectors **O_RDONLY**; a future `kind=2` producer could supply an HP-85 text/graphics screen dump (split into padded 512-byte blocks with logical length in stream metadata). That CRT producer is **not implemented in this build**, and no existing screen-copy command has been altered.
