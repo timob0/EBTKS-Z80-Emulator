@@ -45,6 +45,18 @@ static volatile uint16_t spiTestStreamFrames = 0;
 static volatile uint16_t spiTestStreamBadFrames = 0;
 static volatile uint32_t spiTestStreamWireBytes = 0;
 static char spiTestStreamError[40] = {};
+// One persistent worker avoids repeated FreeRTOS task-stack allocation and
+// deferred vTaskDelete heap reclamation after every browser-triggered run.
+static TaskHandle_t spiTestStreamTaskHandle = nullptr;
+static volatile uint32_t spiTestStreamRunsStarted = 0;
+static volatile uint32_t spiTestStreamLaunchFailures = 0;
+static volatile uint32_t spiTestStreamPrepareParseFailures = 0;
+static volatile uint32_t spiTestHeapAtLaunch = 0;
+static volatile uint32_t spiTestHeapAtFinish = 0;
+static volatile uint32_t spiTestHeapLargestBlock = 0;
+static volatile uint32_t spiTestStreamStackFree = 0;
+static char spiTestPrepareReplySample[192] = {};
+static char spiTestPrepareError[32] = {};
 static char spiTestSdPath[120] = "/cpm/disks/A.dsk";
 static volatile uint32_t spiTestSdFirstSector = 0;
 static volatile uint32_t spiTestSdReadUs = 0;
@@ -762,8 +774,9 @@ inline bool spiStreamReadReplyLocked(String &reply, uint32_t timeoutMs)
   return false;
 }
 
-inline void spiTestStreamWorker(void *)
+inline void spiTestStreamRun()
 {
+  spiTestHeapAtLaunch = (uint32_t)ESP.getFreeHeap();
   spiTestDetail = "Preparing read-only batched SPI stream";
   spiTestCompleted = 0;
   spiTestFailSector = -1;
@@ -782,6 +795,8 @@ inline void spiTestStreamWorker(void *)
   spiTestStreamBadFrames = 0;
   spiTestStreamWireBytes = 0;
   spiTestStreamError[0] = '\0';
+  spiTestPrepareReplySample[0] = '\0';
+  spiTestPrepareError[0] = '\0';
   spiTestMisoHeadHex[0] = '\0';
   spiTestMisoTxCrc = 0;
   spiTestMisoRxCrc = 0;
@@ -796,7 +811,7 @@ inline void spiTestStreamWorker(void *)
   const uint32_t first = spiTestSdFirstSector;
   if (!spiTestInit(0)) {
     spiTestFailure("SPI stream: slave init failed");
-    vTaskDelete(nullptr);
+    
     return;
   }
 
@@ -811,13 +826,13 @@ inline void spiTestStreamWorker(void *)
   serializeJson(prepRequest, req);
   if (!ebtksLinkTransaction(req, reply, 3000)) {
     spiTestFailure("Stream prepare UART timeout (DMA not queued)");
-    vTaskDelete(nullptr);
+    
     return;
   }
   JsonDocument preDoc;
   if (deserializeJson(preDoc, reply)) {
     spiTestFailure("Stream prepare UART JSON malformed");
-    vTaskDelete(nullptr);
+    
     return;
   }
   JsonVariantConst pr = preDoc["spi_stream_prepare"];
@@ -832,7 +847,7 @@ inline void spiTestStreamWorker(void *)
     Serial.printf("SPI stream prepare failed: %s start=%lu count=%u reason=%s\n",
                   spiTestSdPath, (unsigned long)first, (unsigned)count,
                   pr["reason"] | "unknown");
-    vTaskDelete(nullptr);
+    
     return;
   }
 
@@ -840,7 +855,7 @@ inline void spiTestStreamWorker(void *)
   // CP/M disk requests and browser commands cannot interleave stream frames.
   if (xSemaphoreTake(ebtksLinkMutex, pdMS_TO_TICKS(3000)) != pdTRUE) {
     spiTestFailure("Stream UART busy (DMA not queued)");
-    vTaskDelete(nullptr);
+    
     return;
   }
 
@@ -863,7 +878,7 @@ inline void spiTestStreamWorker(void *)
   if (!arm()) {
     xSemaphoreGive(ebtksLinkMutex);
     spiTestFailure("Stream first DMA descriptor queue failed; reboot", true);
-    vTaskDelete(nullptr);
+    
     return;
   }
 
@@ -934,20 +949,20 @@ inline void spiTestStreamWorker(void *)
   xSemaphoreGive(ebtksLinkMutex);
   if (!dmaOk) {
     spiTestWallUs = (uint32_t)(micros() - started);
-    vTaskDelete(nullptr);
+    
     return;
   }
   spiTestWallUs = (uint32_t)(micros() - started);
   if (firstBad >= 0) spiTestFailSector = firstBad;
   if (!uartOk) {
     spiTestFailure("Stream UART final reply invalid/timed out (all DMA received)");
-    vTaskDelete(nullptr);
+    
     return;
   }
   JsonDocument response;
   if (deserializeJson(response, serialReply)) {
     spiTestFailure("Stream final UART reply is malformed");
-    vTaskDelete(nullptr);
+    
     return;
   }
   JsonVariantConst sr = response["spi_stream_send"];
@@ -989,7 +1004,21 @@ inline void spiTestStreamWorker(void *)
                   (unsigned long)spiTestWallUs,
                   (unsigned)spiTestAggregateCrc);
   }
-  vTaskDelete(nullptr);
+  
+}
+
+// Persistent worker stays blocked when idle. A single task allocation
+// replaces repeated create/delete calls that can fragment the ESP32 heap.
+inline void spiTestStreamWorker(void *)
+{
+  for (;;) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    spiTestStreamRun();
+    spiTestHeapAtFinish = (uint32_t)ESP.getFreeHeap();
+    spiTestStreamStackFree = (uint32_t)uxTaskGetStackHighWaterMark(nullptr);
+    spiTestHeapLargestBlock =
+        (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  }
 }
 
 inline bool spiTestStreamStart(const String &path, uint32_t first, uint16_t sectors)
@@ -1009,14 +1038,37 @@ inline bool spiTestStreamStart(const String &path, uint32_t first, uint16_t sect
   spiTestHz = 4000000;
   spiTestBidi = false;
   spiTestPattern = 0;
+  // The persistent task is created only once. Require enough free heap
+  // and one contiguous stack allocation before admitting a new run.
+  // Future runs reuse the stack, eliminating deferred deletion backlog.
+  spiTestHeapAtLaunch = (uint32_t)ESP.getFreeHeap();
+  spiTestHeapLargestBlock =
+      (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+  if (!spiTestStreamTaskHandle) {
+    if (spiTestHeapAtLaunch < 24576 || spiTestHeapLargestBlock < 12288) {
+      ++spiTestStreamLaunchFailures;
+      spiTestFailure("Insufficient ESP32 heap for stream worker; reboot or roll back");
+      Serial.printf("SPI stream REFUSED: free=%lu largest=%lu\n",
+                    (unsigned long)spiTestHeapAtLaunch,
+                    (unsigned long)spiTestHeapLargestBlock);
+      return false;
+    }
+    const BaseType_t created = xTaskCreatePinnedToCore(
+        spiTestStreamWorker, "SpiBatch", 8192, nullptr, 1,
+        &spiTestStreamTaskHandle, 0);
+    if (created != pdPASS || !spiTestStreamTaskHandle) {
+      ++spiTestStreamLaunchFailures;
+      spiTestFailure("Could not allocate persistent SPI worker; heap diagnostic available");
+      Serial.printf("SPI stream task ALLOCATION FAILED: free=%lu largest=%lu\n",
+                    (unsigned long)spiTestHeapAtLaunch,
+                    (unsigned long)spiTestHeapLargestBlock);
+      return false;
+    }
+  }
   spiTestState = 1;
   ++spiTestRunNumber;
-  const BaseType_t created = xTaskCreatePinnedToCore(
-      spiTestStreamWorker, "SpiBatch", 6144, nullptr, 1, nullptr, 0);
-  if (created != pdPASS) {
-    spiTestFailure("Could not launch SPI stream worker");
-    return false;
-  }
+  ++spiTestStreamRunsStarted;
+  xTaskNotifyGive(spiTestStreamTaskHandle);
   return true;
 }
 
