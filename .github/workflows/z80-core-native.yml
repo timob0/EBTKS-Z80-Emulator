@@ -1,12 +1,25 @@
-name: Z80 core native regression tests
+name: Z80 replacement prototype validation
 on:
   push:
     branches: [fix/z80-cpu-compatibility]
   workflow_dispatch:
 jobs:
   native:
+    name: Native Z80/bridge regressions
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test pinned upstream Z80 and EBTKS adapter
+      - name: Compile and run host CPU tests
         run: bash tests/run_z80_core_native.sh
+  esp32:
+    name: ESP32 PlatformIO firmware compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Compile ESP32 firmware (do not flash)
+        run: pio run -e esp32dev
