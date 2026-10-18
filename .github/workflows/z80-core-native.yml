@@ -12,8 +12,14 @@ jobs:
       - name: Compile and run host CPU tests
         run: bash tests/run_z80_core_native.sh
   esp32:
-    name: ESP32 PlatformIO firmware compile
+    name: ESP32 build (SPI default ${{ matrix.spi_default }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        spi_default: [1, 0]
+    env:
+      PLATFORMIO_BUILD_FLAGS: -DEBTKS_SPI_READAHEAD_DEFAULT_ON=${{ matrix.spi_default }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

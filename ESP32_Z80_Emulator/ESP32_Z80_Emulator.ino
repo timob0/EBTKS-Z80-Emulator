@@ -22,7 +22,7 @@
 
 #include "ebtks_link.h"
 #include "spi_link_test.h"
-#include "spi_disk_read.h" // opt-in CP/M read cache; CP/M writes remain UART
+#include "spi_disk_read.h" // default-on (build-configurable) 4 MHz CP/M reads; all writes remain UART
 #include "web_terminal_v2.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
@@ -75,6 +75,25 @@ void setup() {
 
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
+
+  // Start the CRC-checked 16-sector SPI cache after Wi-Fi/web and worker
+  // initialization but BEFORE CP/M bootstrap/read traffic. If Teensy storage
+  // is unavailable or the heap guard refuses the 8 KiB cache, stay on UART.
+  // Do not initialize DMA or create the core-0 SPI worker until the first
+  // actual read; the existing SPI implementation owns error handling.
+#if EBTKS_SPI_READAHEAD_DEFAULT_ON
+  if (sdfound) {
+    const bool enabled = spiDiskSetEnabled(true);
+    Serial.printf("CP/M SPI read-ahead boot default: %s\\n",
+                  enabled ? "enabled (4 MHz, 16-sector cache)" : "UART fallback");
+    if (!enabled && spiDiskLastError[0])
+      Serial.printf("CP/M SPI read-ahead unavailable: %s\\n", spiDiskLastError);
+  } else {
+    Serial.println("CP/M SPI read-ahead: no Teensy storage; staying on UART");
+  }
+#else
+  Serial.println("CP/M disk reads: UART startup default (compile-time override)");
+#endif
 
   Serial.println("Milestone 2 services started");
   Serial.print("EBTKS home: http://"); Serial.println(WiFi.localIP());

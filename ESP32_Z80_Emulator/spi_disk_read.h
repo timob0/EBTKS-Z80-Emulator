@@ -17,6 +17,18 @@
 #include <esp_heap_caps.h>
 #include "spi_stream_frame.h"
 
+// Build-time startup policy for CP/M read transport:
+// 1 = attempt CRC-framed 4 MHz SPI read-ahead before starting CP/M;
+// 0 = boot in UART mode (SPI can still be enabled from Media Manager).
+// On either setting, UART remains the read fallback and ALL writes stay UART.
+// Override with -DEBTKS_SPI_READAHEAD_DEFAULT_ON=0 in PlatformIO build_flags.
+#ifndef EBTKS_SPI_READAHEAD_DEFAULT_ON
+#define EBTKS_SPI_READAHEAD_DEFAULT_ON 1
+#endif
+#if EBTKS_SPI_READAHEAD_DEFAULT_ON != 0 && EBTKS_SPI_READAHEAD_DEFAULT_ON != 1
+#error "EBTKS_SPI_READAHEAD_DEFAULT_ON must be 0 or 1"
+#endif
+
 // Globals declared in spi_link_test.h, included before this header:
 // spiDiskReadsEnabled, spiDiskJobActive, spiTestNeedsReboot,
 // spiTestStreamTaskHandle, spiTestInitialized, spiTestRx, spiTestTrans etc.
@@ -399,6 +411,7 @@ inline void spiDiskRegister(AsyncWebServer &server)
   server.on("/api/cpm/spireads", HTTP_GET, [](AsyncWebServerRequest *r) {
     JsonDocument doc;
     doc["enabled"] = (bool)spiDiskReadsEnabled;
+    doc["default_on"] = (bool)EBTKS_SPI_READAHEAD_DEFAULT_ON;
     doc["boot_disabled"] = (bool)spiDiskBootDisabled;
     doc["needs_reboot"] = (bool)spiTestNeedsReboot;
     doc["active"] = (bool)spiDiskJobActive;

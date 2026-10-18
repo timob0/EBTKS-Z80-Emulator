@@ -21,15 +21,18 @@ table{border-collapse:collapse;width:100%;margin:1rem 0;background:#292a2d}th,td
 <div class="bar"><button onclick="refreshAll()">Refresh</button><button class="warn" id="apply" onclick="applyReset()">Apply changes / Reset CP/M</button><button onclick="location.href='/z80'">Z80 Terminal</button><button onclick="location.href='/'">EBTKS Home</button></div>
 <div class="small muted">Disk images stay on the Teensy SD card under <span class="mono">/cpm/disks</span>. Drive assignments are saved in ESP32 NVS and verified immediately. Mount changes do not replace media underneath a running CP/M session; use Apply / Reset CP/M to activate them.</div></div>
 
-<h3>CP/M disk-read transport (experimental)</h3>
+<h3>CP/M disk-read transport</h3>
 <div class="card">
  <div class="bar">
   <button id="useUart" onclick="setDiskTransport(false)">Use UART (baseline)</button>
   <button id="useSpi" onclick="setDiskTransport(true)">Enable SPI read-ahead (4 MHz)</button>
   <button onclick="refreshDiskTransport()">Refresh SPI statistics</button>
  </div>
- <div class="small muted">Default after each ESP32 boot: UART read/write. SPI mode uses
- a verified CRC-framed 16-sector read-ahead cache for CP/M <em>reads only</em>,
+ <div class="small muted">Default after ESP32 boot: SPI read-ahead if Teensy storage is ready
+ and the ESP32 has enough free heap (build option <code>EBTKS_SPI_READAHEAD_DEFAULT_ON=1</code>).
+ Compile with <code>=0</code> to start in UART mode. The Web UI can change
+ the mode for the current boot; a reboot restores the compiled default.
+ SPI uses a CRC-framed 16-sector read-ahead cache for CP/M <em>reads only</em>,
  at 4 MHz, SPI mode 0. All writes remain on UART and invalidate the read cache.
  If an SPI transfer fails, it is disabled until ESP32 reboot and the normal UART
  read is retried. Change the mode only with CP/M idle at its prompt; do not
@@ -77,6 +80,7 @@ async function refreshDiskTransport(){
   document.getElementById('useUart').disabled=!j.enabled||j.active;
   document.getElementById('spiDiskStatus').textContent=
    (j.enabled?'SPI read-ahead ENABLED':'UART baseline active')+
+   ' (compiled boot default: '+(j.default_on?'SPI':'UART')+')'+
    (j.boot_disabled?' — SPI disabled following a transport error until ESP32 reboot':'')+
    '\nBatches: '+j.batch_reads+' · Frames: '+j.frames+
    ' · Cache hits/misses: '+j.cache_hits+'/'+j.cache_misses+
@@ -89,7 +93,7 @@ async function refreshDiskTransport(){
  }catch(e){document.getElementById('spiDiskStatus').textContent=String(e)}
 }
 async function setDiskTransport(enabled){
- if(enabled&&!confirm('Enable experimental CRC-framed SPI read-ahead now? Make sure CP/M is idle and disk images are backed up. Writes stay on UART.'))return;
+ if(enabled&&!confirm('Enable CRC-framed SPI read-ahead now? Make sure CP/M is idle and disk images are backed up. Writes stay on UART.'))return;
  try{
   const r=await fetch('/api/cpm/spireads?enabled='+(enabled?'1':'0'),{method:'POST'});
   if(!r.ok)throw new Error(await r.text());
