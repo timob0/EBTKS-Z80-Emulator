@@ -12,6 +12,8 @@
 
 > **MISO isolation follow-up, 2026-10-18:** Even after correcting Teensy CN3-29 ↔ ESP CN3-13, **1 MHz SPI mode 1 full duplex fails** with Teensy `miso_first16_hex=00000000000000000000000000000000`, MISO receive CRC **47937** (512 zero bytes), expected ESP TX CRC **13577**, while MOSI CRCs match (**60981**); first MISO mismatch 0. A new **GPIO-only MISO line test**, not yet built/flashed, is committed to BOTH feature branches: POST `/api/spitest/gpio` or press **Check MISO wire (GPIO LOW/HIGH)** on `/spitest`. ESP32 releases SPI2, drives GPIO17 low and high; Teensy temporarily releases SPI0 and samples pin12 digitally through UART. Inspect `gpio_low_read` and `gpio_high_read`: expected 0/1. See [SPI_BIDI_TEST.md](SPI_BIDI_TEST.md) for build/use/interpretation. Disk path unaffected.
 
+> **IMPORTANT MISO PIN MAPPING CORRECTION 2026-10-18:** The original wiring diagram/table erroneously identified ESP GPIO17 as CN3-13. **That pin is E04/GPIO4** on the published schematic. Module GPIO17 is WROOM module pad 28. The published drawing suggests CN3-15 (E17), but the user reports actual board module pin 28 goes to CN3-17. **STOP prescribing a CN3 pin until physical, power-off continuity is measured from WROOM pad 28 to CN3-15/17.** GPIO17 is still the correct firmware selection; no software reassignment until actual hardware validated. Also update derived SVG after final mapping. See [CN3_SPI_PROPOSAL.md](CN3_SPI_PROPOSAL.md).
+
 ## Starting a new chat
 
 Use a message such as:
