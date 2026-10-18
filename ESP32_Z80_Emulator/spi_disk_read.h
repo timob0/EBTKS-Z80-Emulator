@@ -45,7 +45,6 @@ static volatile uint32_t spiDiskBatches = 0;
 static volatile uint32_t spiDiskFrames = 0;
 static volatile uint32_t spiDiskFallbacks = 0;
 static volatile uint32_t spiDiskReadFailures = 0;
-static volatile uint32_t spiDiskUartWaitUs = 0;
 static volatile uint32_t spiDiskTotalReadUs = 0;
 static volatile uint32_t spiDiskLastBatchUs = 0;
 static volatile uint32_t spiDiskLastBatchFrames = 0;
@@ -61,8 +60,13 @@ inline void spiDiskInvalidateCache()
 
 inline void spiDiskSetError(const char *reason, bool dmaUncertain = false)
 {
-  strlcpy(spiDiskLastError, reason, sizeof(spiDiskLastError));
-  ++spiDiskReadFailures;
+  // Retain the first useful failure reason instead of overwriting it with
+  // the later aggregate-failure consequence. Count failing batches, not
+  // the number of defensive checks reporting that same failed batch.
+  if (!spiDiskLastError[0]) {
+    strlcpy(spiDiskLastError, reason, sizeof(spiDiskLastError));
+    ++spiDiskReadFailures;
+  }
   if (dmaUncertain) spiTestNeedsReboot = true;
 }
 
@@ -71,6 +75,8 @@ inline bool spiDiskDoBatch()
   const uint32_t startUs = micros();
   spiDiskJobSuccess = false;
   spiDiskLastBatchFrames = 0;
+  spiDiskLastBatchUs = 0;
+  spiDiskLastError[0] = 0;
   if (spiTestNeedsReboot || spiTestState == 1 || !spiDiskJobCount ||
       !spiDiskJobPath[0] || !spiTestInit(0)) {
     spiDiskSetError("SPI driver not ready or diagnostic busy");
@@ -354,6 +360,8 @@ inline void spiDiskRegister(AsyncWebServer &server)
     doc["spi_failures"] = (uint32_t)spiDiskReadFailures;
     doc["cache_invalidations"] = (uint32_t)spiDiskCacheInvalidations;
     doc["last_batch_us"] = (uint32_t)spiDiskLastBatchUs;
+    doc["cumulative_batch_us"] = (uint32_t)spiDiskTotalReadUs;
+    doc["free_heap"] = (uint32_t)ESP.getFreeHeap();
     doc["last_batch_frames"] = (uint32_t)spiDiskLastBatchFrames;
     doc["last_error"] = spiDiskLastError;
     doc["clock_hz"] = 4000000;
