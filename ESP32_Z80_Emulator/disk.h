@@ -33,6 +33,9 @@ void loadBasic(void) {
 //****         Load /cpm/boot.txt and bootstrap binaries from the Teensy SD card           ****
 //*********************************************************************************************
 void bootstrap(void) {
+  // Z80 cold/reset bootstrap may reactivate the same image paths after
+  // external media changes. Never reuse read-ahead across a Z80 reset.
+  spiDiskInvalidateCache();
   if (!sdfound) {
     loadBasic();
     return;
