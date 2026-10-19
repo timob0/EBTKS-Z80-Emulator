@@ -566,7 +566,10 @@ inline bool cpmBuildMediaStatusJson(String &out)
     for (JsonObject item : listing["dir"].as<JsonArray>()) {
       const char *type = item["type"] | "";
       const char *name = item["name"] | "";
-      if (strcmp(type, "file") || !name[0]) continue;
+      // Ignore macOS .DS_Store, ._AppleDouble and other dot-prefixed files
+      // before media classification/JSON allocation: no disk probe, mount
+      // suggestion, or UI entry for hidden metadata.
+      if (strcmp(type, "file") || !name[0] || name[0] == '.') continue;
 
       char path[CPM_MEDIA_PATH_MAX];
       int n = snprintf(path, sizeof(path), "%s/%s", CPM_DISK_ROOT, name);
