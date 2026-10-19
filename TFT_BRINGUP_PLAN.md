@@ -1,5 +1,41 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+## 2026-10-19 MODULE IDENTIFIED AND PROVISIONAL CN3 PIN MAP — SUPERSEDES EARLIER MODULE-UNKNOWN GATE
+
+User's actual arrived module photo clearly shows 14 header signals, bottom-to-top:
+`VCC, GND, LCD_CS, LCD_RST, LCD_RS, SDI(MOSI), SCK, LED, SDO(MISO), CTP_SCL, CTP_RST, CTP_SDA, CTP_INT, SD_CS`.
+Packaging explicitly states **ST7796, 320×480, SPI**. A 14-pin FPC connector mirrors this header. PCB visible: `LVC245A` logic chip, onboard regulator `U1`, backlight transistors. Pinout **strongly matches** LCDwiki's `3.5inch IPS SPI Module ST7796` (MSP3525/3526) and Elecrow 3.5/4-inch capacitive SPI models, **but the actual SKU and electrical supply specifications are not yet independently proven**. The header’s `CTP_*` labels correspond to optional capacitive touch **I²C**, not the LCD SPI data pins.
+
+Pin functions and physical header numbering **from matching published module documentation**, not separately metered on this board: [LCDwiki 3.5-inch ST7796](https://www.lcdwiki.com/3.5inch_IPS_SPI_Module_ST7796), [LCDwiki 4-inch ST7796 capacitive](https://www.lcdwiki.com/4.0inch_Capacitive_SPI_Module_ST7796). Module head orientation is 1=bottom VCC; 14=top SD_CS when viewing user's photographed PCB lettering.
+
+### PROPOSED display-only bring-up wire list (NOT authorized to connect until actual CN3 continuity and 5 V source checked)
+
+Use the ESP32 GPIO matrix to put the *separate VSPI master* clock on **GPIO14**, deliberately **not GPIO18** because the supposed GPIO18 CN3-17 pad is physically the live disk-link GPIO17. LCD MISO, touch and LCD module SD card are omitted for this minimal write-only visual test.
+
+| ST7796 header / pin | Function | Candidate EBTKS CN3 contact / GPIO | WROOM-32D module pad for meter | Status |
+| --- | --- | --- | --- | --- |
+| `VCC` / 1 | LCD module supply | **Regulated 5 V source outside CN3, subject to verified power budget** | — | **Power not yet approved**; 3.5 inch example specifies 5 V and approx 95 mA backlight |
+| `GND` / 2 | Common ground | CN3-39 or -40 | — | Schematic proposes ground; confirm continuity |
+| `LCD_CS` / 3 | Active-low display select | CN3-9 / GPIO13 (`E13`) | GPIO13 / module pad **16** | **Tentative; measure actual board first** |
+| `LCD_RST` / 4 | Active-low LCD reset | CN3-18 / GPIO19 (`E19`) | GPIO19 / module pad **31** | **Tentative; measure**; use MISO-capable free GPIO as output instead |
+| `LCD_RS` / 5 | D/C (data vs command) | CN3-3 / GPIO33 (`E33`) | GPIO33 / module pad **9** | **Tentative; measure** |
+| `SDI(MOSI)` / 6 | LCD SPI data from ESP32 | CN3-22 / GPIO23 (`E23`) | GPIO23 / module pad **37** | **Tentative; measure** |
+| `SCK` / 7 | LCD SPI clock, remapped VSPI | CN3-7 / GPIO14 (`E14`) | GPIO14 / module pad **13** | **Tentative; measure** |
+| `LED` / 8 | LCD backlight control | Leave open for initial trial if backlight auto-enabled | — | Docs say may be unconnected if not controlling brightness; verify |
+| `SDO(MISO)` / 9 | SPI data back from module | Leave unconnected | — | No LCD reads in first test |
+| `CTP_SCL, CTP_RST, CTP_SDA, CTP_INT` / 10–13 | Capacitive touch controller | Leave unconnected | — | Touch deferred; I²C not SPI |
+| `SD_CS` / 14 | LCD board's SD slot CS | Leave unconnected | — | Do not insert/use SD card |
+
+**All CN3 contact numbers above are provisional suggestions based on the EBTKS V3.0 [published schematic](https://www.fliptronics.com/EBTKS/_downloads/edcd877f44e5f6331b8197916090c26a/Schematic_EBTKS_V3.0_2021-04-10_17-10-00.pdf), and should be considered possible locations to probe, NOT confirmed net assignments.** The previously verified live link's GPIO17↔CN3-17 contradiction shows that the board/revision/pin interpretation can differ from schematic. If a continuity test on any candidate fails, **STOP**, report which CN3 contact actually connects to the specified WROOM module pad; do not use the proposed number anyway. Verify pin-1 orientation physically before probing; connect/disconnect only while powered off.
+
+**Power issue:** matching 3.5-inch LCDwiki module lists **working voltage 5.0 V**, backlight **95 mA**, power **0.5 W**; the 4-inch counterpart allows 5.0/3.3 V but recommends 5 V and specifies ~103 mA backlight. EBTKS CN3 supplies **3.3 V**, not a demonstrated 5 V power output. Do not assume 3.3 V regulator has 100+ mA spare current or that this particular LCD works at 3.3 V VCC. Supply the module from an appropriately regulated/current-rated 5 V rail after establishing the EBTKS/HP-85 source power budget, or a separate regulated 5 V supply with common ground and careful powering sequence. `U1`/the level shifter in the photo **support** the matching design but do **not** prove board-specific voltage ratings. Never apply 5 V directly to an ESP32 GPIO, and do not connect power until verified.
+
+Suggested firmware pin config once verified (GPIO numbers, not CN3 contact numbers):
+`spi_host=VSPI; SCLK=14; MOSI=23; MISO=-1; CS=13; DC=33; RST=19`.
+No GPIO5/12/15 strap pin used and no overlap with active HSPI CP/M data link (GPIO22,17,16,32,27). First step is a **compile-time-disabled by default ST7796 test**, using an established driver such as pinned Bodmer/TFT_eSPI or LovyanGFX (both support ST7796), conservative 4 MHz SPI, no full-frame buffer, and on-demand test only; run CI OFF and ON builds before user flashing. Do not initialize display or connect any wires before confirming the five metered mappings and power.
+
+---
+
 **Status:** design and wiring audit only, 2026-10-19. **No TFT wiring has been approved, no display driver added, no firmware built/flashed for TFT.**
 
 ## Repository and scope
