@@ -13,6 +13,8 @@
 
 #include "globals.h"
 #include "z80_debug.h"
+#include "ebtks_tft_test.h" // normal build: inert; ST7796 VSPI panel config
+#include "ebtks_tft_terminal.h" // optional ANSI/VT100 TFT mirror (headless no-op)
 
 // The EBTKS serial connection is protocol-only.  Legacy emulator sources have
 // many Serial.print/printf diagnostics; redirect every one of them to the
@@ -93,6 +95,17 @@ void setup() {
   }
 #else
   Serial.println("CP/M disk reads: UART startup default (compile-time override)");
+#endif
+
+#if EBTKS_TFT_TERMINAL_MIRROR
+  // Create a low-priority TFT worker, never do SPI drawing inside the UART
+  // console task. 80x24 character storage: 1,920 bytes, no pixel framebuffer.
+  Serial.println("TFT ST7796 terminal mirror starting");
+  EbtksTft::startTerminalMirror();
+#elif EBTKS_TFT_ENABLE
+  // Preserve the already-tested single-draw color-bar bring-up image.
+  Serial.println("TFT ST7796 one-shot boot pattern starting");
+  EbtksTft::drawBootPattern();
 #endif
 
   Serial.println("Milestone 2 services started");

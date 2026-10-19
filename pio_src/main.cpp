@@ -17,5 +17,8 @@
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <Preferences.h>
+#if defined(EBTKS_TFT_ENABLE) && EBTKS_TFT_ENABLE
+#include <LovyanGFX.hpp> // make dependency visible to PlatformIO's LDF
+#endif
 
 #include "../ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino"

@@ -41,6 +41,9 @@ void serialTask(void *parameter) {
           sent += wrote;
         }
       }
+      // Mirror the same CP/M UART bytes as WebSocket/Telnet without doing
+      // any TFT SPI I/O on this latency-sensitive console router task.
+      EbtksTft::mirrorFeed(chunk, n);
       webTerminalWrite(chunk, n);
     }
 
