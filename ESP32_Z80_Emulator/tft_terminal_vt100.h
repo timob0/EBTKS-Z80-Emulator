@@ -221,7 +221,8 @@ struct Screen {
     }
   }
   void hpPosition(){
-    if(paramsLen<3||params[0]!='a')return;int i=1;
+    if(paramsLen<3||params[0]!='a')return;
+    int i=1;
     for(int k=0;k<2&&i<paramsLen;++k){
       bool neg=false;if(params[i]=='+'||params[i]=='-'){neg=params[i]=='-';++i;}
       int value=0;bool have=false;
