@@ -1,5 +1,16 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+
+## Live CP/M terminal mirroring works on the physical ST7796 — 2026-10-19
+
+**Hardware report:** The user has built and flashed the `esp32dev-tft-terminal` experimental firmware and confirms the CP/M console appears **live on all three output destinations: the ST7796 panel, Web UI and Telnet**. The previous "awaiting firmware or hardware test" wording below is historical. This verifies the terminal-output tee, lightweight 80×24 model and independent VSPI drawing task together on the user's ESP32. The display is a read-only mirror; input remains through Telnet or the browser.
+
+**What isn't yet established:** fidelity with complex cursor-positioning/attribute controls (Turbo Pascal, Multiplan), sustained CP/M disk read-ahead throughput while the TFT redraws, heap minimum/largest block, display responsiveness under heavy output and long-duration stability. These should be measured before adding more features or merging. The existing `esp32dev-tft` color-bar build and TFT-off `esp32dev` baseline are unaffected; both production `main` branches remain untouched.
+
+---
+
+
+
 ## CP/M TFT CHARACTER TERMINAL MIRROR PROTOTYPE (2026-10-19; source awaiting hardware test)
 
 **Motivation:** User asked whether ST7796 has a native character generator. **It does not**: ST7796 is a GRAM-based raster display controller, not a character-mapped terminal. LovyanGFX provides software-drawn glyphs, allowing a 6×8-pixel font in landscape (480×320), **80 columns × 24 rows**, with a 13-pixel row pitch and a **1,920-byte text array** plus 24 dirty-row flags, instead of a 307,200-byte RGB565 framebuffer. The glyphs will be physically small on the panel; verify readability.
