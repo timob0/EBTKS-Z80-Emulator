@@ -3,6 +3,11 @@
 
 ## SECOND-GENERATION TFT: VT100 / ANSI COLOR / IBM CP437 — 2026-10-19
 
+### User-verified ANSI color display — 2026-10-19
+
+The user successfully **compiled and ran the CP/M Turbo Pascal ANSI color demo**, confirming it **displayed nicely on the ST7796 TFT** and **looked the same via Telnet**. The demonstration outputs ANSI colored text, inverse and underlined text, and DEC Special Graphics lines; the reported success refers to the overall output, not separately instrumented checks of every feature. This is the first physical hardware validation of the upgraded `esp32dev-tft-ansi` terminal and supersedes historical notes below saying hardware testing is pending. Next suggested validation: Multiplan responsiveness and display attributes, `/api/system/health` runtime heap, `/api/cpm/spireads` integrity during simultaneous display updates, and sustained use. No changes to production ESP32/Teensy `main` and no merge approval.
+
+
 **Implementation committed; user hardware test is still pending.** On the already-approved `feature/tft-vspi-bringup` branch, build the new **`esp32dev-tft-ansi`** environment with `pio run -e esp32dev-tft-ansi`. Flash **only** `.pio/build/esp32dev-tft-ansi/firmware.bin` through the established ESP32 Web UI OTA updater after compiling. The existing user-proven **`esp32dev-tft-terminal`** remains the original simple renderer for A/B rollback; `esp32dev-tft` remains the one-shot color-bar mode and `esp32dev` has no TFT support.
 
 New host-independent `ESP32_Z80_Emulator/tft_terminal_vt100.h` maintains 80×24 raw 8-bit characters and **16-bit per-cell style** (5-bit foreground and background indexes; flags for bold, underline, reverse). The model uses ~6 KB **checked runtime heap**, no static 6 KB array and no 307 KB framebuffer. It keeps the original low-priority/3-dirty-lines-per-cycle SPI3/VSPI drawing worker and 4 MHz write-only ST7796 setup. `ebtks_tft_terminal.h` compiles the new parser and attribute-aware renderer only with `EBTKS_TFT_VT100=1`; the already-tested simple terminal remains selected when that flag is absent.
