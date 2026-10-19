@@ -12,18 +12,21 @@
 #include "ebtks_tft_test.h"
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <new>
 
 namespace EbtksTft {
-static EbtksTerminal::Screen mirrorModel;
+// Allocate only for the opt-in terminal build, after Wi-Fi/disk startup.
+// Static .dram0.bss has only ~2KB headroom on the ESP32-WROOM target.
+static EbtksTerminal::Screen* mirrorModel = nullptr;
 static portMUX_TYPE mirrorMux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t mirrorTaskHandle = nullptr;
 
 // Called by the existing console router, once for each UART chunk. This
 // updates just 1,920 bytes of character state; NEVER performs SPI transfers.
 inline void mirrorFeed(const uint8_t* data,size_t n) {
-  if (!data || !n) return;
+  if (!data || !n || !mirrorModel) return;
   portENTER_CRITICAL(&mirrorMux);
-  mirrorModel.feed(data,n);
+  mirrorModel->feed(data,n);
   portEXIT_CRITICAL(&mirrorMux);
 }
 inline void mirrorWorker(void *) {
@@ -37,9 +40,9 @@ inline void mirrorWorker(void *) {
       char line[EbtksTerminal::kCols+1] = {};
       bool changed=false;
       portENTER_CRITICAL(&mirrorMux);
-      if(mirrorModel.dirty[row]) {
-        memcpy(line,mirrorModel.cells[row],EbtksTerminal::kCols);
-        mirrorModel.dirty[row]=false;
+      if(mirrorModel->dirty[row]) {
+        memcpy(line,mirrorModel->cells[row],EbtksTerminal::kCols);
+        mirrorModel->dirty[row]=false;
         changed=true;
       }
       portEXIT_CRITICAL(&mirrorMux);
@@ -61,6 +64,14 @@ inline void mirrorWorker(void *) {
   }
 }
 inline void startTerminalMirror() {
+  if (mirrorModel) return;
+  // Runtime allocation recovers static .dram0.bss budget. Should this fail,
+  // leave CP/M, UART output, Web UI and the fast disk transport undisturbed.
+  mirrorModel = new (std::nothrow) EbtksTerminal::Screen();
+  if(!mirrorModel) {
+    EbtksDebugSerial.println("TFT mirror disabled: not enough runtime heap for text model");
+    return;
+  }
   Panel& tft = panel();
   tft.init();
   tft.setRotation(1);              // 480×320: 80 characters × 6 px
@@ -69,6 +80,10 @@ inline void startTerminalMirror() {
   tft.setTextSize(1);             // built-in 6×8 font, 13 px row pitch
   BaseType_t result=xTaskCreatePinnedToCore(
     mirrorWorker,"TFTMirror",4096,nullptr,1,&mirrorTaskHandle,0);
+  if(result != pdPASS) {
+    delete mirrorModel;
+    mirrorModel=nullptr;
+  }
   EbtksDebugSerial.printf("TFT 80x24 console mirror: %s, heap %lu bytes\n",
                           result==pdPASS?"started":"task create failed",
                           (unsigned long)ESP.getFreeHeap());
