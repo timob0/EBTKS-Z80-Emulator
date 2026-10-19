@@ -1,5 +1,10 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+## CP/M and independent TFT SPI coexist on hardware — 2026-10-19
+
+**User report:** CP/M remains functional and responsive with the ST7796 display wired and working. No apparent degradation or interference with the established fast interprocessor SPI transport was observed. Since the TFT test only paints once at boot and remains idle during normal CP/M operation, this is **not a simultaneous transfer/load or performance benchmark**. Before adopting continuous CRT mirroring or live TFT updates, test bounded partial redraws while running sustained CP/M disk reads; compare CPU responsiveness, `/api/cpm/spireads` failures/throughput and `/api/system/health` runtime heap and uptime. No request to merge this experimental branch was made.
+
+
 ## ST7796 FIRST HARDWARE TEST SUCCEEDED — 2026-10-19
 
 **User-observed result:** the display powers up and shows `EBTKS ST7796 SPI TEST` at the top, six left-to-right color bars, and smaller text beneath them after flashing the TFT-enabled ESP32 firmware. This confirms the panel, selected VSPI GPIO lines and LovyanGFX ST7796 write-only graphics path work together physically at 4 MHz. The older warning elsewhere in this document that the TFT has not yet been powered/flashed is historical and superseded by this verified result.
