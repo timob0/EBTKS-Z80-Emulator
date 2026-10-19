@@ -1,6 +1,27 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
 
+## SECOND-GENERATION TFT: VT100 / ANSI COLOR / IBM CP437 — 2026-10-19
+
+**Implementation committed; user hardware test is still pending.** On the already-approved `feature/tft-vspi-bringup` branch, build the new **`esp32dev-tft-ansi`** environment with `pio run -e esp32dev-tft-ansi`. Flash **only** `.pio/build/esp32dev-tft-ansi/firmware.bin` through the established ESP32 Web UI OTA updater after compiling. The existing user-proven **`esp32dev-tft-terminal`** remains the original simple renderer for A/B rollback; `esp32dev-tft` remains the one-shot color-bar mode and `esp32dev` has no TFT support.
+
+New host-independent `ESP32_Z80_Emulator/tft_terminal_vt100.h` maintains 80×24 raw 8-bit characters and **16-bit per-cell style** (5-bit foreground and background indexes; flags for bold, underline, reverse). The model uses ~6 KB **checked runtime heap**, no static 6 KB array and no 307 KB framebuffer. It keeps the original low-priority/3-dirty-lines-per-cycle SPI3/VSPI drawing worker and 4 MHz write-only ST7796 setup. `ebtks_tft_terminal.h` compiles the new parser and attribute-aware renderer only with `EBTKS_TFT_VT100=1`; the already-tested simple terminal remains selected when that flag is absent.
+
+**Rendering:** LovyanGFX `Font0`, `cp437(true)`, UTF-8 decoding OFF, preserve raw CP437 bytes (including 0xB0..0xDF IBM PC block/box characters), coalesce adjacent cells of the same style, clear/repaint dirty rows, paint ANSI 16-color foreground/background runs, swap colors for inverse and draw underline. **Bold means higher-intensity color** (not a true double-stroke glyph at this initial font size). Default unstyled text retains the old muted-green color on black.
+
+**VT100/ANSI output commands:** `CSI H/f/A/B/C/D/E/F/G/d` cursor movement, `J/K/X` erase, `@/P` insert/delete characters, `L/M` insert/delete lines, `S/T` scroll, `r` scrolling region, origin `?6h/l`, auto-wrap `?7h/l`, insert mode `4h/l`, cursor/style save/restore `ESC 7/8` and `CSI s/u`, indexes `ESC D/E/M`, charset designations `ESC (0`/`ESC )0` and `ESC (B`/`ESC )B`, SO/SI shifts, UK-pound, DEC Special Graphics -> CP437. ANSI SGR codes 0/1/4/7/22/24/27/30..37/40..47/39/49/90..97/100..107; 256/24-bit color sequences are deliberately *consumed without resetting other style flags*. The first-generation HP/Soroc cursor commands are retained as a fallback, but since ESC controls overlap, full HP-86 fidelity is not promised after VT100 sequences start.
+
+**Scope limits:** passive read-only CP/M console **mirror**, not a separate VT100 serial endpoint: DA/DSR device-status queries are not answered by TFT; Telnet and the Web UI still own keyboard/input. No alternate-screen buffer, true double-width/height character graphics, full VT100 keyboard protocol, true-color support, or fixed vertical line-box continuity across the 13px row pitch. Not all CP/M applications generate ANSI/DEC sequences; ordinary Multiplan may remain monochrome until the application is configured differently.
+
+**Validation:** CI compiles the standard, color-bar, first-generation terminal, and new VT100 firmware and runs `tests/tft_vt100_native.cpp` (SGR styles, CP437, G0/G1 graphics, VT100 cursor/edit/scroll/origin and HP/Soroc fallback). First new ESP32 ANSI build **linked successfully** with static RAM **124,400 / 327,680 bytes (38.0%)** and flash **1,183,669 / 1,310,720 bytes (90.3%)** in Actions run [#39287203085](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39287203085). Native host -Werror build initially caught a benign indentation warning; fixed in `7c4d034` and subsequent native suite **passed** in run [#39287571225](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39287571225). Check **latest full CI completion** before flash. The model's larger runtime heap footprint must be checked on hardware (`/api/system/health`) and heavy CP/M disk updates monitored (`/api/cpm/spireads`).
+
+**Suggested hardware regression:** Run CP/M prompt, DIR output, Multiplan; then issue ANSI SGR color, inverse and underline through a small CP/M test program (e.g. Turbo Pascal), followed by DEC `ESC (0` box-drawing, CP437 raw box bytes, scrolling, and check Web UI/Telnet still match the same underlying console. Restore old known-good `esp32dev-tft-terminal` firmware if unexpected resets, SPI read-ahead failures or unreadable output. Do not merge until user explicitly approves.
+
+---
+
+
+
+
 ## Live CP/M terminal mirroring works on the physical ST7796 — 2026-10-19
 
 **Hardware report:** The user has built and flashed the `esp32dev-tft-terminal` experimental firmware and confirms the CP/M console appears **live on all three output destinations: the ST7796 panel, Web UI and Telnet**. The previous "awaiting firmware or hardware test" wording below is historical. This verifies the terminal-output tee, lightweight 80×24 model and independent VSPI drawing task together on the user's ESP32. The display is a read-only mirror; input remains through Telnet or the browser.
