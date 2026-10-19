@@ -28,6 +28,7 @@
 #include "web_terminal_v2.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
+#include "ebtks_cpm85_keyboard.h" // before disk.h transitively includes serial.h
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
@@ -40,7 +41,6 @@
 #else
 #include "cpu_redcode.h"
 #endif
-#include "ebtks_cpm85_keyboard.h"
 #include "serial.h"
 #include "telnet.h"
 
