@@ -1,5 +1,15 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+## ST7796 FIRST HARDWARE TEST SUCCEEDED — 2026-10-19
+
+**User-observed result:** the display powers up and shows `EBTKS ST7796 SPI TEST` at the top, six left-to-right color bars, and smaller text beneath them after flashing the TFT-enabled ESP32 firmware. This confirms the panel, selected VSPI GPIO lines and LovyanGFX ST7796 write-only graphics path work together physically at 4 MHz. The older warning elsewhere in this document that the TFT has not yet been powered/flashed is historical and superseded by this verified result.
+
+**Still to validate:** Boot and run CP/M, exercise real disk reads with SPI read-ahead enabled, check Wi-Fi/Web UI/HP-85 remote display, `/api/system/health` for runtime free/minimum/largest heap and uptime, and `/api/cpm/spireads` for failures. Since the pattern is rendered once *before* CP/M starts, successful boot graphics do **not** establish uninterrupted simultaneous display redraws and live disk transfers. Do not assume sustained frame rate, touch, external SD support, or continuous LCD refresh. TFT module VCC arrangement and exact CN3 contact numbers (different from schematic) remain unreported; record when known. Do not merge experimental feature branch until owner verifies regression and requests merge.
+
+---
+
+
+
 ## 2026-10-19 FIRST FIRMWARE PROTOTYPE — one-shot ST7796 draw
 
 **TFT CI BUILD VERIFIED — 2026-10-19:** GitHub Actions [run #39272754062](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39272754062) passed all four jobs after fixing Arduino's `MOSI` macro collision using `kTft*` GPIO identifiers. TFT static RAM 124,376 bytes (38.0% of available), flash 1,178,581 bytes (89.9% of app partition). Remaining app-partition room 132,139 bytes; runtime heap must be checked in hardware. The display binary is **compiled and ready for a controlled user flash after power-supply confirmation**, but it has **not** been tested on a physically powered TFT. The regular `esp32dev` build remains TFT-disabled and has passed CI as well.
