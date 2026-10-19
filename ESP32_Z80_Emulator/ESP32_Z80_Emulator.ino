@@ -13,8 +13,8 @@
 
 #include "globals.h"
 #include "z80_debug.h"
-#include "ebtks_tft_test.h" // normal build: no-op; optional ST7796 color bars
-#include "ebtks_tft_terminal.h" // optional CP/M terminal mirror (no-op by default)
+#include "ebtks_tft_test.h" // normal build: inert; ST7796 VSPI panel config
+#include "ebtks_tft_terminal.h" // optional ANSI/VT100 TFT mirror (headless no-op)
 
 // The EBTKS serial connection is protocol-only.  Legacy emulator sources have
 // many Serial.print/printf diagnostics; redirect every one of them to the

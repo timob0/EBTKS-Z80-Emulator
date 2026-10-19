@@ -1,14 +1,28 @@
 # EBTKS Z80 / CP/M integration — current project links
 
+## ESP32 build configurations
+
+There are exactly **two supported PlatformIO build targets**:
+
+| Environment | Display | Console access | Command |
+| --- | --- | --- | --- |
+| `esp32dev` (default) | No external TFT or LovyanGFX dependency | CP/M over Web UI and Telnet | `pio run -e esp32dev` |
+| `esp32dev-tft` | External 320×480 ST7796 SPI, 80×24 ANSI/VT100/CP437 terminal | CP/M over TFT **and** Web UI/Telnet | `pio run -e esp32dev-tft` |
+
+Upload the selected `.pio/build/<environment>/firmware.bin` through the existing ESP32 browser firmware updater. Both targets include the same Z80 CPU, SD service, Wi-Fi and SPI disk read-ahead. The TFT option uses a separate VSPI master (4 MHz) and draws on a bounded low-priority task without a full framebuffer. Only use the TFT build with correctly verified display wiring and supply; do not infer physical CN3 pin numbering from the published drawing.
+
+The previous experimental `esp32dev-tft-ansi`, `esp32dev-tft-terminal` and color-bar `esp32dev-tft` builds are historical configurations of the TFT feature branch, **not additional supported build environments**. The current `esp32dev-tft` produces the fully featured ANSI/CP437 terminal, equivalent to the former `esp32dev-tft-ansi`. The old revisions remain in Git history for diagnosis and rollback.
+
+
 **New user?** Follow the [Getting started guide](GETTING_STARTED.md) for the Teensy/ESP32 flashing sequence, SD-card layout, 8 MiB disk and HP 82900 LIF images, and a web UI walkthrough.
 
-**CN3 SPI background:** [Original CN3 SPI pin-assignment proposal and jumper diagram](CN3_SPI_PROPOSAL.md) is historical design material. The live Teensy-master/ESP32-slave 4 MHz SPI CP/M read-ahead path has since been hardware-tested successfully. TFT wiring remains deferred.
+**CN3 SPI and TFT:** [CN3 SPI wiring notes](CN3_SPI_PROPOSAL.md) include historical schematic assumptions. The Teensy-master/ESP32-slave CP/M disk link has been hardware-validated, and the independent ST7796 TFT on ESP32 VSPI has also been hardware-tested. TFT GPIO14/23/13/33/19 assignments and signal/power precautions are documented in [TFT_BRINGUP_PLAN.md](TFT_BRINGUP_PLAN.md).
 
 > **Current verified baseline (2026-10-19):** ESP32 [`main`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main) now includes the user-tested portable redcode/Z80 CPU replacement, Turbo Pascal/TINST compatibility, automatic SPI read-ahead and final Media Manager UI cleanup through [merged PR #3](https://github.com/timob0/EBTKS-Z80-Emulator/pull/3). Teensy [`main`](https://github.com/timob0/ebtks-alt-firmware/tree/main) is unchanged and previously hardware-tested. The user built/flashed/tested the ESP32 fix branch on a physical HP-85 before authorizing the merge.
 >
 > **Current functionality:** CP/M, Multiplan, Zork1, Turbo Pascal and TINST; web terminal, remote HP display, disk mounts and browser OTA; default-on 4 MHz CRC-framed 16-sector SPI read-ahead with UART fallback, **UART-only writes**, and dot-prefixed SD metadata hidden from Media Manager. The SD File Service Test browser page and Media Manager transport control panel were retired; useful SPI diagnostic endpoints remain. PlatformIO pinned to `espressif32@7.1.3`. Separate CPU library is LGPL-3.0-or-later; verify binary distribution obligations before external releases.
 >
-> **Branch policy:** **Do not create any new feature or fix branch without first obtaining explicit user approval.** The current working branch is `main` in both repositories. [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the living authoritative status. The next candidate task is Teensy-local creation of an empty 8 MiB CP/M image (discuss/approve before editing Teensy); accelerating whole-image web transfers is not a priority.
+> **Branch policy:** **Do not create any new feature or fix branch without first obtaining explicit user approval.** The supported release branch is `main` in both repositories. [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the living authoritative status. The next candidate task is Teensy-local creation of an empty 8 MiB CP/M image (discuss/approve before editing Teensy); accelerating whole-image web transfers is not a priority.
 >
 > The standalone emulator README below is historical and may describe different hardware.
 

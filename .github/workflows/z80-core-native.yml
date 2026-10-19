@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [feature/tft-vspi-bringup]
+    branches: [main, feature/tft-vspi-bringup]
   workflow_dispatch:
 jobs:
   native:
@@ -19,7 +19,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_vt100_native.cpp -o /tmp/tft_vt100_test
           /tmp/tft_vt100_test
   firmware:
-    name: ESP32 baseline + TFT bring-up + terminal mirror builds
+    name: ESP32 headless + ST7796 ANSI terminal builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -36,16 +36,10 @@ jobs:
             ~/.platformio/packages
             ~/.platformio/.cache
           key: ${{ runner.os }}-espressif32-7.1.3-framework-arduino-v1
-      # One runner installs the ESP32 toolchain once, then reuses it across
-      # environments. Four fresh parallel runners were exhausting the
-      # platform download endpoint and failing BEFORE code compilation.
-      - name: Build baseline SPI default ON
+      # Reuse the toolchain on one runner to avoid duplicate downloads.
+      - name: Build headless CP/M (SPI read-ahead default ON)
         run: pio run -e esp32dev
-      - name: Build known-good ST7796 color bars
+      - name: Build ST7796 CP/M ANSI/VT100/CP437 terminal
         run: pio run -e esp32dev-tft
-      - name: Build experimental ST7796 80x24 terminal mirror
-        run: pio run -e esp32dev-tft-terminal
-      - name: Build ANSI 16-color VT100 DEC graphics terminal
-        run: pio run -e esp32dev-tft-ansi
-      - name: Build baseline SPI default OFF
+      - name: Regression - headless CP/M (SPI read-ahead default OFF)
         run: PLATFORMIO_BUILD_FLAGS=-DEBTKS_SPI_READAHEAD_DEFAULT_ON=0 pio run -e esp32dev

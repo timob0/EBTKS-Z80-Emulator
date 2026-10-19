@@ -1,6 +1,22 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
 
+## Supported dual ESP32 builds — integration checkpoint, 2026-10-19
+
+The ST7796 TFT ANSI/VT100/CP437 code **has been hardware-validated** with the user's Turbo Pascal color/DEC graphics demo and Multiplan cursor/inverse attributes. The user has authorized merging this feature to ESP32 `main` and consolidating to exactly **two PlatformIO environments**:
+
+- **`esp32dev`**: no TFT or LovyanGFX dependency, CP/M remotely via browser Web UI or Telnet. `pio run -e esp32dev`; output `.pio/build/esp32dev/firmware.bin`.
+- **`esp32dev-tft`**: ST7796 on independent VSPI master (4 MHz), ANSI/VT100 16-color and CP437/DEC graphics, 80×24 live CP/M text; browser Web UI and Telnet *remain available*. `pio run -e esp32dev-tft`; output `.pio/build/esp32dev-tft/firmware.bin`.
+
+**IMPORTANT**: Previous documentation below refers to experimental steps: `esp32dev-tft` originally meant one-shot color bars; `esp32dev-tft-terminal` was the monochrome mirror; `esp32dev-tft-ansi` was the final full-featured renderer. These were deliberately merged into the two production targets. **The new `esp32dev-tft` is the proven full-featured ANSI build**, and the earlier targets are no longer declared in platformio.ini. Original revision history preserves rollback. Neither Teensy `main` nor the Teensy interprocessor pin/wire configuration is part of this ESP32 merge.
+
+The TFT hardware pins remain GPIO14 SCK, 23 MOSI, 13 CS, 33 D/C, 19 reset (write-only/no readback); SPI2/HSPI disk GPIO22/17/16/32/27 unchanged. No full pixel framebuffer or touch/SD/LED drivers. Supported TFT board and verified power requirements still matter. Real-time disk throughput with simultaneous redraw, runtime free/largest heap, long-duration stability and full VT100 status-request replies remain **unverified**, so do not overstate compatibility. Dual-target build CI is required before merge.
+
+---
+
+
+
+
 ## SECOND-GENERATION TFT: VT100 / ANSI COLOR / IBM CP437 — 2026-10-19
 
 ### Multiplan inverse-video and cursor highlighting validated — 2026-10-19

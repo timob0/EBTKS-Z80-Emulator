@@ -1,6 +1,6 @@
-// One-shot ST7796 (320x480) wiring self-test, ESP32 VSPI bus only.
-// This header is inert in normal builds; no library dependency if disabled.
-// Enable via: pio run -e esp32dev-tft (separate experimental firmware).
+// ST7796 (320x480) ESP32 VSPI bus wiring + optional legacy boot-pattern helper.
+// This header is inert in the default headless build. Current
+// esp32dev-tft invokes startTerminalMirror(), not the one-shot color bars.
 // Pin numbers refer to ESP32 GPIOs verified by the user, NOT original CN3 labels.
 #pragma once
 #ifndef EBTKS_TFT_ENABLE
