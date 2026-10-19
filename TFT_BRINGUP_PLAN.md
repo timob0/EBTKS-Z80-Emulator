@@ -1,5 +1,28 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+## 2026-10-19 FIRST FIRMWARE PROTOTYPE — one-shot ST7796 draw
+
+**User reports that they traced the actual ESP32 GPIO nets to their physical CN3 connector and attached the display following our GPIO plan.** Since the board's connector silk/schematic labels disagree, the **actual CN3 contact numbers have not yet been shared back**, so don't publish proposed physical CN3 numbers as proven. The trial uses ESP32 GPIO14 SCK, 23 MOSI, 13 CS, 33 LCD_RS/D-C, 19 LCD_RST. No touch/SD/MISO or display LED-control signal is configured. Confirm **actual LCD VCC voltage, source current capacity and common ground** before energizing, regardless of the user's signal-wiring checks.
+
+### Firmware layout
+
+- `platformio.ini`: existing `esp32dev` build stays TFT-disabled by default; separately selects **`esp32dev-tft`** using `pio run -e esp32dev-tft`. This pins and installs LovyanGFX `1.2.7` only in the experiment, build flag `-DEBTKS_TFT_ENABLE=1`.
+- `ESP32_Z80_Emulator/ebtks_tft_test.h` provides a custom LovyanGFX `Panel_ST7796` + `Bus_SPI` on **VSPI_HOST** with remapped GPIO14 clock, 4 MHz SPI mode 0, DMA disabled, no display readback. It statically rejects any overlap with live HSPI disk-link GPIO22/17/16/32/27, UART GPIO1/3 or ESP32 boot strap pins. `EBTKS_TFT_ENABLE` defaults to **0** unless explicitly enabled.
+- `ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino` performs one short **startup-only** draw after the Wi-Fi/terminal tasks and SPI read-cache initialization, but before the main CP/M bootstrap. Leaves static six-color bars, a border and text on the LCD; it does **not** add a TFT FreeRTOS worker or continuously redraw. Draw logs to `/z80debug` include heap before/after, but because the LCD's MISO is disconnected the firmware **cannot confirm visually successful output**.
+- GitHub Actions on this feature branch runs the same native core/UI regressions, SPI-on/SPI-off builds, and a separate TFT-on firmware build, plus a static TFT wiring/isolation check. **Do not call it flash-ready until that TFT build finishes successfully.**
+
+### First physical test checklist (once CI is green)
+
+1. **Power off all components before making/adjusting connections.** Confirm the TFT VCC is supplied from an appropriate verified 5 V source (if this variant requires 5 V), common ground, and that no +5 V line reaches an ESP32 GPIO.
+2. Flash *only ESP32* with `.pio/build/esp32dev-tft/firmware.bin` through the already-tested browser OTA updater; keep last-known-good `main` build for rollback. Do not flash the Teensy or copy the test binary over the baseline.
+3. On restart, display should first briefly initialize, then show a **480×320 landscape** border, six vertical bars (red, green, blue, yellow, cyan, magenta) and the `EBTKS - ST7796 SPI TEST` legend. Static graphics remain while CP/M runs.
+4. Confirm CP/M boots, keyboard/terminal, disk reads and Web UI continue working. Read `/api/system/health` (heap, SPI flags), `/api/cpm/spireads` (cache hit/read failures), and `/z80debug` (startup log) if there is a problem.
+5. A dark screen alone does not prove an SPI problem: check actual TFT VCC, backlight, reset, DC, panel orientation and controller variant. Library is write-only; no hardware readback; the `LED` pin may be unconnected on this matching LCDwiki family if the board has automatic backlight control.
+6. If abnormal ESP32 reset, Wi-Fi/CPM failure, or unstable SPI read-ahead occurs, immediately roll back to the ESP32 `main` binary; leave Teensy alone. Never merge the TFT experiment before the user tests it on physical hardware.
+
+---
+
+
 ## 2026-10-19 MODULE IDENTIFIED AND PROVISIONAL CN3 PIN MAP — SUPERSEDES EARLIER MODULE-UNKNOWN GATE
 
 User's actual arrived module photo clearly shows 14 header signals, bottom-to-top:
