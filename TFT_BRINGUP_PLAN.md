@@ -2,6 +2,9 @@
 
 ## 2026-10-19 FIRST FIRMWARE PROTOTYPE — one-shot ST7796 draw
 
+**TFT CI BUILD VERIFIED — 2026-10-19:** GitHub Actions [run #39272754062](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39272754062) passed all four jobs after fixing Arduino's `MOSI` macro collision using `kTft*` GPIO identifiers. TFT static RAM 124,376 bytes (38.0% of available), flash 1,178,581 bytes (89.9% of app partition). Remaining app-partition room 132,139 bytes; runtime heap must be checked in hardware. The display binary is **compiled and ready for a controlled user flash after power-supply confirmation**, but it has **not** been tested on a physically powered TFT. The regular `esp32dev` build remains TFT-disabled and has passed CI as well.
+
+
 **User reports that they traced the actual ESP32 GPIO nets to their physical CN3 connector and attached the display following our GPIO plan.** Since the board's connector silk/schematic labels disagree, the **actual CN3 contact numbers have not yet been shared back**, so don't publish proposed physical CN3 numbers as proven. The trial uses ESP32 GPIO14 SCK, 23 MOSI, 13 CS, 33 LCD_RS/D-C, 19 LCD_RST. No touch/SD/MISO or display LED-control signal is configured. Confirm **actual LCD VCC voltage, source current capacity and common ground** before energizing, regardless of the user's signal-wiring checks.
 
 ### Firmware layout
