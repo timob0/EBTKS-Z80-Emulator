@@ -97,6 +97,10 @@ void serialTask(void *parameter) {
       }
     }
 
+    // Keys from the physical HP-85 are staged by the low-priority
+    // Teensy UART polling worker; only this console task feeds the
+    // virtual Z80 UART so it retains Web/Telnet ordering semantics.
+    Cpm85Input::drain();
     if (rxOutPtr != rxInPtr && bitRead(pIn[UART_LSR], 0) == 0) {
       pIn[UART_PORT] = rxBuf[rxOutPtr];
       uint16_t next = rxOutPtr + 1;
