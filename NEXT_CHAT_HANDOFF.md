@@ -1,5 +1,17 @@
 # Handoff / durable project memory for the next development chat
 
+## ACTIVE TFT DISPLAY EXPERIMENT — 2026-10-19 (CURRENT DEVELOPMENT CHECKPOINT)
+
+**User confirmed ESP32 PR #3 was reviewed/merged and the prior `fix/z80-cpu-compatibility` branch was deleted; ESP32 `main` and Teensy `main` are the hardware-tested baselines. User explicitly approved a NEW feature branch for a TFT display wiring/bring-up experiment.** Created **only in ESP32 repository**: [`feature/tft-vspi-bringup`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/tft-vspi-bringup), branched from ESP32 `main` commit `bba69cf816e3b5e35c0ea74ebe68fe114d4db23c`. No Teensy branches or firmware changes, no TFT driver, no hardware changes or flash yet.
+
+**CURRENT BLOCKER:** The actual TFT module's model/controller, interface, front/back header labels, pinout, supply and backlight current specs are not known. **Before assigning a physical wiring table or writing device-specific driver code, ask user to supply front/back photos with readable silkscreen/pin labels, OR exact vendor model/product URL and pinout.** Documentation/audit is committed at [`TFT_BRINGUP_PLAN.md`](TFT_BRINGUP_PLAN.md). It includes a low-RAM, opt-in 4 MHz color/test-pattern plan on independent ESP32 SPI3/VSPI master, explicitly **not** the already occupied SPI2/HSPI slave CP/M disk link.
+
+**Safety-critical wiring conflict:** The older CN3 TFT candidate placed GPIO18/VSPI SCK on CN3-17, but the user's physical EBTKS board was measured: **CN3-17 is actually GPIO17**, occupied by Teensy SPI MISO. Do NOT connect TFT SCK to CN3-17. The live Teensy link occupies ESP32 GPIO22 (CN3-21), GPIO17 (CN3-17), GPIO16 (CN3-14), GPIO32 (CN3-4, CS pull-up), GPIO27 (CN3-8). The old TFT candidate GPIO23 MOSI, GPIO19 optional MISO, GPIO18 clock, GPIO5 CS is **GPIO-level only, unverified at CN3**; GPIO5 is an ESP32 boot strapping pin, so prefer a verified alternate CS. Verify actual CN3 continuity and module 3.3 V power/logic/backlight constraints before wiring anything. Runtime heap was tight in past testing; no full RGB framebuffer or busy background TFT refresh.
+
+**Maintain provenance:** User-requested TFT trial is exploratory. It has a dedicated explicitly approved branch, and **no claim of successful TFT compile, wiring or hardware validation** is justified yet. Current ESP32 and Teensy `main` remain the last hardware-tested production baseline. Ask user approval for any **additional** new branches; this authorization covers only the above TFT branch. After first TFT test, user decides whether/when to merge. The previously scheduled Teensy-local empty 8 MiB image creator is deferred while this experimental TFT task takes priority.
+
+---
+
 ## MERGED BASELINE — PR #3 (2026-10-19; AUTHORITATIVE CURRENT STATUS)
 
 **ESP32 work is MERGED to `main`.** The user explicitly approved merging the HP-85-tested `fix/z80-cpu-compatibility` ESP32 branch. [ESP32 PR #3](https://github.com/timob0/EBTKS-Z80-Emulator/pull/3) merged successfully on 2026-10-19 (merge commit [`d2bb4e2abd971e4824be239521d2ad399836ada1`](https://github.com/timob0/EBTKS-Z80-Emulator/commit/d2bb4e2abd971e4824be239521d2ad399836ada1)). **Both ESP32 and Teensy development baselines now use `main`; the Teensy repo has not been changed by the Z80 CPU project.**
