@@ -1,5 +1,11 @@
 # CPM85 — experimental HP-85 physical keyboard to CP/M
 
+## Hardware validation — 2026-10-19
+
+**FIRST COMPLETE END-TO-END HP-85→CP/M KEYBOARD FORWARDING: PASSED ON THE USER'S PHYSICAL MACHINE.** The user built/flashed the coordinated development firmwares and tested CPM85 v0.02a. After issuing `CPM` on the HP-85, keypresses were successfully delivered to the running CP/M system. K8 detached the physical keyboard and returned control to HP BASIC **without stopping CP/M**. Issuing `CPM` again reattached to the *same running* CP/M session. These are confirmed, not merely CI results.
+
+The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling, ESP32 input routing, and independent CP/M execution working together in this reported scenario. It does **not** yet establish complete HP special-key translations, sustained fast-typing losslessness, CRC-failure replay, FIFO overflow behavior on hardware, or long-duration CP/M disk/TFT stress stability. Keep all three production `main` branches unchanged pending additional tests and explicit merge approval.
+
 **Development only; all three main branches remain unchanged.** This builds on the physical-machine-confirmed `CPM85 v0.01b` LOADBIN keyboard capture, K8 detach and `CPCOUNT`/`CPLAST` diagnostics.
 
 ## Architecture
