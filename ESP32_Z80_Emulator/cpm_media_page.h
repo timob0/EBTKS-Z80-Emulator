@@ -21,22 +21,6 @@ table{border-collapse:collapse;width:100%;margin:1rem 0;background:#292a2d}th,td
 <div class="bar"><button onclick="refreshAll()">Refresh</button><button class="warn" id="apply" onclick="applyReset()">Apply changes / Reset CP/M</button><button onclick="location.href='/z80'">Z80 Terminal</button><button onclick="location.href='/'">EBTKS Home</button></div>
 <div class="small muted">Disk images stay on the Teensy SD card under <span class="mono">/cpm/disks</span>. Drive assignments are saved in ESP32 NVS and verified immediately. Mount changes do not replace media underneath a running CP/M session; use Apply / Reset CP/M to activate them.</div></div>
 
-<h3>CP/M disk-read transport (experimental)</h3>
-<div class="card">
- <div class="bar">
-  <button id="useUart" onclick="setDiskTransport(false)">Use UART (baseline)</button>
-  <button id="useSpi" onclick="setDiskTransport(true)">Enable SPI read-ahead (4 MHz)</button>
-  <button onclick="refreshDiskTransport()">Refresh SPI statistics</button>
- </div>
- <div class="small muted">Default after each ESP32 boot: UART read/write. SPI mode uses
- a verified CRC-framed 16-sector read-ahead cache for CP/M <em>reads only</em>,
- at 4 MHz, SPI mode 0. All writes remain on UART and invalidate the read cache.
- If an SPI transfer fails, it is disabled until ESP32 reboot and the normal UART
- read is retried. Change the mode only with CP/M idle at its prompt; do not
- change mounts or transport mid-installation. Keep backups of disk images.</div>
- <pre id="spiDiskStatus" style="white-space:pre-wrap;overflow-wrap:anywhere">Loading...</pre>
-</div>
-
 <h3>Drive assignments</h3>
 <table><thead><tr><th>Drive</th><th>Active</th><th>Next reset</th><th>Mount image</th><th>Actions</th></tr></thead><tbody id="drives"></tbody></table>
 
@@ -53,7 +37,9 @@ function render(){
  if(!state){sum.textContent='No data';return}
  sum.innerHTML=state.pending?'<span class="pending">Mount table has unapplied changes.</span>':'<span class="ok">Active mounts match the saved table.</span>';
  document.getElementById('apply').disabled=!state.pending;
- const supported=(state.media||[]).filter(m=>m.supported);
+ // Ignore macOS metadata/other hidden entries in both the listing and mount picker.
+ const visibleMedia=(state.media||[]).filter(m=>m && typeof m.name==='string' && !m.name.startsWith('.'));
+ const supported=visibleMedia.filter(m=>m.supported);
  let rows='';
  for(const d of state.drives||[]){
    const selected=d.desired&&d.desired.mounted?d.desired.path:'';
@@ -63,40 +49,11 @@ function render(){
  }
  document.getElementById('drives').innerHTML=rows;
  let mediaRows='';
- for(const m of state.media||[]){
+ for(const m of visibleMedia){
    mediaRows+=`<tr><td><div>${esc(m.name)}</div><div class="mono small muted">${esc(m.path)}</div></td><td class="${m.supported?'':'bad'}">${esc(m.label)}</td><td>${fmtSize(m.size)}</td><td>${m.readonly?'R/O':'R/W'}</td><td>${esc(m.mounted_on||'')}</td></tr>`;
  }
  document.getElementById('media').innerHTML=mediaRows||'<tr><td colspan="5" class="muted">No files found.</td></tr>';
 }
-async function refreshDiskTransport(){
- try{
-  const r=await fetch('/api/cpm/spireads',{cache:'no-store'});
-  if(!r.ok)throw new Error(await r.text());
-  const j=await r.json();
-  document.getElementById('useSpi').disabled=j.enabled||j.boot_disabled||j.needs_reboot||j.active;
-  document.getElementById('useUart').disabled=!j.enabled||j.active;
-  document.getElementById('spiDiskStatus').textContent=
-   (j.enabled?'SPI read-ahead ENABLED':'UART baseline active')+
-   (j.boot_disabled?' — SPI disabled following a transport error until ESP32 reboot':'')+
-   '\nBatches: '+j.batch_reads+' · Frames: '+j.frames+
-   ' · Cache hits/misses: '+j.cache_hits+'/'+j.cache_misses+
-   ' · UART fallbacks: '+j.uart_fallbacks+
-   ' · SPI failures: '+j.spi_failures+
-   ' · Last batch: '+(j.last_batch_us/1000).toFixed(1)+' ms'+
-   '\nCache: '+(j.cache_valid?'valid':'empty')+
-   ' · Last error: '+(j.last_error||'none')+
-   '\nAll writes: '+j.writes;
- }catch(e){document.getElementById('spiDiskStatus').textContent=String(e)}
-}
-async function setDiskTransport(enabled){
- if(enabled&&!confirm('Enable experimental CRC-framed SPI read-ahead now? Make sure CP/M is idle and disk images are backed up. Writes stay on UART.'))return;
- try{
-  const r=await fetch('/api/cpm/spireads?enabled='+(enabled?'1':'0'),{method:'POST'});
-  if(!r.ok)throw new Error(await r.text());
-  await refreshDiskTransport();
- }catch(e){document.getElementById('spiDiskStatus').textContent=String(e)}
-}
-
 async function refreshAll(){
  const msg=document.getElementById('message');msg.textContent='Refreshing...';
  try{const r=await fetch('/api/cpm/media',{cache:'no-store'});if(!r.ok)throw new Error(await r.text());state=await r.json();render();msg.textContent=''}catch(e){msg.innerHTML='<span class="bad">'+esc(e.message||e)+'</span>'}
@@ -114,7 +71,6 @@ async function applyReset(){
  try{const r=await fetch('/api/cpm/apply',{method:'POST'});if(!r.ok)throw new Error(await r.text());setTimeout(refreshAll,1400)}catch(e){msg.innerHTML='<span class="bad">'+esc(e.message||e)+'</span>'}
 }
 refreshAll();
-refreshDiskTransport();
 </script></body></html>)HTML";
 
 inline int cpmParseDriveParam(AsyncWebServerRequest *request)

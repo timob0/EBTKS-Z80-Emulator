@@ -9,7 +9,6 @@
 #include <ArduinoJson.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
-#include "sd_test_page.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal has its own independent websocket endpoint.
@@ -32,7 +31,6 @@ body{font-family:Verdana,sans-serif;text-align:center;background:#252525;color:#
 <button onclick="location.href='/crt'">HP-80 Remote Display</button>
 <button onclick="location.href='/z80'">Z80 / CP/M Terminal</button>
 <button onclick="location.href='/cpmmedia'">CP/M Media Manager</button>
-<button onclick="location.href='/sdtest'">SD File Service Test</button>
 <button onclick="location.href='/updater'">Firmware Updater</button>
 <p class="small">The original EBTKS websocket service remains available at /ws.</p>
 </main></body></html>)HTML";
@@ -204,7 +202,6 @@ inline bool ebtksWebBegin()
       String body;serializeJson(v,body);
       r->send(200,"application/json",body);
     });
-  ebtksServer.on("/sdtest", HTTP_GET, ebtksServeSdTest);
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
 
   ebtksServer.on(
@@ -238,7 +235,7 @@ inline bool ebtksWebBegin()
 
   webTerminalRegister(ebtksServer);
   spiTestRegister(ebtksServer);
-  spiDiskRegister(ebtksServer); // opt-in CP/M read transport and stats
+  spiDiskRegister(ebtksServer); // compile-configurable boot default, runtime control and stats
 
   ebtksServer.onNotFound([](AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "Not found");
@@ -261,7 +258,6 @@ inline bool ebtksWebBegin()
   Serial.print("HP-80 remote display: http://"); Serial.print(WiFi.localIP()); Serial.println("/crt");
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");
   Serial.print("CP/M media manager: http://"); Serial.print(WiFi.localIP()); Serial.println("/cpmmedia");
-  Serial.print("SD file test: http://"); Serial.print(WiFi.localIP()); Serial.println("/sdtest");
   Serial.print("Firmware updater: http://"); Serial.print(WiFi.localIP()); Serial.println("/updater");
 
   return true;
