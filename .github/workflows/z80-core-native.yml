@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [fix/z80-cpu-compatibility]
+    branches: [feature/tft-vspi-bringup]
   workflow_dispatch:
 jobs:
   native:
@@ -13,6 +13,7 @@ jobs:
         run: |
           bash tests/run_z80_core_native.sh
           python3 tests/check_web_ui_cleanup.py
+          python3 tests/check_tft_bringuptest.py
   esp32:
     name: ESP32 build (SPI default ${{ matrix.spi_default }})
     runs-on: ubuntu-latest
@@ -31,3 +32,16 @@ jobs:
         run: python -m pip install --upgrade platformio
       - name: Compile ESP32 firmware (do not flash)
         run: pio run -e esp32dev
+
+  tft:
+    name: ESP32 ST7796 opt-in build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install PlatformIO
+        run: python -m pip install --upgrade platformio
+      - name: Compile TFT opt-in firmware (do not flash)
+        run: pio run -e esp32dev-tft

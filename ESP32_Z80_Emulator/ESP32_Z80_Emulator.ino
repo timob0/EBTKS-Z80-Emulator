@@ -13,6 +13,7 @@
 
 #include "globals.h"
 #include "z80_debug.h"
+#include "ebtks_tft_test.h" // normal build: no-op; optional ST7796 color bars
 
 // The EBTKS serial connection is protocol-only.  Legacy emulator sources have
 // many Serial.print/printf diagnostics; redirect every one of them to the
@@ -93,6 +94,14 @@ void setup() {
   }
 #else
   Serial.println("CP/M disk reads: UART startup default (compile-time override)");
+#endif
+
+#if EBTKS_TFT_ENABLE
+  // Single display transaction before CP/M starts; leaves framebuffer-free
+  // static color bars on screen while the Z80 and SPI read-ahead operate.
+  // No display task, DMA channel, or loop refresh is installed.
+  Serial.println("TFT ST7796 one-shot boot pattern starting");
+  EbtksTft::drawBootPattern();
 #endif
 
   Serial.println("Milestone 2 services started");
