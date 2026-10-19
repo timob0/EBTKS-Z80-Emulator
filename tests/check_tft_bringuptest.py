@@ -6,11 +6,11 @@ src=(root/"ESP32_Z80_Emulator/ebtks_tft_test.h").read_text()
 ino=(root/"ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino").read_text()
 cfg=(root/"platformio.ini").read_text()
 assert "#define EBTKS_TFT_ENABLE 0" in src
-assert "constexpr int SCLK = 14;" in src
-assert "constexpr int MOSI = 23;" in src
-assert "constexpr int CS   = 13;" in src
-assert "constexpr int DC   = 33;" in src
-assert "constexpr int RST  = 19;" in src
+assert "constexpr int kTftSclk = 14;" in src
+assert "constexpr int kTftMosi = 23;" in src
+assert "constexpr int kTftCs   = 13;" in src
+assert "constexpr int kTftDc   = 33;" in src
+assert "constexpr int kTftRst  = 19;" in src
 assert "cfg.spi_host = VSPI_HOST" in src
 assert "cfg.dma_channel = 0" in src
 assert "cfg.freq_write = 4000000" in src

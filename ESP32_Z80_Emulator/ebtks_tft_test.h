@@ -15,11 +15,11 @@
 #include <driver/spi_master.h>
 
 namespace EbtksTft {
-constexpr int SCLK = 14; // TFT SCK, remapped ESP32 VSPI master
-constexpr int MOSI = 23; // TFT SDI(MOSI)
-constexpr int CS   = 13; // TFT LCD_CS
-constexpr int DC   = 33; // TFT LCD_RS / D-C
-constexpr int RST  = 19; // TFT LCD_RST
+constexpr int kTftSclk = 14; // TFT SCK, remapped ESP32 VSPI master
+constexpr int kTftMosi = 23; // TFT SDI(MOSI)
+constexpr int kTftCs   = 13; // TFT LCD_CS
+constexpr int kTftDc   = 33; // TFT LCD_RS / D-C
+constexpr int kTftRst  = 19; // TFT LCD_RST
 
 // The live Teensy/CP/M HSPI slave uses GPIO22,17,16,32,27.
 // Neither that bus nor the UART GPIO1/3 may be repurposed for the TFT.
@@ -28,8 +28,8 @@ constexpr bool safePin(int p) {
       && p != 1 && p != 3 && p != 0 && p != 2 && p != 5
       && p != 12 && p != 15;
 }
-static_assert(safePin(SCLK) && safePin(MOSI) && safePin(CS)
-              && safePin(DC) && safePin(RST),
+static_assert(safePin(kTftSclk) && safePin(kTftMosi) && safePin(kTftCs)
+              && safePin(kTftDc) && safePin(kTftRst),
               "TFT GPIO overlaps the CP/M SPI/UART bus or an ESP32 boot strap");
 
 class Panel : public lgfx::LGFX_Device {
@@ -46,17 +46,17 @@ public:
       cfg.spi_3wire = false;
       cfg.use_lock = true;
       cfg.dma_channel = 0;     // avoid competing for DMA with the disk link
-      cfg.pin_sclk = SCLK;
-      cfg.pin_mosi = MOSI;
+      cfg.pin_sclk = kTftSclk;
+      cfg.pin_mosi = kTftMosi;
       cfg.pin_miso = -1;       // no LCD readback wiring in the first test
-      cfg.pin_dc = DC;
+      cfg.pin_dc = kTftDc;
       bus_.config(cfg);
       panel_.setBus(&bus_);
     }
     {
       auto cfg = panel_.config();
-      cfg.pin_cs = CS;
-      cfg.pin_rst = RST;
+      cfg.pin_cs = kTftCs;
+      cfg.pin_rst = kTftRst;
       cfg.pin_busy = -1;
       cfg.memory_width = 320;
       cfg.memory_height = 480;
