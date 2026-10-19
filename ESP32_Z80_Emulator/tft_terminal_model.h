@@ -97,6 +97,32 @@ struct Screen {
       default:break;
     }
   }
+  // HP terminal ESC &a column/row positioning, e.g. ESC &a10c4R.
+  // Interpret the terminal's 0-based positions like the browser's HP mode.
+  void hpPosition() {
+    if(paramsLen<3 || params[0]!='a')return;
+    int pos=1;
+    for(int field=0;field<2 && pos<paramsLen;++field) {
+      bool neg=false;
+      if(params[pos]=='+' || params[pos]=='-') {
+        neg=params[pos]=='-';++pos;
+      }
+      int value=0;bool digits=false;
+      while(pos<paramsLen && params[pos]>='0' && params[pos]<='9') {
+        value=value*10+(params[pos++]-'0');
+        if(value>999)value=999;
+        digits=true;
+      }
+      if(pos>=paramsLen || !digits)return;
+      const char dimension=params[pos++];
+      const int v=neg?-value:value;
+      if(dimension=='c'||dimension=='C')
+        col=(uint8_t)clamp(v,0,kCols-1);
+      else if(dimension=='r'||dimension=='R'||dimension=='y'||dimension=='Y')
+        row=(uint8_t)clamp(v,0,kRows-1);
+      else return;
+    }
+  }
   void feedByte(uint8_t ch) {
     if (state==CSI) {
       if(ch>=0x40 && ch<=0x7e){csi(ch);state=NORMAL;paramsLen=0;}
@@ -117,8 +143,17 @@ struct Screen {
       state=NORMAL;return;
     }
     if (state==HP_AMP) {
-      // Ignore unimplemented HP enhanced ESC &... commands until a letter.
-      if ((ch>='A'&&ch<='Z')||(ch>='a'&&ch<='z'))state=NORMAL;
+      // Consume the complete HP escape command; never spill its parameters
+      // into the visible screen as printable text.
+      if(paramsLen < sizeof(params)-1) params[paramsLen++]=(char)ch;
+      if(ch>='A' && ch<='Z') {
+        hpPosition();
+        paramsLen=0;
+        state=NORMAL;
+      } else if(paramsLen >= sizeof(params)-1) {
+        paramsLen=0;
+        state=NORMAL;
+      }
       return;
     }
     if (state==ESCAPE) {
@@ -126,7 +161,7 @@ struct Screen {
       switch(ch){
         case '[':state=CSI;paramsLen=0;return;
         case '=':state=SOROC_ROW;return; // Soroc: row+32, col+32
-        case '&':state=HP_AMP;return;
+        case '&':paramsLen=0;state=HP_AMP;return;
         case 'H':case 'h':row=col=0;return;
         case 'E':case '*':reset();return; // HP-86 erase whole screen
         case 'J':eraseDisplay(0);return;

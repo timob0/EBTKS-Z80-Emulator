@@ -28,7 +28,12 @@ int main(){
   s.reset();
   for(int row=0;row<24;++row){s.feed((const uint8_t*)"Q\r\n",3);}
   assert(s.cells[0][0]=='Q' && s.cells[23][0]==' ');
-  // ANSI: bold/inverse is ignored but its payload must never appear.
+  // Common HP-86 extended absolute cursor moves.
+  s.reset();feed(s,"\x1b&a10c4RZ");
+  assert(s.cells[4][10]=='Z');
+  s.reset();feed(s,"\x1b&a5r16C#");
+  assert(s.cells[5][16]=='#');
+    // ANSI: bold/inverse is ignored but its payload must never appear.
   s.reset();feed(s,"\x1b[7mFOO\x1b[0m");
   assert(s.cells[0][0]=='F' && s.cells[0][2]=='O');
   std::puts("PASS: TFT 80x24 terminal parser, VT100 and HP/Soroc controls");
