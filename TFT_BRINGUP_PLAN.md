@@ -3,6 +3,11 @@
 
 ## SECOND-GENERATION TFT: VT100 / ANSI COLOR / IBM CP437 — 2026-10-19
 
+### Multiplan inverse-video and cursor highlighting validated — 2026-10-19
+
+User confirms that the CP/M Multiplan application now renders **cursor highlighting and inverse text correctly on the ST7796** with the new ANSI/VT100 firmware. Together with the earlier Turbo Pascal color/DEC graphics demo, this validates the upgraded per-character attributes in a real interactive full-screen application. This does not independently establish all terminal sequences, display response timing, runtime heap headroom, long-term stability, or high-throughput disk SPI under sustained redraw. The old 80×24 simple mirror remains available for rollback; production firmware and Teensy are unchanged.
+
+
 ### User-verified ANSI color display — 2026-10-19
 
 The user successfully **compiled and ran the CP/M Turbo Pascal ANSI color demo**, confirming it **displayed nicely on the ST7796 TFT** and **looked the same via Telnet**. The demonstration outputs ANSI colored text, inverse and underlined text, and DEC Special Graphics lines; the reported success refers to the overall output, not separately instrumented checks of every feature. This is the first physical hardware validation of the upgraded `esp32dev-tft-ansi` terminal and supersedes historical notes below saying hardware testing is pending. Next suggested validation: Multiplan responsiveness and display attributes, `/api/system/health` runtime heap, `/api/cpm/spireads` integrity during simultaneous display updates, and sustained use. No changes to production ESP32/Teensy `main` and no merge approval.
