@@ -16,6 +16,8 @@ jobs:
           python3 tests/check_tft_bringuptest.py
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_terminal_model_native.cpp -o /tmp/tft_terminal_test
           /tmp/tft_terminal_test
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_vt100_native.cpp -o /tmp/tft_vt100_test
+          /tmp/tft_vt100_test
   firmware:
     name: ESP32 baseline + TFT bring-up + terminal mirror builds
     runs-on: ubuntu-latest
@@ -43,5 +45,7 @@ jobs:
         run: pio run -e esp32dev-tft
       - name: Build experimental ST7796 80x24 terminal mirror
         run: pio run -e esp32dev-tft-terminal
+      - name: Build ANSI 16-color VT100 DEC graphics terminal
+        run: pio run -e esp32dev-tft-ansi
       - name: Build baseline SPI default OFF
         run: PLATFORMIO_BUILD_FLAGS=-DEBTKS_SPI_READAHEAD_DEFAULT_ON=0 pio run -e esp32dev
