@@ -13,6 +13,14 @@
 #include <Arduino.h>
 #include <LovyanGFX.hpp>
 #include <driver/spi_master.h>
+// The independent VSPI TFT controller was validated at 4 MHz. Try 12 MHz,
+// with 8 MHz as a compile-time fallback on long/Dupont display wiring.
+// Leave the Teensy/ESP32 HSPI disk link unchanged.
+#ifndef EBTKS_TFT_SPI_HZ
+#define EBTKS_TFT_SPI_HZ 12000000
+#endif
+static_assert(EBTKS_TFT_SPI_HZ >= 4000000 && EBTKS_TFT_SPI_HZ <= 20000000,
+              "TFT SPI speed must be 4..20 MHz");
 
 namespace EbtksTft {
 constexpr int kTftSclk = 14; // TFT SCK, remapped ESP32 VSPI master
@@ -41,8 +49,8 @@ public:
       auto cfg = bus_.config();
       cfg.spi_host = VSPI_HOST; // SPI3 master, not the SPI2/HSPI disk slave
       cfg.spi_mode = 0;
-      cfg.freq_write = 4000000; // first bring-up intentionally conservative
-      cfg.freq_read = 4000000;
+      cfg.freq_write = EBTKS_TFT_SPI_HZ; // 12 MHz experiment; 8 MHz fallback
+      cfg.freq_read = EBTKS_TFT_SPI_HZ; // no LCD readback wiring
       cfg.spi_3wire = false;
       cfg.use_lock = true;
       cfg.dma_channel = 0;     // avoid competing for DMA with the disk link
@@ -101,7 +109,8 @@ inline void drawBootPattern() {
   display.print("EBTKS - ST7796 SPI TEST");
   display.setTextSize(1);
   display.setCursor(12, 215);
-  display.print("320 x 480 / 4 MHz / VSPI / GPIO14 SCK");
+  display.printf("320 x 480 / %lu MHz / VSPI / GPIO14 SCK",
+                 (unsigned long)(EBTKS_TFT_SPI_HZ/1000000));
   display.setCursor(12, 235);
   display.print("SPI2 disk service and CP/M remain separate.");
   display.setCursor(12, 255);
