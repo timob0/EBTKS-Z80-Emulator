@@ -1,5 +1,9 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+**MERGED INTO ESP32 MAIN (2026-10-19):** [PR #4](https://github.com/timob0/EBTKS-Z80-Emulator/pull/4) successfully merged the ST7796 CP/M ANSI 16-color/VT100/DEC→CP437 terminal; verified by user with Turbo Pascal and Multiplan. The former feature-branch builds have been consolidated to `esp32dev` (no display, Web UI/Telnet) and `esp32dev-tft` (full 80×24 ST7796 display, Web UI/Telnet also available). Both firmware builds, headless SPI-off build and native regression suite passed [CI #39296077196](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39296077196). The code/configuration is now on `main`; all intermediate names and pre-merge warnings below are retained as historical details only. The Teensy firmware was not touched.
+
+
+
 
 ## Supported dual ESP32 builds — integration checkpoint, 2026-10-19
 

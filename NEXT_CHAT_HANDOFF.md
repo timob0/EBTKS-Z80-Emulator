@@ -1,5 +1,11 @@
 # Handoff / durable project memory for the next development chat
 
+## ESP32 TFT TERMINAL MERGED INTO MAIN — 2026-10-19 (CURRENT STATUS)
+
+**MERGED & BUILDS CONSOLIDATED (2026-10-19; LATEST):** User explicitly approved the TFT integration into ESP32 `main`; [PR #4](https://github.com/timob0/EBTKS-Z80-Emulator/pull/4) merged successfully as commit `9f0fad1cd5fd09ee999d37f6d0f8200f6d9bb1f8`. **Exactly two PlatformIO targets are supported:** `pio run -e esp32dev` (headless; CP/M Web UI and Telnet; no LovyanGFX) and `pio run -e esp32dev-tft` (full 80×24 ANSI 16-color/VT100/DEC graphics→IBM CP437 ST7796 SPI terminal, **plus** Web UI/Telnet; LovyanGFX 1.2.7; 4 MHz VSPI GPIO14 SCK/23 MOSI/13 CS/33 D/C/19 RST). Normal no-TFT build is unchanged in purpose and keeps Z80/CP/M SPI disk read-ahead, OTA and network terminal functionality. Previous separate color-bar, monochrome terminal and ANSI experimental *build targets* were retired; existing source/version history remains in Git for rollback. Native Z80, Web UI/static TFT, first-generation terminal and new ANSI parser regressions and both production ESP32 firmware targets plus headless SPI-off variant all passed [CI run #39296077196](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39296077196) **before merge**. On physical hardware user previously tested the corresponding ANSI code (old env `esp32dev-tft-ansi`) with Turbo Pascal ANSI colors and DEC graphics matching Telnet and Multiplan cursor/inverse highlighting. The rename/build selection was validated in CI but a fresh post-merge flash of the renamed output has not yet been reported. No changes made to Teensy firmware; the separate Teensy `main` remains at its prior working baseline. User requests that new branch creation still needs explicit permission. Remaining non-blocking future checks: live heap/largest block, long-term stability, sustained SPI disk read-ahead under heavy TFT redraw and full VT100 terminal status-query behavior. Supersedes all obsolete pre-merge notes below.
+
+### Historical feature development and earlier validation (pre-merge)
+
 ## ACTIVE TFT DISPLAY EXPERIMENT — 2026-10-19 (CURRENT DEVELOPMENT CHECKPOINT)
 
 
