@@ -74,10 +74,16 @@ public:
   }
 };
 
+// Shared single controller instance for the initial color bars or later
+// terminal mirror. Only the designated TFT task writes once it has started.
+inline Panel& panel() {
+  static Panel display;
+  return display;
+}
 // Call once from setup(), after Wi-Fi and Z80 worker-task initialization,
 // before CP/M bootstrap. Nothing redraws during CP/M disk operations.
 inline void drawBootPattern() {
-  static Panel display;
+  Panel& display = panel();
   const uint32_t heapBefore = ESP.getFreeHeap();
   display.init();
   display.setRotation(1);     // landscape orientation: 480 x 320
