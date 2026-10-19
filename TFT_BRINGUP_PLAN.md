@@ -1,5 +1,22 @@
 # TFT display bring-up: safe wiring audit and first-test plan
 
+## CP/M TFT CHARACTER TERMINAL MIRROR PROTOTYPE (2026-10-19; source awaiting hardware test)
+
+**Motivation:** User asked whether ST7796 has a native character generator. **It does not**: ST7796 is a GRAM-based raster display controller, not a character-mapped terminal. LovyanGFX provides software-drawn glyphs, allowing a 6×8-pixel font in landscape (480×320), **80 columns × 24 rows**, with a 13-pixel row pitch and a **1,920-byte text array** plus 24 dirty-row flags, instead of a 307,200-byte RGB565 framebuffer. The glyphs will be physically small on the panel; verify readability.
+
+**Source:** Existing hardware-tested `esp32dev-tft` stays a one-shot color bar. Normal `esp32dev` stays TFT-disabled. New independent opt-in PlatformIO environment is **`esp32dev-tft-terminal`**, build using `pio run -e esp32dev-tft-terminal`, then upload `.pio/build/esp32dev-tft-terminal/firmware.bin` with the Web UI. It uses pinned LovyanGFX 1.2.7 and the same verified ST7796 VSPI GPIO14/23/13/33/19 pin assignments, 4 MHz, **DMA disabled**.
+
+**Implementation:** A dedicated `tft_terminal_model.h` provides allocation-free 80×24 text cells with CR, LF/scroll, BS, tab, clear, HP-86/Soroc ESC H/E/J/K/= and HP `ESC &a…` absolute cursor, plus common ANSI CSI cursor/erase and ignored styling. It deliberately **is not a complete VT100/HP262x terminal**, has no reverse video/line-drawing glyphs/scroll-region emulation, and does not answer terminal queries. Some apps (Turbo Pascal/Multiplan) may look wrong in this first iteration, though simple CP/M shell output should be legible. The existing browser terminal contains a *separate JavaScript* screen model; the ESP32 cannot reuse it directly.
+
+`serialTask` tees chunks from the existing emulated UART TX ring into the compact text model before the unchanged WebSocket forwarder, under a brief critical section. `ebtks_tft_terminal.h` creates a **low-priority core-0 TFT task with a 4096-byte stack**, rendering at most 3 changed rows (6×8 font, 13-pixel pitch) per cycle. No SPI drawing is done within the latency-sensitive console routing task; no framebuffer or huge pending-data queue. First display clear occurs in `setup()` before CP/M bootstrap. No Teensy firmware change and no need to touch the active Teensy/ESP32 HSPI disk read-ahead.
+
+**Correctness/risks:** Because both the model and display worker are asynchronous, the displayed text may **lag** CP/M output during fast redraw-heavy applications. Refreshing whole dirty lines at 4 MHz can create task contention with the core-0 SPI disk/Web UI workers. User should check CP/M prompt, DIR and typing first, then sustained disk reads while it updates; compare `/api/cpm/spireads` failures and `/api/system/health` min/free/largest heap. Font is tiny at 80 cols; consider a subsequent software-adjustable zoom or 40-column viewing mode only after first user feedback. No physical keyboard is integrated; input continues through Telnet or browser terminal. Keep known-good `main` firmware for rollback and do not merge this experiment until user hardware validation.
+
+**Validation:** Native CPU/UI tests and a new host C++ regression for terminal cursor/scroll/erasure are in the branch; GitHub Actions has a new dedicated `esp32dev-tft-terminal` build job. Check **all** CI results before flashing; no claim of working on-screen terminal yet.
+
+---
+
+
 ## CP/M and independent TFT SPI coexist on hardware — 2026-10-19
 
 **User report:** CP/M remains functional and responsive with the ST7796 display wired and working. No apparent degradation or interference with the established fast interprocessor SPI transport was observed. Since the TFT test only paints once at boot and remains idle during normal CP/M operation, this is **not a simultaneous transfer/load or performance benchmark**. Before adopting continuous CRT mirroring or live TFT updates, test bounded partial redraws while running sustained CP/M disk reads; compare CPU responsiveness, `/api/cpm/spireads` failures/throughput and `/api/system/health` runtime heap and uptime. No request to merge this experimental branch was made.
