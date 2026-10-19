@@ -2,15 +2,17 @@
 
 **New user?** Follow the [Getting started guide](GETTING_STARTED.md) for the Teensy/ESP32 flashing sequence, SD-card layout, 8 MiB disk and HP 82900 LIF images, and a web UI walkthrough.
 
-**Hardware experiments:** [Proposed CN3 SPI pin assignment and 5-wire jumper diagram](CN3_SPI_PROPOSAL.md) (Teensy master ↔ ESP32 slave; **not yet hardware-tested**). TFT wiring remains deferred.
+**CN3 SPI background:** [Original CN3 SPI pin-assignment proposal and jumper diagram](CN3_SPI_PROPOSAL.md) is historical design material. The live Teensy-master/ESP32-slave 4 MHz SPI CP/M read-ahead path has since been hardware-tested successfully. TFT wiring remains deferred.
 
-> **Current verified baseline (2026-10-19):** Both the [ESP32 repository](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main) and [Teensy 4.1 repository](https://github.com/timob0/ebtks-alt-firmware/tree/main) now use `main`. The user compiled, flashed and successfully tested the latest firmwares on the physical HP-85. ESP32 clean Web UI consolidation merged in [PR #2](https://github.com/timob0/EBTKS-Z80-Emulator/pull/2); Teensy Media Manager upload support merged in [PR #2](https://github.com/timob0/ebtks-alt-firmware/pull/2). The obsolete experimental feature branches have been removed.
+> **Current verified baseline (2026-10-19):** ESP32 [`main`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main) now includes the user-tested portable redcode/Z80 CPU replacement, Turbo Pascal/TINST compatibility, automatic SPI read-ahead and final Media Manager UI cleanup through [merged PR #3](https://github.com/timob0/EBTKS-Z80-Emulator/pull/3). Teensy [`main`](https://github.com/timob0/ebtks-alt-firmware/tree/main) is unchanged and previously hardware-tested. The user built/flashed/tested the ESP32 fix branch on a physical HP-85 before authorizing the merge.
 >
-> **Branch policy:** **Never create a new feature branch without first asking the user and receiving explicit approval.** Development requests are not blanket permission to branch. The authoritative, living source status and next engineering goal are documented at the top of [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md). The immediate goal is a locally generated empty native 8 MiB CP/M disk image on Teensy SD, not accelerating whole-disk transfers.
+> **Current functionality:** CP/M, Multiplan, Zork1, Turbo Pascal and TINST; web terminal, remote HP display, disk mounts and browser OTA; default-on 4 MHz CRC-framed 16-sector SPI read-ahead with UART fallback, **UART-only writes**, and dot-prefixed SD metadata hidden from Media Manager. The SD File Service Test browser page and Media Manager transport control panel were retired; useful SPI diagnostic endpoints remain. PlatformIO pinned to `espressif32@7.1.3`. Separate CPU library is LGPL-3.0-or-later; verify binary distribution obligations before external releases.
 >
-> This integrated EBTKS firmware runs Z80/CP/M alongside HP-85 BASIC, uses Teensy SD-backed media, supports the browser VT100 terminal, CP/M warm-boot recovery and Media Manager. The original standalone emulator README below is historical and can describe different hardware.
+> **Branch policy:** **Do not create any new feature or fix branch without first obtaining explicit user approval.** The current working branch is `main` in both repositories. [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the living authoritative status. The next candidate task is Teensy-local creation of an empty 8 MiB CP/M image (discuss/approve before editing Teensy); accelerating whole-image web transfers is not a priority.
+>
+> The standalone emulator README below is historical and may describe different hardware.
 
-**For new development conversations:** Read [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) first, then inspect the listed repository branches. Only branch if the user authorizes it.
+**For new development conversations:** Read [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) first and check both repositories' current branches. Only create a branch with explicit user permission.
 
 ---
 
