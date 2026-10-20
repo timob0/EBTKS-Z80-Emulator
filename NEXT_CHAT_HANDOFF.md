@@ -1,5 +1,21 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — HP-85 CURSOR KEY TRANSLATION ADDED; HARDWARE TEST NEXT (2026-10-21)
+
+**User request:** Complete physical HP-85 cursor-key forwarding to CP/M, particularly for Multiplan cell navigation and Turbo Pascal editing. Existing BACK SPACE/FAST BACK SPACE/CTRL mapping was previously user-verified in Multiplan, Turbo Pascal, and ED; K8 detach/re-CPM still works. ST7796 hardware scrolling remains intentionally deferred.
+
+**Implementation now committed, ESP32-only** to existing `feature/cpm85-keyboard-forwarding` branch:
+- HP-85A/B raw KEYHIT **octal 0234 LEFT -> ^S (0x13), 0235 RIGHT -> ^D (0x04), 0241 UP -> ^E (0x05), 0242 DOWN -> ^X (0x18)**. Both Multiplan for CP/M and Turbo Pascal 3's classic WordStar-style editor use these single-byte control commands. This is CP/M *keyboard input* and is intentionally independent of ANSI/VT100 *terminal display output*.
+- Extended pure `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h` without changing function signature or preexisting mapping, then expanded `tests/cpm85_keymap_native.cpp` to assert every direction, mixed typing sequence, K8 isolation, previous Backspace/END LINE/CTRL and suppression of unknown HP keys. Updated `ebtks_cpm85_keyboard.h` comments and `tests/check_cpm85_bridge.py` checks; `.github/workflows/z80-core-native.yml` already compiles/runs this native regression.
+- **CI for latest changes still needs verification and physical hardware test is PENDING.** Latest documentation commit in ESP32 branch is `c87319197a3d9ec50deb27ba0cb8d6350783c77e`; see https://github.com/timob0/EBTKS-Z80-Emulator/actions .
+- Existing known-good tested ESP32 predecessor for rollback: `3eed5aae71800510cc9f41c544e6a98b6936ede6`. Teensy branch / CPM85 v0.02a HP LOADBIN / optimized 12 MHz TFT / SD disk transport / all `main` branches **unchanged**.
+
+**Next action:** Confirm GitHub CI green for updated native plus `esp32dev`, `esp32dev-tft` before hardware deployment. User should pull `feature/cpm85-keyboard-forwarding`, build `pio run -e esp32dev-tft`, OTA flash `.pio/build/esp32dev-tft/firmware.bin` only. Do **not** rebuild Teensy/CPM85. Verify all 4 physical arrow keys navigate Multiplan cells and Turbo Pascal editor, including repeated keys and boundary conditions. Retest BACK SPACE/CTRL, K8 detach and CPM reattach, Web/Telnet and TFT. Avoid testing these arrow mappings at bare CP/M prompt: CTRL+S means XOFF there, CTRL+E etc may edit line. Roll back via old ESP32 bin if unexpectedly harmful.
+
+**Intentional scope limits:** HOME (`0245`), -CHAR (`0244`), INS/RPL (`0243`), -LINE (`0240`), ROLL UP/DOWN (`0236/0237`) and other HP special/function keys remain dropped because behavior differs across Multiplan/Turbo Pascal/CP/M (e.g. HOME is ^Q in Multiplan vs ^Q ^S in Turbo Pascal). Need explicit application mode strategy/validation before assigning conflicting/destructive operations. No feature branching or production merges without explicit user request.
+
+---
+
 ## CURRENT HANDOFF — CPM85 BACKSPACE/CTRL HARDWARE PASS (2026-10-21)
 
 **NEW HARDWARE RESULT — USER-VERIFIED:** The ESP32-only CPM85 keyboard translation update (physical BACK SPACE / FAST BACK SPACE -> BS, END LINE -> CR, and preserved ASCII Ctrl codes 0x00–0x1F) **works on the physical HP-85 with CP/M**. User explicitly reports successful operation in **Multiplan, Turbo Pascal, and ED**. This supersedes all older “not yet hardware tested” notes below. Do not infer that every possible individual Ctrl combination or unsupported HP special key was exhaustively tested; report is application-level success.
