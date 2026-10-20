@@ -10,7 +10,9 @@ assert 'ebtksLinkTransaction(' in a and 'cpm_keys' in a
 assert 'xQueueSend(keyQueue' in a and 'xQueueReceive(keyQueue' in a
 keymap=(root/"ESP32_Z80_Emulator/ebtks_cpm85_keymap.h").read_text()
 assert 'ebtks_cpm85_keymap.h' in a and 'toConsoleByte(hp)' in a
-for code in ['hp == 0231', 'hp == 0232', 'hp == 0233', 'hp <= 0176']:
+for code in ['hp == 0231', 'hp == 0232', 'hp == 0233',
+             'hp == 0234', 'hp == 0235', 'hp == 0241', 'hp == 0242',
+             'hp <= 0176']:
     assert code in keymap
 assert 'code!=0207' in a
 assert 'Cpm85Input::drain();' in b
