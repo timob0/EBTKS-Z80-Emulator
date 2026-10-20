@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include "ebtks_cpm85_keymap.h"
 
 // CPM85 developer-only keyboard bridge.  Never shares a hardware UART with
 // Z80 console data; all Teensy traffic uses the CRC-framed ebtksLinkTransaction
@@ -30,14 +31,11 @@ inline bool emit(uint8_t value) {
   return true;
 }
 inline void translate(uint8_t hp) {
-  // HP-85 raw KEYHIT: END LINE (0232 octal) is NOT ASCII newline.
-  // Most printable keys already use ASCII codes. More physical key
-  // translations (arrows/shifted keys) await measured KEYHIT codes.
-  if(hp==0232) {emit(13);return;} // octal 0232 = HP END LINE
-  if(hp==8 || hp==127) {emit(8);return;}
-  if(hp>=32 && hp<=126) {emit(hp);return;}
-  if(hp==9 || hp==13 || hp==27) {emit(hp);return;}
-  // Unknown HP special keys are deliberately not sent as garbage to CP/M.
+  // HP KEYHIT uses 0231/0233 for physical backspace, 0232 for END LINE.
+  // CTRL+key already arrives in ASCII 0..31 (including 0x00): do not
+  // filter those bytes. Leave unrecognized HP commands unmapped.
+  const int mapped=Cpm85Keymap::toConsoleByte(hp);
+  if(mapped>=0)emit(static_cast<uint8_t>(mapped));
 }
 inline void worker(void*) {
   uint32_t missing=0;
