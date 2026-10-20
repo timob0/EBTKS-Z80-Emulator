@@ -31,9 +31,10 @@ inline bool emit(uint8_t value) {
   return true;
 }
 inline void translate(uint8_t hp) {
-  // HP KEYHIT uses 0231/0233 for physical backspace, 0232 for END LINE.
-  // CTRL+key already arrives in ASCII 0..31 (including 0x00): do not
-  // filter those bytes. Leave unrecognized HP commands unmapped.
+  // Translate physical HP KEYHIT into one CP/M input byte. BACK SPACE,
+  // END LINE and four cursor arrows (WordStar-style ^E/^X/^S/^D) are
+  // recognized. CTRL+key codes 0..31 (including NUL) pass unchanged;
+  // K8 stays HP-local and other HP function keys remain unmapped.
   const int mapped=Cpm85Keymap::toConsoleByte(hp);
   if(mapped>=0)emit(static_cast<uint8_t>(mapped));
 }
