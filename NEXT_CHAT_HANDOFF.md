@@ -1,5 +1,15 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — ESP32 CPM85 KEYBOARD MERGED TO MAIN; FEATURE BRANCH DELETED (2026-10-21)
+
+**User completed merge/deletion manually. VERIFIED via GitHub:** PR [#5](https://github.com/timob0/EBTKS-Z80-Emulator/pull/5) **merged** into ESP32 production `main` with merge commit **`e962b635a3ad1625d4fc681b845f0a6161db571c`**. The former ESP32 `feature/cpm85-keyboard-forwarding` branch was deleted by the user; do NOT direct future work to checkout or pull that branch. No further keyboard development is planned for now: user declared complete after physical HP-85 success with VT100/ANSI cursor/navigation, physical unshifted LINE→ESC, CONT→TAB, Backspace, Ctrl and K8 detach/reattach. Also integrated are 12 MHz ST7796 TFT and dirty-span/font optimizations previously accepted in hardware. Latest source feature CI [#39514439197](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39514439197) passed native, both firmware builds, and SPI-off regression. A separate post-merge `main` CI run [#39514678925](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39514678925) was underway when this checkpoint was written; verify its final status before reporting it green.
+
+**Important cross-repository scope:** Only ESP32 `timob0/EBTKS-Z80-Emulator` `main` was merged. The matching physical HP keyboard still requires the USER-TESTED Teensy `timob0/ebtks-alt-firmware` `feature/cpm85-keyboard-forwarding` firmware and HP `timob0/HP85-Option-Roms` `feature/cpm85-keyboard-capture` CPM85 v0.02a LOADBIN. Their separate `main` branches remain UNMERGED; ask for explicit approval before integrating either. Do not assume those branches were deleted. Preserve working flashed devices. ST7796 GRAM hardware scrolling remains deferred.
+
+**Future ESP32 local checkout:** `git fetch --prune origin && git switch main && git pull --ff-only`; for TFT `pio run -e esp32dev-tft`, headless `pio run -e esp32dev`. All historical sections below describing a current active ESP32 keyboard feature branch, pending physical tests, or an unmerged PR are superseded by this checkpoint.
+
+---
+
 ## CURRENT HANDOFF — USER ACCEPTED KEYBOARD FOR MAIN MERGE (2026-10-21)
 
 **User reported the final HP-85 keyboard mapping "Works wonderfully" and explicitly approved merging the completed feature branch to ESP32 `main`.** Confirmed physical LINE (unshifted)→ESC, CONT (unshifted)→TAB, shifted CLEAR/SCRATCH unmapped, earlier VT100 arrows/Home/Insert/Delete/Page/F1–F7 routing, Backspace, Ctrl, K8 detach/re-CPM and previously tested TFT optimized display. The user considers keyboard feature complete for now. **This is a source-branch integration checkpoint; PR merge and target `main` CI still need verifying.** Source feature `feature/cpm85-keyboard-forwarding`, last user-tested code head `159d72ea1288931d024ab3a79de9a787a38eebfb`, clean CI https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39513960470. TFT 12 MHz & keyboard improvements both included.
