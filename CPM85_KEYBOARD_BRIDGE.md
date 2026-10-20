@@ -8,7 +8,21 @@ The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling,
 
 **Development only; all three main branches remain unchanged.** This builds on the physical-machine-confirmed `CPM85 v0.01b` LOADBIN keyboard capture, K8 detach and `CPCOUNT`/`CPLAST` diagnostics.
 
-## VT100/ANSI keyboard input profile — 2026-10-21 (hardware test pending)
+## VT100/ANSI keyboard hardware acceptance — 2026-10-21
+
+**USER-REPORTED PASS:** After flashing the VT100/ANSI physical-keyboard build,
+the user confirmed **"That works."** Treat this as working real-hardware
+acceptance for the new mapping, not an exhaustive validation of every key
+variant, DECCKM sequence or stress condition. Earlier BACK SPACE/CTRL was
+also tested in Multiplan, Turbo Pascal, and ED.
+
+The physical HP-85 does not have dedicated TAB or ESC keys, but the original
+HP-83/85 character/keycode table defines **CTRL+I = TAB (ASCII 09h)** and
+**CTRL+[ = ESC (ASCII 1Bh)**. The keyboard bridge passes both unchanged via
+its established CTRL byte handling. No new firmware is needed; physical
+verification of those specific combinations has not yet been reported.
+
+## VT100/ANSI keyboard input profile — 2026-10-21 (implementation, now hardware accepted)
 
 **User-requested design correction:** The physical HP-85 keyboard defaults to
 normal **VT100/ANSI input**, rather than hardwired WordStar control codes.
@@ -55,7 +69,7 @@ ESP32 queueing and atomic cursor-mode publication, while `serial.h`
 passively feeds outgoing CP/M characters to the mode tracker.
 No Teensy or CPM85 v0.02a rebuild, CP/M disk, TFT renderer or production
 `main` modification. Native and firmware CI checks must complete and
-**physical tests are still pending** for this new mapping.
+**physical acceptance has now been reported** for this new mapping; individual edge cases remain unverified.
 
 **Hardware acceptance:** Save the user-verified previous firmware and
 OTA-flash only the ESP32 `esp32dev-tft` firmware from
