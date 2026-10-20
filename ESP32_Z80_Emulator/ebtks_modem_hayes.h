@@ -109,7 +109,7 @@ public:
       return none;
     }
     if(byte<32||byte>126)return none;
-    if(len_+1>=sizeof(line_)) {
+    if(static_cast<size_t>(len_)+1>=sizeof(line_)) {
       len_=0;
       return {HayesEvent::ERROR,{0},23,echo_};
     }
