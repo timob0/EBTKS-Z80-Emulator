@@ -8,6 +8,22 @@ The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling,
 
 **Development only; all three main branches remain unchanged.** This builds on the physical-machine-confirmed `CPM85 v0.01b` LOADBIN keyboard capture, K8 detach and `CPCOUNT`/`CPLAST` diagnostics.
 
+## Backspace and control-key hardware acceptance — 2026-10-21
+
+**PASS on user's physical HP-85.** After flashing the ESP32-only keyboard
+mapping update, user reports that Backspace/Ctrl-key operation **totally works**,
+tested under **CP/M Multiplan, Turbo Pascal, and ED**. This provides real
+application validation of the new input translation beyond native/CI tests.
+This is not a claim that every possible control combination, HP special key,
+or long-duration transport error recovery was tested.
+
+No Teensy or CPM85 v0.02a change was needed. Retain this dev firmware as the
+known-good working test baseline. Remaining optional work: measured mappings
+for physical navigation/function keys and explicit CP/M terminal dialect
+choice, FIFO overflow/CRC replay reliability testing. ST7796 hardware
+scrolling has been postponed at the user's request. Production `main`
+branches are unchanged.
+
 ## Architecture
 
 - HP-85 `CPM85 v0.02a` installs the **existing proven CHIDLE hook**. Every non-K8 captured `KEYHIT` is written to EBTKS write-only I/O address **0177741 octal** (relative I/O function index **0341 octal**, 0xE1). `CPM` writes 1 to control address **0177742 octal** (index 0342 / 0xE2), K8 or CPOFF writes 0. K8 release remains local and immediate; no ESP32 response needed.
@@ -17,7 +33,7 @@ The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling,
 
 ## Physical Backspace and CTRL keys — ESP32 dev update (2026-10-20)
 
-**Implementation committed on this development branch; physical hardware regression still pending.**
+**Implementation committed on this development branch and hardware-verified by the user in Multiplan, Turbo Pascal and ED (2026-10-21).**
 The user's 12 MHz TFT/font/dirty-span build **has now been tested on the HP-85**:
 the font fills the display height, and CP/M plus Multiplan feel more responsive.
 ST7796 hardware scrolling is deferred by user decision; keep the existing renderer.
@@ -50,10 +66,12 @@ The pure `ebtks_cpm85_keymap.h` function and
 BACK SPACE / FAST BACK SPACE / END LINE, ASCII DEL, and K8 isolation.
 The existing static keyboard bridge check is updated, and the native test is
 wired into `.github/workflows/z80-core-native.yml`.
-Firmware compilation in CI and physical validation must be checked independently
-before calling this hardware-proven.
+Native mapping regressions and both ESP32 firmware targets passed CI (run
+[#39484098413](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39484098413));
+the user's subsequent Multiplan, Turbo Pascal and ED tests establish physical
+application-level validation.
 
-**Next local steps:** preserve known-good binaries; pull only the **ESP32**
+**Previously completed local test procedure (retain for regression):** preserve known-good binaries; pull only the **ESP32**
 `feature/cpm85-keyboard-forwarding` branch and build
 `pio run -e esp32dev-tft`, OTA flash
 `.pio/build/esp32dev-tft/firmware.bin`.
@@ -87,7 +105,7 @@ unchanged.
 
 ## Known limits of first test
 
-- **Hardware status:** CPM85 v0.02a Teensy→ESP32 forwarding, K8 detach and live CP/M reattachment were user-verified; the newer backspace/control-key map is not yet hardware-verified.
+- **Hardware status:** CPM85 v0.02a Teensy→ESP32 forwarding, K8 detach and live CP/M reattachment were user-verified; the newer backspace/control-key map has also been hardware-verified in Multiplan, Turbo Pascal and ED.
 - ASCII text and all CTRL codes are mapped, and BACK SPACE / FAST BACK SPACE / END LINE have documented explicit translations. Navigation, COPY/PAPER and other HP function/editor keys are still unmapped pending selection of the correct CP/M terminal input dialect. Unknown special keycodes are dropped, not sent to CP/M as garbage.
 - Keyboard transport is best-effort with a small FIFO and polling. If the request/reply CRC fails after a Teensy batch is dequeued, that batch can be lost; no exactly-once ACK/replay mechanism yet. FIFO overflow counter exposes bursts beyond its capacity. Do not type irreplaceable work during early testing.
 - The extra control/keyboard I/O addresses are **experimental EBTKS extensions** and must not be assumed standard or safe for unrelated HP-85 peripherals.
