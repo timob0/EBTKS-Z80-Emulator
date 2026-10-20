@@ -1,5 +1,15 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — VT100 PHYSICAL KEYBOARD ACCEPTED ON HARDWARE (2026-10-21)
+
+**User hardware result:** After installing the ESP32 VT100/ANSI keyboard input implementation, user reports **"That works"**. The previously implemented physical cursor-key and other supported VT100/ANSI key translations are now *user-confirmed working on hardware at the level reported*. No detailed individual test results were supplied; do not claim exhaustive validation of application cursor mode, all K1–K7, all navigation keys or long-run resilience.
+
+**TAB and ESC discussion:** User noticed the classic HP-85A/B keyboard lacks dedicated TAB and ESC keycaps. No change required to send the control bytes: **CTRL+I = ASCII HT 0x09 (TAB)**, **CTRL+[ = ASCII ESC 0x1B**, as documented in the HP-83/85 character/keycode appendix. `ebtks_cpm85_keymap.h` already forwards the entire ASCII 0x00..0x1F range unchanged. These two exact physical combinations were described, but the user has not yet separately reported testing them.
+
+**Active branches/source:** ESP32 `feature/cpm85-keyboard-forwarding` contains the VT100 normal/application arrow translation, Home/Insert/Delete/PgUp/PgDn/F1–F7 mapping, backlog-safe input queueing and output parser. HP `CPM85 v0.02a` and Teensy developer keyboard firmware unchanged. TFT 12 MHz optimized display and Backspace/Ctrl remain previously physical-machine validated. Production `main` unchanged. ST7796 hardware scrolling still postponed. Preserve stable prior firmware for rollback; next steps only as requested.
+
+---
+
 ## CURRENT HANDOFF — VT100/ANSI PHYSICAL KEYBOARD INPUT IMPLEMENTED (2026-10-21), HARDWARE TEST NEXT
 
 **Latest user instruction:** Prefer *standard VT100/ANSI keyboard input* for physical HP-85 keys so terminal/BBS software works, rather than previous WordStar-only arrow mapping. User can press original Ctrl combinations directly for Turbo Pascal or Multiplan if necessary. **This supersedes the previous cursor-key mapping experiment** even though its CI passed; do not tell user arrows still emit ^S/^D/^E/^X.
