@@ -1,5 +1,15 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — PHYSICAL LINE IS ESC, NOT SHIFTED CLEAR (2026-10-21)
+
+**Latest correction by user:** HP-85 physical **LINE** is the unshifted key; **CLEAR** is its SHIFT function. The previously committed ESC mapping used shifted CLEAR (raw octal `0222`) in error. The physical unshifted LINE key is called **-LINE** in the EBTKS HP-85A/B special-keycode table: raw `0240` (decimal 160). User explicitly requests that **LINE now send ESC**.
+
+**Updated ESP32 development branch `feature/cpm85-keyboard-forwarding`:** `ebtks_cpm85_keymap.h` maps LINE `0240` -> ESC `0x1B`, while shifted CLEAR `0222` is unmapped. Previous correction preserved: unshifted CONT `0217` -> TAB `0x09`, shifted SCRATCH `0255` unmapped. Existing Backspace, ASCII controls, END LINE, VT100 normal/application cursor keys, Home/Insert/Delete/Page/F1–F7, and K8 local detach remain unchanged. Pure native and static tests updated, and full documentation in `CPM85_KEYBOARD_BRIDGE.md`. Teensy firmware, CPM85 v0.02a HP LOADBIN, 12 MHz TFT renderer, Z80 disk system and production `main` branches all untouched. No new branches.
+
+**Hardware status:** Previous VT100 keyboard/input, Backspace/Ctrl tested by user. SHIFT+CONT/SCRATCH was verified as TAB in an earlier superseded firmware. Current unshifted CONT→TAB and unshifted LINE→ESC still require physical test. Multiplan uses Ctrl+C to cancel actions, so a test there is not definitive for ESC. After CI success, user should pull ESP32 dev branch, `pio run -e esp32dev-tft`, flash OTA firmware.bin; test physical unshifted LINE as ESC in an ESC-aware console application and CONT as TAB; shifted CLEAR/SCRATCH should not send ESC/TAB, and K8 should detach to ordinary HP BASIC. Preserve previous binary rollback. ST7796 hardware scrolling still deferred.
+
+---
+
 ## CURRENT HANDOFF — HP CONT KEY REPLACES SCRATCH AS TAB (2026-10-21)
 
 **LATEST HARDWARE CORRECTION FROM USER:** On the HP-85 keycap, **CONT** is the unshifted key, while **SCRATCH is the SHIFT function of CONT**. The prior experimental ESP32 CLEAR→ESC / SCRATCH→TAB firmware was loaded, and user confirmed SCRATCH (SHIFT+CONT) works as TAB. User meant to map **CONT (unshifted)** as TAB instead. User has **not yet independently verified CLEAR→ESC**; specifically, Multiplan cancels commands with **Ctrl+C**, so it is not a good ESC acceptance test.

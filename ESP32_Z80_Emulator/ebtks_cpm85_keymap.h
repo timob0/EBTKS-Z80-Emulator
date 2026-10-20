@@ -6,10 +6,10 @@
 // see the EBTKS "Octal Keycodes for Special Keys on HP 85 A/B Keyboard" table.
 // Ordinary Ctrl characters (0..31), printable ASCII, END LINE and Backspace
 // retain the exact user-hardware-tested mappings. As CP/M-only convenience
-// keys, CLEAR (0222 octal) sends ESC and CONT (0217 octal) sends TAB.
-// SCRATCH (shift+CONT, 0255 octal) and -LINE (0240 octal) stay unmapped.
-// These keys retain their HP BASIC
-// behavior whenever the CPM85 keyboard hook is detached.
+// keys, LINE (0240 octal; EBTKS table calls it -LINE) sends ESC and
+// CONT (0217 octal) sends TAB. CLEAR (SHIFT+LINE, 0222 octal) and
+// SCRATCH (SHIFT+CONT, 0255 octal) stay unmapped in CP/M.
+// All keys retain normal HP BASIC behavior when CPM85 is detached.
 //
 // All special key input uses 7-bit ANSI/VT100-compatible sequences. The
 // original VT100 defined normal (ESC [ A/B/C/D) and application cursor
@@ -28,7 +28,7 @@ struct InputBytes {
 constexpr int toConsoleByte(uint8_t hp) {
   return (hp == 0231 || hp == 0233 || hp == 0177) ? 0x08
        : (hp == 0232) ? 0x0D
-       : (hp == 0222) ? 0x1B  // CLEAR / clear line -> ESC
+       : (hp == 0240) ? 0x1B  // LINE (unshifted; -LINE in table) -> ESC
        : (hp == 0217) ? 0x09  // CONT -> TAB (unshifted)
        : (hp <= 0176) ? hp
        : -1;
@@ -58,7 +58,7 @@ inline InputBytes toInputBytes(uint8_t hp,bool appCursor=false) {
     case 0204: return {5,{esc,'[','1','5','~'}}; // F5
     case 0205: return {5,{esc,'[','1','7','~'}}; // F6
     case 0206: return {5,{esc,'[','1','8','~'}}; // F7
-    default:   return {0,{0}}; // HP system keys, -LINE, COPY etc ignored.
+    default:   return {0,{0}}; // HP system keys, shifted CLEAR, COPY etc ignored.
   }
 }
 

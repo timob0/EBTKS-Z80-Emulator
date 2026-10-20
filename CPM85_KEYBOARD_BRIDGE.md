@@ -8,7 +8,46 @@ The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling,
 
 **Development only; all three main branches remain unchanged.** This builds on the physical-machine-confirmed `CPM85 v0.01b` LOADBIN keyboard capture, K8 detach and `CPCOUNT`/`CPLAST` diagnostics.
 
-## HP CLEAR → ESC and CONT → TAB (2026-10-21; corrected after hardware test)
+## HP LINE → ESC, CONT → TAB; shifted keys unmapped (2026-10-21)
+
+**Latest physical key-label correction from user:** CLEAR is the **SHIFT**
+function of LINE. The intended dedicated ESC key is the unshifted **LINE**
+key, just as CONT (unshifted) is the dedicated TAB key and SCRATCH is its
+SHIFT function. The EBTKS HP-85A/B special-key table calls the unshifted
+LINE function `-LINE`, with raw code **0240 octal (160 decimal)**; shifted
+CLEAR produces **0222 octal (146 decimal)**.
+
+**Current CPM85 translation, while attached:**
+
+| Physical HP function | Raw code (octal) | CP/M byte |
+| --- | --- | --- |
+| LINE (unshifted; `-LINE` in EBTKS table) | `0240` | `1Bh` ESC |
+| CLEAR (SHIFT+LINE) | `0222` | unmapped |
+| CONT (unshifted) | `0217` | `09h` TAB |
+| SCRATCH (SHIFT+CONT) | `0255` | unmapped |
+
+The earlier experimental CLEAR→ESC mapping was not verified by an
+ESC-aware application (Multiplan cancels some commands using CTRL+C).
+Only LINE now produces ESC; shifted CLEAR cannot produce a stray ESC.
+Normal ASCII Ctrl mappings, END LINE, BACK SPACE, VT100/ANSI arrow,
+Home/Insert/Delete/Page/F1–F7 sequences, and K8 detach/re-attach are
+unchanged. The HP85 `CPM85 v0.02a` LOADBIN / Teensy and ESP32
+display/disk paths are untouched, as are all `main` branches. These
+mappings apply **only while CPM85 is attached**, and return to HP BASIC
+key behavior on K8 detach.
+
+Tests assert LINE yields one ESC in both VT100 cursor modes, shifted
+CLEAR is completely suppressed, CONT is TAB, SCRATCH is suppressed, and
+mixed input retains correct order. **Hardware test pending for LINE→ESC.**
+After CI passes, pull/rebuild only ESP32 `feature/cpm85-keyboard-forwarding`
+with `pio run -e esp32dev-tft`, OTA upload firmware.bin, and test the
+unshifted LINE key in an application that uses ESC to close a menu or
+exit a prompt. Check CONT gives TAB, SHIFT+LINE/CLEAR doesn't send ESC,
+SHIFT+CONT/SCRATCH doesn't send TAB, and K8 restores HP BASIC.
+
+Reference: [EBTKS HP-85A/B KEYHIT keycode table](https://www.fliptronics.com/EBTKS/_downloads/98e10facfac7c36aab48e2d1fb2ef0e4/EBTKS_Website_as_PDF_2023_06_16.pdf).
+
+## Historical superseded CLEAR → ESC and CONT → TAB test (not current mapping)
 
 **Corrected physical key identity:** The HP-85 key is labeled **CONT** for
 its unshifted action; holding SHIFT changes it to **SCRATCH**. The

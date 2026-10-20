@@ -13,7 +13,7 @@ assert 'ebtks_cpm85_keymap.h' in a and 'toInputBytes(' in a
 assert 'uxQueueSpacesAvailable(keyQueue)' in a
 assert 'Cpm85Input::observeConsoleOutput(chunk,n);' in b
 assert 'CursorModeTracker' in keymap
-for code in ['hp == 0222', 'hp == 0217',
+for code in ['hp == 0240', 'hp == 0217',
              'case 0234:', 'case 0235:', 'case 0241:', 'case 0242:',
              'case 0245:', 'case 0243:', 'case 0244:',
              'case 0236:', 'case 0237:', 'case 0200:', 'case 0206:',
@@ -21,6 +21,7 @@ for code in ['hp == 0222', 'hp == 0217',
     assert code in keymap
 assert 'code!=0207' in a
 assert 'case 0255:' not in keymap
+assert 'case 0222:' not in keymap
 assert 'Cpm85Input::drain();' in b
 assert '#include "ebtks_cpm85_keyboard.h"' in main
 assert 'Cpm85Input::start();' in main
