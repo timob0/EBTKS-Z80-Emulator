@@ -1,5 +1,23 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — VT100/ANSI PHYSICAL KEYBOARD INPUT IMPLEMENTED (2026-10-21), HARDWARE TEST NEXT
+
+**Latest user instruction:** Prefer *standard VT100/ANSI keyboard input* for physical HP-85 keys so terminal/BBS software works, rather than previous WordStar-only arrow mapping. User can press original Ctrl combinations directly for Turbo Pascal or Multiplan if necessary. **This supersedes the previous cursor-key mapping experiment** even though its CI passed; do not tell user arrows still emit ^S/^D/^E/^X.
+
+**New ESP32 code on existing `feature/cpm85-keyboard-forwarding`:**
+- Physical HP-85A/B arrows: up octal 0241 → `ESC[A`, down 0242 → `ESC[B`, right 0235 → `ESC[C`, left 0234 → `ESC[D`. Physical Home 0245 → `ESC[H`.
+- ANSI/xterm extensions: INS/RPL 0243 → `ESC[2~`, -CHR 0244 → `ESC[3~`, ROLLUP 0236 → `ESC[5~`, ROLLDN 0237 → `ESC[6~`. HP K1–K4 → F1–F4 (`ESCOP` through `ESCOS`), K5–K7 → F5–F7 (`ESC[15~`, `ESC[17~`, `ESC[18~`). **K8 0207 remains reserved for HP-local detach**, never transmitted. -LINE and ambiguous HP system keys remain suppressed.
+- VT100 **DECCKM** application cursor mode: passive output-side parser on normal Z80 UART stream observes `ESC[?1h` (arrows become `ESCOA/B/C/D`, Home `ESCOH`), `ESC[?1l` / `ESCc` restore normal. Handles CSI split across chunks, params lists; single-thread parser + atomically published bool for keyboard worker, works TFT and headless. No changes to CP/M display bytes.
+- Queueing: all input mapped to 1–5 bytes via pure `ebtks_cpm85_keymap.h` function; worker reserves enough FIFO space for **whole escape sequence** before enqueuing any byte; final console ring drain defers when full rather than dropping partial sequences. Legacy backspace / endline / entire Ctrl ASCII range including NUL unchanged.
+- Updated `tests/cpm85_keymap_native.cpp` covering normal/app modes, all keys, unchanged Ctrl/K8, mode parser, mixed sequences; static CI bridge regression updated. **Native check PASS for latest code** (see GitHub Actions). Firmware build of latest changed sources CI may still be in progress at checkpoint. Documentation: `CPM85_KEYBOARD_BRIDGE.md`.
+- Teensy feature firmware and HP `CPM85 v0.02a` LOADBIN unmodified. 12 MHz ST7796 rendering and CP/M disk link unmodified. **Production `main` branches unchanged.** Previous hardware-tested stable ESP32 keyboard+TFT baseline: `3eed5aae71800510cc9f41c544e6a98b6936ede6` (Backspace/Ctrl works in Multiplan, Turbo Pascal, ED). Previous *WordStar arrow* development head `a8238b17cfedc40c91ce5d1fad4ece21cb10a34b` also passed CI but was not user-hardware-tested. Latest ANSI development documentation commit `3b707ed97ff6b41ba0f2eb131171bdac91ea18f1`.
+
+**Next immediate action:** Check final GitHub Actions native + both ESP32 builds for the current tip (https://github.com/timob0/EBTKS-Z80-Emulator/actions). When green, ask user to pull ESP32 `feature/cpm85-keyboard-forwarding`, run `pio run -e esp32dev-tft`, OTA flash `.pio/build/esp32dev-tft/firmware.bin`. No Teensy or HP LOADBIN rebuild. Test arrows/Home in an ANSI-configured terminal application/BBS, Insert/Delete/PgUp/PgDn/F1–F7 where supported; test application cursor mode if available. In classic Turbo Pascal/Multiplan with WordStar bindings, use manual Ctrl combinations instead of arrows unless application has ANSI key configuration. Regression test Backspace/Ctrl, K8 detach + re-CPM, Web/Telnet/TFT/SD. *Physical hardware result for new ANSI input build is pending*. Preserve old binary rollback.
+
+**Future:** UART/HP keyboard FIFO robustness under sustained input and loss/retry, and app-specific terminal profiles only if needed. ST7796 GRAM hardware scrolling remains deferred by user. No branch creation or merges without explicit authorization.
+
+---
+
 ## CURRENT HANDOFF — HP-85 CURSOR KEY TRANSLATION ADDED; HARDWARE TEST NEXT (2026-10-21)
 
 **User request:** Complete physical HP-85 cursor-key forwarding to CP/M, particularly for Multiplan cell navigation and Turbo Pascal editing. Existing BACK SPACE/FAST BACK SPACE/CTRL mapping was previously user-verified in Multiplan, Turbo Pascal, and ED; K8 detach/re-CPM still works. ST7796 hardware scrolling remains intentionally deferred.
