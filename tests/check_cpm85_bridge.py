@@ -8,7 +8,10 @@ main=(root/"ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino").read_text()
 pio=(root/"platformio.ini").read_text()
 assert 'ebtksLinkTransaction(' in a and 'cpm_keys' in a
 assert 'xQueueSend(keyQueue' in a and 'xQueueReceive(keyQueue' in a
-assert 'hp==0232' in a and 'emit(13)' in a
+keymap=(root/"ESP32_Z80_Emulator/ebtks_cpm85_keymap.h").read_text()
+assert 'ebtks_cpm85_keymap.h' in a and 'toConsoleByte(hp)' in a
+for code in ['hp == 0231', 'hp == 0232', 'hp == 0233', 'hp <= 0176']:
+    assert code in keymap
 assert 'code!=0207' in a
 assert 'Cpm85Input::drain();' in b
 assert '#include "ebtks_cpm85_keyboard.h"' in main
