@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [main, feature/cpm85-keyboard-forwarding]
+    branches: [main, feature/cpm-wifi-modem]
   workflow_dispatch:
 jobs:
   native:
@@ -17,6 +17,8 @@ jobs:
           python3 tests/check_cpm85_bridge.py
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/cpm85_keymap_native.cpp -o /tmp/cpm85_keymap_test
           /tmp/cpm85_keymap_test
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/modem_uart_native.cpp -o /tmp/modem_uart_test
+          /tmp/modem_uart_test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_terminal_model_native.cpp -o /tmp/tft_terminal_test
           /tmp/tft_terminal_test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_vt100_native.cpp -o /tmp/tft_vt100_test
