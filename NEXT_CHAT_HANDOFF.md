@@ -1,5 +1,17 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — CPM85 BACKSPACE/CTRL HARDWARE PASS (2026-10-21)
+
+**NEW HARDWARE RESULT — USER-VERIFIED:** The ESP32-only CPM85 keyboard translation update (physical BACK SPACE / FAST BACK SPACE -> BS, END LINE -> CR, and preserved ASCII Ctrl codes 0x00–0x1F) **works on the physical HP-85 with CP/M**. User explicitly reports successful operation in **Multiplan, Turbo Pascal, and ED**. This supersedes all older “not yet hardware tested” notes below. Do not infer that every possible individual Ctrl combination or unsupported HP special key was exhaustively tested; report is application-level success.
+
+**Unchanged and also hardware-proven:** CPM85 v0.02a HP keyboard hook / Teensy forwarding / K8 detach to BASIC / CPM reattach to the same running CP/M; TFT ST7796 12 MHz display, enlarged Font0 glyph and dirty-span renderer (user reports better CP/M and Multiplan responsiveness).
+
+**Source/status:** ESP32 `feature/cpm85-keyboard-forwarding` contains `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h`, wired through `ebtks_cpm85_keyboard.h`; native mapping regressions and both ESP32 PlatformIO targets passed GitHub Actions on commit `3a08f4864cd094e79e9323235f78109a4aeb01e0` (run https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39484098413). Teensy dev branch and HP `CPM85 v0.02a` remain unchanged; all production `main` branches untouched.
+
+**Next areas only when requested:** Physical navigation/editor/function keys require raw HP KEYHIT validation and CP/M terminal dialect choice (VT100/ANSI vs HP-86/82900), plus stress/replay testing for FIFO/CRC robustness. ST7796 hardware-scroll investigation **explicitly deferred** by user. **Do not merge branches, create branches, or change the working keyboard code without user authorization.**
+
+---
+
 ## CURRENT HANDOFF — TFT HARDWARE VERIFIED; CP/M KEYBOARD EDITING/CTRL TRANSLATOR READY (2026-10-20)
 
 **This section supersedes the prior "TFT hardware test pending" checkpoint immediately below.**
@@ -15,7 +27,7 @@
 - CP/M special navigation/function keys remain an intentionally separate question: test expected terminal input (ANSI/VT100 vs HP-86/82900) before mapping cursor keys or editing keys. Do not assume GUI/browser HP-86 key codes represent HP-85 physical KEYHIT.
 - Existing FIFO polling CRC-loss caveat persists; no retries/ACK added.
 
-**Next step for user (after checking latest CI):** retain current known-good binaries; in the local ESP32 checkout `git fetch origin && git switch feature/cpm85-keyboard-forwarding && git pull --ff-only && pio run -e esp32dev-tft`, OTA upload `.pio/build/esp32dev-tft/firmware.bin`. Do **not** rebuild or reflash Teensy or HP CPM85. With HP `CPM` attached, type `DIRX`, use BACK SPACE to erase X, END LINE to run DIR. Try CTRL+H, CTRL+C, CTRL+S/CTRL+Q, CTRL+Z in a safe test environment, then verify Multiplan editing and K8 detach/re-CPM. Ensure Web UI/Telnet/TFT/disk remain normal and For any still-unmapped physical key, use a separate raw-key diagnostic while attached: K8 itself overwrites `CPLAST` with 135, so `CPLAST` queried after K8 cannot identify the preceding key. If trouble, OTA flash previous known-good ESP32 TFT image. **Never merge into `main` without explicit authorization.**
+**Next step for user (after checking latest CI):** retain current known-good binaries; in the local ESP32 checkout `git fetch origin && git switch feature/cpm85-keyboard-forwarding && git pull --ff-only && pio run -e esp32dev-tft`, OTA upload `.pio/build/esp32dev-tft/firmware.bin`. Do **not** rebuild or reflash Teensy or HP CPM85. With HP `CPM` attached, type `DIRX`, use BACK SPACE to erase X, END LINE to run DIR. Try CTRL+H, CTRL+C, CTRL+S/CTRL+Q, CTRL+Z in a safe test environment, then verify Multiplan editing and K8 detach/re-CPM. Ensure Web UI/Telnet/TFT/disk remain normal. For any still-unmapped physical key, use a separate raw-key diagnostic while attached: K8 itself overwrites `CPLAST` with 135, so `CPLAST` queried after K8 cannot identify the preceding key. If trouble, OTA flash previous known-good ESP32 TFT image. **Never merge into `main` without explicit authorization.**
 
 ---
 
