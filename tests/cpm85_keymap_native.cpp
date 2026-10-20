@@ -31,7 +31,7 @@ int main() {
       assert(toConsoleByte(ch) == -1);
   // Test mixed physical typing with controls/edits and no phantom key bytes.
   const uint8_t keys[] = {'D','I','X',0231,'R',0232,3,19,17,26,0207,0233};
-  const uint8_t expected[] = {'D','I','X','\\b','R','\\r',3,19,17,26,'\\b'};
+  const uint8_t expected[] = {'D','I','X','\b','R','\r',3,19,17,26,'\b'};
   std::vector<uint8_t> delivered;
   for (uint8_t hp : keys) {
     const int mapped = toConsoleByte(hp);
