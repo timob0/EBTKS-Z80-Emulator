@@ -4,7 +4,7 @@
 #include <new>
 #include <stdlib.h>
 #include "ebtks_modem_uart.h"
-#include "ebtks_modem_hayes.h"
+#include "ebtks_modem_hayes->h"
 
 // 8250-compatible, polling-only virtual modem at Z80 ports 88h..8Fh.
 // CPU port I/O NEVER calls Wi-Fi, malloc, DNS, delays or network functions.
@@ -18,8 +18,8 @@ static portMUX_TYPE uartMux=portMUX_INITIALIZER_UNLOCKED;
 // the classic ESP32's internal static DRAM is near its link-time limit.
 static EbtksModem::Uart8250* uart=nullptr;
 static TaskHandle_t workerHandle=nullptr;
-static WiFiClient socketClient; // never touched by the Z80 CPU task
-static EbtksModem::Hayes hayes;
+static WiFiClient* socketClient=nullptr; // network worker only; heap allocated
+static EbtksModem::Hayes* hayes=nullptr; // parser on runtime heap
 static bool online=false,commandMode=true;
 static uint8_t telState=0,telCommand=0,sbOption=0,sbValue=0;
 static bool txBinary=false;
@@ -95,8 +95,8 @@ static void flushResponse() {
   }
 }
 static void result(uint8_t code) {
-  if(hayes.quiet())return;
-  if(!hayes.verbose()) {
+  if(hayes->quiet())return;
+  if(!hayes->verbose()) {
     // Hayes numeric result codes: OK=0 CONNECT=1 NO CARRIER=3 ERROR=4.
     queueResponseByte(static_cast<uint8_t>('0'+code));
     queueResponseByte(13);
@@ -110,7 +110,7 @@ static void result(uint8_t code) {
   }
 }
 static void hangup(bool respond) {
-  socketClient.stop();
+  socketClient->stop();
   online=false;commandMode=true;
   netIn=netOut=0;pendingPluses=0;txBinary=false;
   telState=0;
@@ -128,20 +128,20 @@ static void handleHayes(const EbtksModem::HayesEvent& e) {
       result(0);break;
     case HayesEvent::HANGUP:hangup(true);break;
     case HayesEvent::ONLINE:
-      if(online&&socketClient.connected()) {
+      if(online&&socketClient->connected()) {
         commandMode=false;lastDataMs=millis();result(1);
       } else result(3);
       break;
     case HayesEvent::DIAL: {
       hangup(false);
       bool ok=(WiFi.status()==WL_CONNECTED) &&
-              socketClient.connect(e.host,e.port,3000);
+              socketClient->connect(e.host,e.port,3000);
       if(ok) {
-        socketClient.setNoDelay(true);
+        socketClient->setNoDelay(true);
         online=true;commandMode=false;lastDataMs=millis();
         setCarrier(true);
         result(1);
-      } else {socketClient.stop();result(3);}
+      } else {socketClient->stop();result(3);}
       break;
     }
   }
@@ -196,12 +196,12 @@ static void telNetIncoming(uint8_t c) {
   }
 }
 static void flushNet() {
-  for(int loops=0;loops<4 && netOut!=netIn && socketClient.connected();++loops) {
+  for(int loops=0;loops<4 && netOut!=netIn && socketClient->connected();++loops) {
     // Up to 96 bytes in one socket write; avoid one TCP send per character.
     uint8_t buf[96];size_t n=0;
     uint16_t p=netOut;
     while(p!=netIn && n<sizeof(buf)){buf[n++]=netTx[p];p=next(p,kNetTxSize);}
-    const size_t sent=socketClient.write(buf,n);
+    const size_t sent=socketClient->write(buf,n);
     if(!sent)break; // don't discard unaccepted tail
     for(size_t i=0;i<sent;++i)netOut=next(netOut,kNetTxSize);
     if(sent<n)break;
@@ -241,21 +241,21 @@ static void worker(void*) {
       uint8_t c;
       if(!takeTx(c))break;
       if(!online||commandMode) {
-        if(hayes.echo())queueResponseByte(c);
-        handleHayes(hayes.feed(c));
+        if(hayes->echo())queueResponseByte(c);
+        handleHayes(hayes->feed(c));
       } else outgoingData(c,millis());
     }
     if(online) {
       flushNet();
       // Reserve RX capacity before reading network bytes, so slow CP/M
       // software applies backpressure to TCP instead of losing BBS data.
-      for(int i=0;i<64 && rxFree()>16 && socketClient.available()>0;++i) {
-        int c=socketClient.read();
+      for(int i=0;i<64 && rxFree()>16 && socketClient->available()>0;++i) {
+        int c=socketClient->read();
         if(c<0)break;
         telNetIncoming(static_cast<uint8_t>(c));
       }
       // Retain data already received by WiFiClient before reporting close.
-      if(!socketClient.connected() && socketClient.available()==0) {
+      if(!socketClient->connected() && socketClient->available()==0) {
         hangup(false);
         result(3);
       }
@@ -271,13 +271,17 @@ inline void start() {
   EbtksModem::Uart8250* newUart=new(std::nothrow) EbtksModem::Uart8250;
   uint8_t* newNet=static_cast<uint8_t*>(malloc(kNetTxSize));
   uint8_t* newResponse=static_cast<uint8_t*>(malloc(kResponseSize));
-  if(!newUart||!newNet||!newResponse) {
+  WiFiClient* newClient=new(std::nothrow) WiFiClient;
+  EbtksModem::Hayes* newHayes=new(std::nothrow) EbtksModem::Hayes;
+  if(!newUart||!newNet||!newResponse||!newClient||!newHayes) {
     delete newUart;free(newNet);free(newResponse);
+    delete newClient;delete newHayes;
     EbtksDebugSerial.println("CP/M modem: FIFO allocation failed");
     return;
   }
   uart=newUart;netTx=newNet;response=newResponse;
-  uart->reset();
+  socketClient=newClient;hayes=newHayes;
+  uart->reset();hayes->reset();
   BaseType_t ok=xTaskCreatePinnedToCore(worker,"CPMWifiModem",5120,nullptr,
                                         1,&workerHandle,0);
   if(ok!=pdPASS) {
@@ -285,6 +289,8 @@ inline void start() {
     delete uart;uart=nullptr;
     free(netTx);netTx=nullptr;
     free(response);response=nullptr;
+    delete socketClient;socketClient=nullptr;
+    delete hayes;hayes=nullptr;
     EbtksDebugSerial.println("CP/M modem: worker allocation failed");
   } else EbtksDebugSerial.println("CP/M modem: virtual UART 88h-8Fh online");
 }
