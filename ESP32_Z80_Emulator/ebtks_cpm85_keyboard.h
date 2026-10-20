@@ -105,7 +105,13 @@ inline void drain() {
   if(!keyQueue)return;
   uint8_t c;
   int n=0;
-  while(n<32 && xQueueReceive(keyQueue,&c,0)==pdTRUE) {
+  while(n<32) {
+    // Preserve pending bytes (especially ESC sequences) if the final Z80
+    // UART ring is full. The next serialTask cycle will resume draining.
+    uint16_t next=rxInPtr+1;
+    if(next>=sizeof(rxBuf))next=0;
+    if(next==rxOutPtr)break;
+    if(xQueueReceive(keyQueue,&c,0)!=pdTRUE)break;
     consoleRxEnqueue(c);
     ++n;
   }
