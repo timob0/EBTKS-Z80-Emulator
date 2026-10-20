@@ -1,5 +1,15 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — HP CONT KEY REPLACES SCRATCH AS TAB (2026-10-21)
+
+**LATEST HARDWARE CORRECTION FROM USER:** On the HP-85 keycap, **CONT** is the unshifted key, while **SCRATCH is the SHIFT function of CONT**. The prior experimental ESP32 CLEAR→ESC / SCRATCH→TAB firmware was loaded, and user confirmed SCRATCH (SHIFT+CONT) works as TAB. User meant to map **CONT (unshifted)** as TAB instead. User has **not yet independently verified CLEAR→ESC**; specifically, Multiplan cancels commands with **Ctrl+C**, so it is not a good ESC acceptance test.
+
+**Current ESP32 dev branch source:** `feature/cpm85-keyboard-forwarding` now maps KEYHIT **octal 0217 (decimal 143, CONT) -> ASCII TAB 0x09**, while octal **0255 (decimal 173, SHIFT+CONT/SCRATCH) -> UNMAPPED**. Keeps KEYHIT **octal 0222 (decimal 146, CLEAR) -> ESC 0x1B** from prior commit. The separate -LINE key 0240 remains unmapped. These are distinct physical raw codes per the EBTKS HP-85A/B key table. Tests now assert both corrected codes, scratch suppression, mixed-key ordering, and prior VT100/backspace/CTRL/K8 invariants.
+
+**Testing:** Previous user confirmed VT100 arrow/other-key mapping works on physical HP-85, Backspace/CTRL work in Multiplan/Turbo Pascal/ED, and shifted SCRATCH was TAB in preceding build. **Unshifted CONT→TAB in current build is NOT YET physically tested.** CLEAR→ESC has not been independently demonstrated by an app that recognizes ESC. After native/firmware CI pass, pull/rebuild **ESP32 only** `pio run -e esp32dev-tft`; OTA `.pio/build/esp32dev-tft/firmware.bin`; with physical `CPM` attached test CONT (unshifted) in a TAB-aware program, SHIFT+CONT must no longer TAB, CLEAR in an ESC-aware app; K8 returns to BASIC. No Teensy or HP CPM85 LOADBIN reflashing, TFT/disk unchanged, `main` untouched. Preserve prior working firmware. ST7796 hardware scrolling deferred.
+
+---
+
 ## CURRENT HANDOFF — CLEAR=ESC / SCRATCH=TAB MAPPING COMMITTED (2026-10-21)
 
 **User hardware feedback:** VT100/ANSI physical key translations work on real HP-85; physical `CTRL+I` works as TAB, but `CTRL+[` does not work as ESC in Multiplan. User requested an alternative: map the HP-85's CLEAR (clear line) key to ESC and SCRATCH to TAB while CPM85 is active.

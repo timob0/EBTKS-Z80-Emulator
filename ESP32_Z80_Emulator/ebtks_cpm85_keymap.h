@@ -6,8 +6,9 @@
 // see the EBTKS "Octal Keycodes for Special Keys on HP 85 A/B Keyboard" table.
 // Ordinary Ctrl characters (0..31), printable ASCII, END LINE and Backspace
 // retain the exact user-hardware-tested mappings. As CP/M-only convenience
-// keys, CLEAR (0222 octal) sends ESC and SCRATCH (0255 octal) sends TAB.
-// -LINE (0240 octal) stays unmapped; these keys retain their HP BASIC
+// keys, CLEAR (0222 octal) sends ESC and CONT (0217 octal) sends TAB.
+// SCRATCH (shift+CONT, 0255 octal) and -LINE (0240 octal) stay unmapped.
+// These keys retain their HP BASIC
 // behavior whenever the CPM85 keyboard hook is detached.
 //
 // All special key input uses 7-bit ANSI/VT100-compatible sequences. The
@@ -28,7 +29,7 @@ constexpr int toConsoleByte(uint8_t hp) {
   return (hp == 0231 || hp == 0233 || hp == 0177) ? 0x08
        : (hp == 0232) ? 0x0D
        : (hp == 0222) ? 0x1B  // CLEAR / clear line -> ESC
-       : (hp == 0255) ? 0x09  // SCRATCH -> TAB
+       : (hp == 0217) ? 0x09  // CONT -> TAB (unshifted)
        : (hp <= 0176) ? hp
        : -1;
 }
