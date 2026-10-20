@@ -45,6 +45,8 @@ int main() {
     expect(0231,app,"\x08"); // HP BACK SPACE
     expect(0233,app,"\x08"); // HP FAST BACK SPACE
     expect(0232,app,"\x0d"); // HP END LINE
+    expect(0222,app,"\x1b"); // HP CLEAR (clear line) -> ESC
+    expect(0255,app,"\x09"); // HP SCRATCH -> TAB
   }
 
   // Normal mode: VT100 ANSI cursor keys; optional application cursor mode
@@ -69,9 +71,10 @@ int main() {
   expect(0204,false,"\x1b[15~");expect(0205,false,"\x1b[17~");
   expect(0206,false,"\x1b[18~");
   expectIgnored(0207);
+  expectIgnored(0240); // HP -LINE remains deliberately distinct from CLEAR.
   for(int code=0200;code<0400;++code) {
     const bool special=(code>=0200 && code<=0206)
-      ||code==0231||code==0232||code==0233||code==0234
+      ||code==0222||code==0255||code==0231||code==0232||code==0233||code==0234
       ||code==0235||code==0236||code==0237||code==0241
       ||code==0242||code==0243||code==0244||code==0245;
     if(!special)expectIgnored(static_cast<uint8_t>(code));
@@ -79,8 +82,8 @@ int main() {
   // Mixed keys must preserve complete 3- and 5-byte escape sequences, Ctrl,
   // zero byte, Backspace, and filtered K8 in the emitted byte stream.
   const uint8_t input[]={'D','I','R',0232,0241,0235,0245,0244,
-                         0206,0,3,0231,0207};
-  const char expected[]="DIR\r\x1b[A\x1b[C\x1b[H\x1b[3~\x1b[18~";
+                         0206,0222,0255,0,3,0231,0207};
+  const char expected[]="DIR\r\x1b[A\x1b[C\x1b[H\x1b[3~\x1b[18~\x1b\x09";
   std::vector<uint8_t> bytes;
   for(uint8_t hp:input) {
     const InputBytes b=toInputBytes(hp);
@@ -114,5 +117,5 @@ int main() {
   output(t,"\x1b[?1l");
   assert(!t.applicationCursor());
 
-  std::puts("PASS: CPM85 VT100/ANSI arrows, DECCKM, home/edit/page/F1-F7, CTRL, K8");
+  std::puts("PASS: CPM85 ANSI/VT100, CLEAR->ESC, SCRATCH->TAB, Ctrl, K8");
 }

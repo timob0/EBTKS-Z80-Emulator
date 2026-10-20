@@ -8,6 +8,44 @@ The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling,
 
 **Development only; all three main branches remain unchanged.** This builds on the physical-machine-confirmed `CPM85 v0.01b` LOADBIN keyboard capture, K8 detach and `CPCOUNT`/`CPLAST` diagnostics.
 
+## HP CLEAR → ESC and SCRATCH → TAB (2026-10-21; hardware test pending)
+
+**User request:** The HP-85 physical `CTRL+I` successfully enters TAB, but
+`CTRL+[` does not work as ESC in Multiplan. The physical keyboard has a
+CLEAR (clear-line) key with raw KEYHIT **0222 octal = 146 decimal** and
+SCRATCH with **0255 octal = 173 decimal**, per the EBTKS HP-85A/B key table
+and HP-83/85 advanced programming appendix.
+
+Both codes were intentionally **unmapped** in the existing CPM85/ESP32
+translator. The **distinct** `-LINE` key is code **0240 octal = 160 decimal**
+and stays unmapped. New mappings, **only when HP-85 `CPM` is attached**:
+
+| Physical HP-85 key | Raw KEYHIT | CP/M byte |
+| --- | --- | --- |
+| CLEAR (clear line) | `0222` | `0x1B` ESC |
+| SCRATCH | `0255` | `0x09` TAB |
+
+The `CTRL+I` / TAB route still works and all normal ASCII control bytes,
+BACK SPACE, END LINE, VT100/ANSI arrows/home/edit/page/function keys and
+K8-local detach remain unchanged. No HP key hook, Teensy FIFO, UART packet,
+TFT, Z80/disk or production-branch changes were made. `toConsoleByte()`
+handles both as *single bytes* before the special-key sequence switch.
+Native regression checks include each new physical key in normal and
+DECCKM application cursor mode, their order amid ANSI sequences, and
+confirmation that `-LINE` and K8 remain suppressed.
+
+**Next acceptance test:** After CI passes, build the existing ESP32
+`feature/cpm85-keyboard-forwarding` branch with `pio run -e esp32dev-tft`,
+OTA flash `.pio/build/esp32dev-tft/firmware.bin` via Web UI (no Teensy or
+CPM85 LOADBIN reflashing). Attach physical HP keyboard via `CPM`. In
+Multiplan, verify CLEAR behaves as ESC and SCRATCH as TAB, and check a
+second ANSI input program if available. Then verify arrows, Backspace,
+Ctrl+I, K8 return to BASIC, and `CPM` reattach. With the bridge detached,
+the two keys must retain standard HP BASIC behavior. **Hardware test
+pending; do not claim physical pass yet.**
+
+Source: https://www.fliptronics.com/EBTKS/_downloads/98e10facfac7c36aab48e2d1fb2ef0e4/EBTKS_Website_as_PDF_2023_06_16.pdf
+
 ## VT100/ANSI keyboard hardware acceptance — 2026-10-21
 
 **USER-REPORTED PASS:** After flashing the VT100/ANSI physical-keyboard build,

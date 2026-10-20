@@ -1,5 +1,15 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — CLEAR=ESC / SCRATCH=TAB MAPPING COMMITTED (2026-10-21)
+
+**User hardware feedback:** VT100/ANSI physical key translations work on real HP-85; physical `CTRL+I` works as TAB, but `CTRL+[` does not work as ESC in Multiplan. User requested an alternative: map the HP-85's CLEAR (clear line) key to ESC and SCRATCH to TAB while CPM85 is active.
+
+**Code change (ESP32 developer branch only; hardware test pending):** Verified HP-85A/B KEYHIT from EBTKS special key table: CLEAR **octal 0222** (146 decimal) -> **ESC 0x1B**; SCRATCH **octal 0255** (173 decimal) -> **TAB 0x09**. Both codes were previously unmapped. The *different* `-LINE` key **octal 0240** (160 decimal) remains deliberately unmapped. Changes only to pure `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h`, native tests, static bridge check, documentation; no Teensy or CPM85 v0.02a, TFT, disk, transport or production `main` changes. `CTRL+I`, old CTRL range, BACK SPACE, END LINE, ANSI arrows/Home/Insert/Delete/PgUp/PgDn/F1-F7 and K8 local detach all preserved.
+
+**Next steps:** Check GitHub Actions native regression and both ESP32 builds for this new commit; when green, pull existing ESP32 `feature/cpm85-keyboard-forwarding`, `pio run -e esp32dev-tft`, OTA flash the `firmware.bin`. In Multiplan verify CLEAR exits/cancels as ESC and SCRATCH navigates as TAB; check Ctrl+I TAB and VT100 cursor keys; K8 detaches and standard HP BASIC CLEAR/SCRATCH behavior returns. No Teensy/HP firmware flash. Keep old tested ESP32 bin for rollback. **Do not assume new mapping is hardware-verified until user reports.** Production branches untouched, ST7796 hardware scroll deferred.
+
+---
+
 ## CURRENT HANDOFF — VT100 PHYSICAL KEYBOARD ACCEPTED ON HARDWARE (2026-10-21)
 
 **User hardware result:** After installing the ESP32 VT100/ANSI keyboard input implementation, user reports **"That works"**. The previously implemented physical cursor-key and other supported VT100/ANSI key translations are now *user-confirmed working on hardware at the level reported*. No detailed individual test results were supplied; do not claim exhaustive validation of application cursor mode, all K1–K7, all navigation keys or long-run resilience.
