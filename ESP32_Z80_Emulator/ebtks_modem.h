@@ -4,7 +4,7 @@
 #include <new>
 #include <stdlib.h>
 #include "ebtks_modem_uart.h"
-#include "ebtks_modem_hayes->h"
+#include "ebtks_modem_hayes.h"
 
 // 8250-compatible, polling-only virtual modem at Z80 ports 88h..8Fh.
 // CPU port I/O NEVER calls Wi-Fi, malloc, DNS, delays or network functions.
