@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <atomic>
 #include "ebtks_cpm85_keymap.h"
 
 // CPM85 developer-only keyboard bridge.  Never shares a hardware UART with
@@ -21,22 +22,43 @@ static volatile bool active=false;
 static volatile uint32_t badReplies=0, queued=0, dropped=0;
 static constexpr uint8_t kMaxBatch=24;
 static constexpr int kQueueSize=128;
+// Only the serial router writes the tracker; the keyboard worker only reads
+// its published mode. This works for both headless and TFT terminal targets.
+static Cpm85Keymap::CursorModeTracker cursorTracker;
+static std::atomic<bool> applicationCursor(false);
 
-inline bool emit(uint8_t value) {
-  if(!keyQueue || xQueueSend(keyQueue,&value,0)!=pdTRUE) {
+inline void observeConsoleOutput(const uint8_t* bytes,size_t n) {
+  if(!bytes || !n)return;
+  cursorTracker.feed(bytes,n);
+  applicationCursor.store(cursorTracker.applicationCursor(),std::memory_order_relaxed);
+}
+
+// A single producer (this worker) and one consumer (the serial router).
+// Reserve the whole input sequence BEFORE writing its first byte. If the
+// queue fills, discard the entire key instead of leaving a partial ESC [.
+inline bool emitSequence(const Cpm85Keymap::InputBytes& seq) {
+  if(seq.len==0)return true; // Unmapped HP system keys are intentionally ignored.
+  if(!keyQueue || uxQueueSpacesAvailable(keyQueue)<seq.len) {
     ++dropped;
     return false;
   }
-  ++queued;
+  for(uint8_t i=0;i<seq.len;++i) {
+    if(xQueueSend(keyQueue,&seq.bytes[i],0)!=pdTRUE) {
+      // Should not occur: no second queue producer can consume reserved space.
+      ++dropped;
+      return false;
+    }
+  }
+  queued+=seq.len;
   return true;
 }
 inline void translate(uint8_t hp) {
-  // Translate physical HP KEYHIT into one CP/M input byte. BACK SPACE,
-  // END LINE and four cursor arrows (WordStar-style ^E/^X/^S/^D) are
-  // recognized. CTRL+key codes 0..31 (including NUL) pass unchanged;
-  // K8 stays HP-local and other HP function keys remain unmapped.
-  const int mapped=Cpm85Keymap::toConsoleByte(hp);
-  if(mapped>=0)emit(static_cast<uint8_t>(mapped));
+  // CTRL, Backspace and END LINE retain the physical-machine-tested bytes.
+  // Arrows use normal VT100 CSI or application SS3 mode depending on host
+  // DECCKM commands; editing/function keys use conventional ANSI/xterm input.
+  const auto seq=Cpm85Keymap::toInputBytes(
+      hp,applicationCursor.load(std::memory_order_relaxed));
+  emitSequence(seq);
 }
 inline void worker(void*) {
   uint32_t missing=0;
@@ -91,5 +113,6 @@ inline void drain() {
 #else
 inline void start(){}
 inline void drain(){}
+inline void observeConsoleOutput(const uint8_t*,size_t){}
 #endif
 } // namespace Cpm85Input
