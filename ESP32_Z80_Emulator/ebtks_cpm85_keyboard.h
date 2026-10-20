@@ -4,7 +4,7 @@
 #include <atomic>
 #include "ebtks_cpm85_keymap.h"
 
-// CPM85 developer-only keyboard bridge.  Never shares a hardware UART with
+// CPM85 HP-85 physical keyboard bridge.  Never shares a hardware UART with
 // Z80 console data; all Teensy traffic uses the CRC-framed ebtksLinkTransaction
 // under the existing disk-service mutex.
 //

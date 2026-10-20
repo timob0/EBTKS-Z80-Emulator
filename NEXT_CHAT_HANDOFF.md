@@ -1,5 +1,13 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — USER ACCEPTED KEYBOARD FOR MAIN MERGE (2026-10-21)
+
+**User reported the final HP-85 keyboard mapping "Works wonderfully" and explicitly approved merging the completed feature branch to ESP32 `main`.** Confirmed physical LINE (unshifted)→ESC, CONT (unshifted)→TAB, shifted CLEAR/SCRATCH unmapped, earlier VT100 arrows/Home/Insert/Delete/Page/F1–F7 routing, Backspace, Ctrl, K8 detach/re-CPM and previously tested TFT optimized display. The user considers keyboard feature complete for now. **This is a source-branch integration checkpoint; PR merge and target `main` CI still need verifying.** Source feature `feature/cpm85-keyboard-forwarding`, last user-tested code head `159d72ea1288931d024ab3a79de9a787a38eebfb`, clean CI https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39513960470. TFT 12 MHz & keyboard improvements both included.
+
+**Scope:** Only merge the ESP32 repository `timob0/EBTKS-Z80-Emulator`, not Teensy or HP85-Option-Roms, since user asked for "this feature branch" (singular). Matching separate Teensy development firmware + HP CPM85 v0.02a LOADBIN remain necessary for actual physical keyboard operation. Correct outdated "development branch only" source comments as part of merge preparation; no behavioral modifications. Do not delete the feature branch. Follow up next chat by checking the ESP32 PR merge/main CI, and only if explicitly authorized consider merges of the other two repos. ST7796 hardware scrolling postponed. No more keyboard work planned.
+
+---
+
 ## CURRENT HANDOFF — PHYSICAL LINE IS ESC, NOT SHIFTED CLEAR (2026-10-21)
 
 **Latest correction by user:** HP-85 physical **LINE** is the unshifted key; **CLEAR** is its SHIFT function. The previously committed ESC mapping used shifted CLEAR (raw octal `0222`) in error. The physical unshifted LINE key is called **-LINE** in the EBTKS HP-85A/B special-keycode table: raw `0240` (decimal 160). User explicitly requests that **LINE now send ESC**.

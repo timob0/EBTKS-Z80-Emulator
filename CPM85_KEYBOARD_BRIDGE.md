@@ -1,4 +1,34 @@
-# CPM85 — experimental HP-85 physical keyboard to CP/M
+# CPM85 — HP-85 physical keyboard to CP/M
+
+## Production integration acceptance — 2026-10-21
+
+**HP-85 hardware PASS, authorized for ESP32 `main` integration.**
+The user verified the full physical-keyboard bridge including physical VT100
+cursor/navigation keys, BACK SPACE and Ctrl codes in Multiplan, Turbo Pascal
+and ED; after correcting the HP shifted-function labels, the latest
+**unshifted LINE→ESC and unshifted CONT→TAB** mappings also passed the
+user's physical hardware test. Shifted CLEAR and shifted SCRATCH are
+intentionally unmapped while CPM85 is attached; K8 restores HP BASIC.
+The 12 MHz SPI ST7796 enlarged glyph/dirty-span renderer was also
+previously hardware-tested and reported more responsive.
+
+The feature branch includes both the keyboard bridge and the tested TFT
+optimization. GitHub Actions native mapping/model tests, headless
+`esp32dev`, TFT `esp32dev-tft` and headless SPI-disabled fallback all
+passed at feature head `159d72ea1288931d024ab3a79de9a787a38eebfb`
+([CI run](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39513960470)).
+This integration still requires **matching Teensy keyboard-forwarding
+firmware** (`timob0/ebtks-alt-firmware` development branch) and
+**CPM85 v0.02a HP LOADBIN** (`timob0/HP85-Option-Roms` development
+branch) for physical HP keys to reach CP/M. It does not automatically
+merge or flash those separate repositories. The standard ESP32 Web UI,
+OTA, CP/M disks, Telnet, WebSocket and TFT builds remain available.
+
+**Acceptance status:** Keyboard feature considered complete for now by
+user. Further keyboard improvements, transport-stress tests and ST7796
+hardware GRAM scrolling are postponed until separately requested.
+The sections below remain historical implementation notes and may state
+earlier "dev-only", "not yet tested" or unmerged status.
 
 ## Hardware validation — 2026-10-19
 

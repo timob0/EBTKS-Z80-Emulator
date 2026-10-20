@@ -79,7 +79,7 @@ void setup() {
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
 
-  // Developer-only HP-85 keyboard router: low-priority control-link poll,
+  // HP-85 keyboard router: low-priority control-link poll,
   // no extra UART, no SPI bus overlap, no Z80 reset or CP/M bootstrap.
   Cpm85Input::start();
 
