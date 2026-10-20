@@ -83,6 +83,52 @@ editing functions, then K8 detach and CPM reattach. Confirm no regressions
 in Web/Telnet, 12 MHz TFT, or disk I/O. All production `main` branches remain
 unchanged.
 
+## Physical HP-85 cursor arrows for CP/M — development update, 2026-10-21
+
+**Implemented, not yet hardware-validated.** The HP-85A/B physical cursor
+key codes are confirmed by the EBTKS special-key table. Both Microsoft
+Multiplan for CP/M and classic Turbo Pascal's WordStar-style editor use the
+same ASCII control characters for movement. This gives a safe, shared
+single-byte input mapping (no VT100 escape-sequence injection needed):
+
+| HP-85A/B key | Raw KEYHIT (octal / decimal) | CP/M console byte |
+| --- | --- | --- |
+| LEFT CURSOR | `0234` / 156 | `0x13` = CTRL+S |
+| RIGHT CURSOR | `0235` / 157 | `0x04` = CTRL+D |
+| UP CURSOR | `0241` / 161 | `0x05` = CTRL+E |
+| DOWN CURSOR | `0242` / 162 | `0x18` = CTRL+X |
+
+Source: [EBTKS key code reference](https://www.fliptronics.com/EBTKS/_downloads/98e10facfac7c36aab48e2d1fb2ef0e4/EBTKS_Website_as_PDF_2023_06_16.pdf), [Microsoft Multiplan CP/M manual](https://www.bitsavers.org/pdf/microsoft/cpm/Microsoft_Multiplan_for_CPM_1982.pdf), and [Turbo Pascal editor key reference](https://www.bitsavers.org/pdf/borland/turbo_pascal/Turbo_Pascal_Reference_Manual_Feb84.pdf).
+
+Implemented in `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h`;
+`tests/cpm85_keymap_native.cpp` now verifies the full four-key table,
+preservation of all existing backspace/CTRL/K8 behavior, suppression of
+other special codes, and ordering of a mixed input sequence. The CI static
+check has been extended. No changes to the Teensy or CPM85 v0.02a, TFT
+12 MHz renderer, SD/CP/M disk link or either production `main` branch.
+Existing known-good rollback is the preceding ESP32 development commit
+`3eed5aae71800510cc9f41c544e6a98b6936ede6`.
+
+**Application compatibility:** In CP/M command-line mode, CTRL+S can
+act as XOFF (pause output), and CTRL+E / CTRL+X have other editing
+meanings. The arrow translation is targeted at Multiplan/Turbo Pascal
+*when those editors are active*, not as universally meaningful
+navigation in the CP/M shell. HOME, INSERT/REPLACE, -CHAR, -LINE, DELETE,
+ROLL UP/DOWN and K1..K7 remain intentionally unmapped because their
+applications' command conventions vary; mapping them without a selected
+profile risks destructive editing or triggering CP/M console controls.
+
+**Next hardware validation:** once GitHub CI shows both native and firmware
+targets passed, pull existing ESP32 `feature/cpm85-keyboard-forwarding`,
+build `pio run -e esp32dev-tft`, and OTA flash the new `firmware.bin`.
+Teensy firmware and CPM85 LOADBIN remain unchanged. In Multiplan, move
+one cell in each direction, including repeated arrows; in Turbo Pascal,
+create/open a disposable source file and move the edit cursor in all four
+directions across lines. Check Backspace, Ctrl keys, K8 return, re-CPM,
+TFT output, and disk/Web/Telnet. If a cursor key acts unexpectedly,
+switch back to known-good ESP32 bin and report the key/application.
+**These physical results have not yet been reported.**
+
 ## ST7796 redraw optimization experiment — 2026-10-19
 
 **Firmware status:** ESP32 `feature/cpm85-keyboard-forwarding` only. Teensy firmware and CPM85 v0.02a LOADBIN are unchanged. **User confirmed on physical HP-85** that the 12 MHz optimized renderer scales the font to fill the display height and improves responsiveness of CP/M and Multiplan. Hardware scrolling remains deferred.
