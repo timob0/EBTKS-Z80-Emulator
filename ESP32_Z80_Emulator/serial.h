@@ -28,6 +28,10 @@ void serialTask(void *parameter) {
     }
 
     if (n) {
+      // Passive observation of CP/M's DECCKM ?1h/?1l. This updates the
+      // physical HP-85 keyboard's VT100 cursor mode without changing bytes
+      // sent to Telnet, WebSocket or the ST7796 terminal.
+      Cpm85Input::observeConsoleOutput(chunk,n);
       if (serverClient.connected()) {
         // WiFiClient::write() may accept less than the requested length.
         // Do not discard the tail of a CP/M output burst if that happens.
@@ -97,6 +101,10 @@ void serialTask(void *parameter) {
       }
     }
 
+    // Keys from the physical HP-85 are staged by the low-priority
+    // Teensy UART polling worker; only this console task feeds the
+    // virtual Z80 UART so it retains Web/Telnet ordering semantics.
+    Cpm85Input::drain();
     if (rxOutPtr != rxInPtr && bitRead(pIn[UART_LSR], 0) == 0) {
       pIn[UART_PORT] = rxBuf[rxOutPtr];
       uint16_t next = rxOutPtr + 1;

@@ -14,6 +14,9 @@ struct Screen {
   uint8_t cells[kRows][kCols];
   uint16_t styles[kRows][kCols];
   bool dirty[kRows];
+  // Inclusive dirty columns per row. Scrolling still invalidates complete
+  // rows; ordinary typed characters repaint just their 6-pixel cells.
+  uint8_t dirtyFirst[kRows],dirtyLast[kRows];
   uint8_t row=0,col=0,savedRow=0,savedCol=0,scrollTop=0,scrollBottom=kRows-1;
   uint16_t attr=kDefaultStyle,savedAttr=kDefaultStyle;
   enum Parse : uint8_t {NORMAL,ESCAPE,CSI,ESC_G0,ESC_G1,ESC_HASH,SOROC_ROW,SOROC_COL,HP_AMP} state=NORMAL;
@@ -23,7 +26,18 @@ struct Screen {
   bool autoWrap=true,insertMode=false,originMode=false,vtDialect=false;
   Screen(){reset();}
   static int clamp(int n,int lo,int hi){return n<lo?lo:(n>hi?hi:n);}
-  void touch(int r){dirty[r]=true;}
+  void touch(int r){
+    dirty[r]=true;dirtyFirst[r]=0;dirtyLast[r]=kCols-1;
+  }
+  void touchCell(int r,int c){
+    if(!dirty[r]){
+      dirtyFirst[r]=dirtyLast[r]=(uint8_t)c;
+      dirty[r]=true;
+    }else{
+      if(c<dirtyFirst[r])dirtyFirst[r]=(uint8_t)c;
+      if(c>dirtyLast[r])dirtyLast[r]=(uint8_t)c;
+    }
+  }
   void blankRow(int r) {
     memset(cells[r],' ',kCols);
     for(int c=0;c<kCols;++c)styles[r][c]=attr;
@@ -38,7 +52,7 @@ struct Screen {
   }
   void put(int r,int c,uint8_t ch,uint16_t st) {
     if(cells[r][c]!=ch||styles[r][c]!=st) {
-      cells[r][c]=ch;styles[r][c]=st;touch(r);
+      cells[r][c]=ch;styles[r][c]=st;touchCell(r,c);
     }
   }
   void clearSpan(int r,int first,int last) {

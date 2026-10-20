@@ -23,9 +23,15 @@ for label, pin in [("kTftSclk", 14), ("kTftMosi", 23),
                    ("kTftCs", 13), ("kTftDc", 33), ("kTftRst", 19)]:
     assert re.search(r"constexpr int\s+" + label + r"\s*=\s*" + str(pin), src)
 for requirement in ["cfg.spi_host = VSPI_HOST", "cfg.dma_channel = 0",
-                    "cfg.freq_write = 4000000", "cfg.pin_miso = -1",
+                    "cfg.freq_write = EBTKS_TFT_SPI_HZ", "cfg.pin_miso = -1",
                     "lgfx::Panel_ST7796"]:
     assert requirement in src
+assert "#define EBTKS_TFT_SPI_HZ 12000000" in src
+assert "tft.setTextSize(1.0f,1.5f)" in terminal
+assert "dirtyFirst[row]" in terminal and "dirtyLast[row]" in terminal
+assert "tft.startWrite();" in terminal and "tft.endWrite();" in terminal
+assert "tft.fillRect(x*6,y,(end-x)*6,13,bg);" in terminal
+assert "rendered?1:16" in terminal
 assert "#if EBTKS_TFT_TERMINAL_MIRROR" in ino
 assert "EbtksTft::startTerminalMirror();" in ino
 assert "EbtksTft::mirrorFeed" in (root / "ESP32_Z80_Emulator/serial.h").read_text()

@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [main, feature/tft-vspi-bringup]
+    branches: [main, feature/cpm85-keyboard-forwarding]
   workflow_dispatch:
 jobs:
   native:
@@ -14,6 +14,9 @@ jobs:
           bash tests/run_z80_core_native.sh
           python3 tests/check_web_ui_cleanup.py
           python3 tests/check_tft_bringuptest.py
+          python3 tests/check_cpm85_bridge.py
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/cpm85_keymap_native.cpp -o /tmp/cpm85_keymap_test
+          /tmp/cpm85_keymap_test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_terminal_model_native.cpp -o /tmp/tft_terminal_test
           /tmp/tft_terminal_test
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_vt100_native.cpp -o /tmp/tft_vt100_test

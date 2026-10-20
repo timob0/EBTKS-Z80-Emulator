@@ -11,6 +11,22 @@ int main(){
   Screen s;
   assert(sizeof(s)<8192);
   assert(s.row==0 && s.scrollBottom==23 && s.styles[0][0]==kDefaultStyle);
+  // A typed glyph only invalidates its cell. A full-screen clear/scroll
+  // invalidates entire rows, even when they have mixed ANSI attributes.
+  reset(s);
+  feed(s,"HI");
+  assert(s.dirty[0] && s.dirtyFirst[0]==0 && s.dirtyLast[0]==1);
+  s.dirty[0]=false; // simulate painter snapshot consuming the dirty span
+  feed(s,"!");
+  assert(s.dirty[0] && s.dirtyFirst[0]==2 && s.dirtyLast[0]==2);
+  s.dirty[0]=false;
+  feed(s,"\x1b[1;2H\x1b[7mZ");
+  assert(s.dirty[0] && s.dirtyFirst[0]==1 && s.dirtyLast[0]==1);
+  s.dirty[0]=false;
+  feed(s,"\x1b[2J");
+  for(int r=0;r<kRows;++r)
+    assert(s.dirty[r] && s.dirtyFirst[r]==0 && s.dirtyLast[r]==79);
+  reset(s);
   // CP/M prompt and basic VT100 cursor/direct addressing, split CSI frames.
   feed(s,"A>DIR\r\nABC");
   assert(s.cells[0][0]=='A' && s.cells[1][0]=='A');

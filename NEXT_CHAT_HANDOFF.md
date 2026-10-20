@@ -1,5 +1,168 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — USER ACCEPTED KEYBOARD FOR MAIN MERGE (2026-10-21)
+
+**User reported the final HP-85 keyboard mapping "Works wonderfully" and explicitly approved merging the completed feature branch to ESP32 `main`.** Confirmed physical LINE (unshifted)→ESC, CONT (unshifted)→TAB, shifted CLEAR/SCRATCH unmapped, earlier VT100 arrows/Home/Insert/Delete/Page/F1–F7 routing, Backspace, Ctrl, K8 detach/re-CPM and previously tested TFT optimized display. The user considers keyboard feature complete for now. **This is a source-branch integration checkpoint; PR merge and target `main` CI still need verifying.** Source feature `feature/cpm85-keyboard-forwarding`, last user-tested code head `159d72ea1288931d024ab3a79de9a787a38eebfb`, clean CI https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39513960470. TFT 12 MHz & keyboard improvements both included.
+
+**Scope:** Only merge the ESP32 repository `timob0/EBTKS-Z80-Emulator`, not Teensy or HP85-Option-Roms, since user asked for "this feature branch" (singular). Matching separate Teensy development firmware + HP CPM85 v0.02a LOADBIN remain necessary for actual physical keyboard operation. Correct outdated "development branch only" source comments as part of merge preparation; no behavioral modifications. Do not delete the feature branch. Follow up next chat by checking the ESP32 PR merge/main CI, and only if explicitly authorized consider merges of the other two repos. ST7796 hardware scrolling postponed. No more keyboard work planned.
+
+---
+
+## CURRENT HANDOFF — PHYSICAL LINE IS ESC, NOT SHIFTED CLEAR (2026-10-21)
+
+**Latest correction by user:** HP-85 physical **LINE** is the unshifted key; **CLEAR** is its SHIFT function. The previously committed ESC mapping used shifted CLEAR (raw octal `0222`) in error. The physical unshifted LINE key is called **-LINE** in the EBTKS HP-85A/B special-keycode table: raw `0240` (decimal 160). User explicitly requests that **LINE now send ESC**.
+
+**Updated ESP32 development branch `feature/cpm85-keyboard-forwarding`:** `ebtks_cpm85_keymap.h` maps LINE `0240` -> ESC `0x1B`, while shifted CLEAR `0222` is unmapped. Previous correction preserved: unshifted CONT `0217` -> TAB `0x09`, shifted SCRATCH `0255` unmapped. Existing Backspace, ASCII controls, END LINE, VT100 normal/application cursor keys, Home/Insert/Delete/Page/F1–F7, and K8 local detach remain unchanged. Pure native and static tests updated, and full documentation in `CPM85_KEYBOARD_BRIDGE.md`. Teensy firmware, CPM85 v0.02a HP LOADBIN, 12 MHz TFT renderer, Z80 disk system and production `main` branches all untouched. No new branches.
+
+**Hardware status:** Previous VT100 keyboard/input, Backspace/Ctrl tested by user. SHIFT+CONT/SCRATCH was verified as TAB in an earlier superseded firmware. Current unshifted CONT→TAB and unshifted LINE→ESC still require physical test. Multiplan uses Ctrl+C to cancel actions, so a test there is not definitive for ESC. After CI success, user should pull ESP32 dev branch, `pio run -e esp32dev-tft`, flash OTA firmware.bin; test physical unshifted LINE as ESC in an ESC-aware console application and CONT as TAB; shifted CLEAR/SCRATCH should not send ESC/TAB, and K8 should detach to ordinary HP BASIC. Preserve previous binary rollback. ST7796 hardware scrolling still deferred.
+
+---
+
+## CURRENT HANDOFF — HP CONT KEY REPLACES SCRATCH AS TAB (2026-10-21)
+
+**LATEST HARDWARE CORRECTION FROM USER:** On the HP-85 keycap, **CONT** is the unshifted key, while **SCRATCH is the SHIFT function of CONT**. The prior experimental ESP32 CLEAR→ESC / SCRATCH→TAB firmware was loaded, and user confirmed SCRATCH (SHIFT+CONT) works as TAB. User meant to map **CONT (unshifted)** as TAB instead. User has **not yet independently verified CLEAR→ESC**; specifically, Multiplan cancels commands with **Ctrl+C**, so it is not a good ESC acceptance test.
+
+**Current ESP32 dev branch source:** `feature/cpm85-keyboard-forwarding` now maps KEYHIT **octal 0217 (decimal 143, CONT) -> ASCII TAB 0x09**, while octal **0255 (decimal 173, SHIFT+CONT/SCRATCH) -> UNMAPPED**. Keeps KEYHIT **octal 0222 (decimal 146, CLEAR) -> ESC 0x1B** from prior commit. The separate -LINE key 0240 remains unmapped. These are distinct physical raw codes per the EBTKS HP-85A/B key table. Tests now assert both corrected codes, scratch suppression, mixed-key ordering, and prior VT100/backspace/CTRL/K8 invariants.
+
+**Testing:** Previous user confirmed VT100 arrow/other-key mapping works on physical HP-85, Backspace/CTRL work in Multiplan/Turbo Pascal/ED, and shifted SCRATCH was TAB in preceding build. **Unshifted CONT→TAB in current build is NOT YET physically tested.** CLEAR→ESC has not been independently demonstrated by an app that recognizes ESC. After native/firmware CI pass, pull/rebuild **ESP32 only** `pio run -e esp32dev-tft`; OTA `.pio/build/esp32dev-tft/firmware.bin`; with physical `CPM` attached test CONT (unshifted) in a TAB-aware program, SHIFT+CONT must no longer TAB, CLEAR in an ESC-aware app; K8 returns to BASIC. No Teensy or HP CPM85 LOADBIN reflashing, TFT/disk unchanged, `main` untouched. Preserve prior working firmware. ST7796 hardware scrolling deferred.
+
+---
+
+## CURRENT HANDOFF — CLEAR=ESC / SCRATCH=TAB MAPPING COMMITTED (2026-10-21)
+
+**User hardware feedback:** VT100/ANSI physical key translations work on real HP-85; physical `CTRL+I` works as TAB, but `CTRL+[` does not work as ESC in Multiplan. User requested an alternative: map the HP-85's CLEAR (clear line) key to ESC and SCRATCH to TAB while CPM85 is active.
+
+**Code change (ESP32 developer branch only; hardware test pending):** Verified HP-85A/B KEYHIT from EBTKS special key table: CLEAR **octal 0222** (146 decimal) -> **ESC 0x1B**; SCRATCH **octal 0255** (173 decimal) -> **TAB 0x09**. Both codes were previously unmapped. The *different* `-LINE` key **octal 0240** (160 decimal) remains deliberately unmapped. Changes only to pure `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h`, native tests, static bridge check, documentation; no Teensy or CPM85 v0.02a, TFT, disk, transport or production `main` changes. `CTRL+I`, old CTRL range, BACK SPACE, END LINE, ANSI arrows/Home/Insert/Delete/PgUp/PgDn/F1-F7 and K8 local detach all preserved.
+
+**Next steps:** Check GitHub Actions native regression and both ESP32 builds for this new commit; when green, pull existing ESP32 `feature/cpm85-keyboard-forwarding`, `pio run -e esp32dev-tft`, OTA flash the `firmware.bin`. In Multiplan verify CLEAR exits/cancels as ESC and SCRATCH navigates as TAB; check Ctrl+I TAB and VT100 cursor keys; K8 detaches and standard HP BASIC CLEAR/SCRATCH behavior returns. No Teensy/HP firmware flash. Keep old tested ESP32 bin for rollback. **Do not assume new mapping is hardware-verified until user reports.** Production branches untouched, ST7796 hardware scroll deferred.
+
+---
+
+## CURRENT HANDOFF — VT100 PHYSICAL KEYBOARD ACCEPTED ON HARDWARE (2026-10-21)
+
+**User hardware result:** After installing the ESP32 VT100/ANSI keyboard input implementation, user reports **"That works"**. The previously implemented physical cursor-key and other supported VT100/ANSI key translations are now *user-confirmed working on hardware at the level reported*. No detailed individual test results were supplied; do not claim exhaustive validation of application cursor mode, all K1–K7, all navigation keys or long-run resilience.
+
+**TAB and ESC discussion:** User noticed the classic HP-85A/B keyboard lacks dedicated TAB and ESC keycaps. No change required to send the control bytes: **CTRL+I = ASCII HT 0x09 (TAB)**, **CTRL+[ = ASCII ESC 0x1B**, as documented in the HP-83/85 character/keycode appendix. `ebtks_cpm85_keymap.h` already forwards the entire ASCII 0x00..0x1F range unchanged. These two exact physical combinations were described, but the user has not yet separately reported testing them.
+
+**Active branches/source:** ESP32 `feature/cpm85-keyboard-forwarding` contains the VT100 normal/application arrow translation, Home/Insert/Delete/PgUp/PgDn/F1–F7 mapping, backlog-safe input queueing and output parser. HP `CPM85 v0.02a` and Teensy developer keyboard firmware unchanged. TFT 12 MHz optimized display and Backspace/Ctrl remain previously physical-machine validated. Production `main` unchanged. ST7796 hardware scrolling still postponed. Preserve stable prior firmware for rollback; next steps only as requested.
+
+---
+
+## CURRENT HANDOFF — VT100/ANSI PHYSICAL KEYBOARD INPUT IMPLEMENTED (2026-10-21), HARDWARE TEST NEXT
+
+**Latest user instruction:** Prefer *standard VT100/ANSI keyboard input* for physical HP-85 keys so terminal/BBS software works, rather than previous WordStar-only arrow mapping. User can press original Ctrl combinations directly for Turbo Pascal or Multiplan if necessary. **This supersedes the previous cursor-key mapping experiment** even though its CI passed; do not tell user arrows still emit ^S/^D/^E/^X.
+
+**New ESP32 code on existing `feature/cpm85-keyboard-forwarding`:**
+- Physical HP-85A/B arrows: up octal 0241 → `ESC[A`, down 0242 → `ESC[B`, right 0235 → `ESC[C`, left 0234 → `ESC[D`. Physical Home 0245 → `ESC[H`.
+- ANSI/xterm extensions: INS/RPL 0243 → `ESC[2~`, -CHR 0244 → `ESC[3~`, ROLLUP 0236 → `ESC[5~`, ROLLDN 0237 → `ESC[6~`. HP K1–K4 → F1–F4 (`ESCOP` through `ESCOS`), K5–K7 → F5–F7 (`ESC[15~`, `ESC[17~`, `ESC[18~`). **K8 0207 remains reserved for HP-local detach**, never transmitted. -LINE and ambiguous HP system keys remain suppressed.
+- VT100 **DECCKM** application cursor mode: passive output-side parser on normal Z80 UART stream observes `ESC[?1h` (arrows become `ESCOA/B/C/D`, Home `ESCOH`), `ESC[?1l` / `ESCc` restore normal. Handles CSI split across chunks, params lists; single-thread parser + atomically published bool for keyboard worker, works TFT and headless. No changes to CP/M display bytes.
+- Queueing: all input mapped to 1–5 bytes via pure `ebtks_cpm85_keymap.h` function; worker reserves enough FIFO space for **whole escape sequence** before enqueuing any byte; final console ring drain defers when full rather than dropping partial sequences. Legacy backspace / endline / entire Ctrl ASCII range including NUL unchanged.
+- Updated `tests/cpm85_keymap_native.cpp` covering normal/app modes, all keys, unchanged Ctrl/K8, mode parser, mixed sequences; static CI bridge regression updated. **Native check PASS for latest code** (see GitHub Actions). Firmware build of latest changed sources CI may still be in progress at checkpoint. Documentation: `CPM85_KEYBOARD_BRIDGE.md`.
+- Teensy feature firmware and HP `CPM85 v0.02a` LOADBIN unmodified. 12 MHz ST7796 rendering and CP/M disk link unmodified. **Production `main` branches unchanged.** Previous hardware-tested stable ESP32 keyboard+TFT baseline: `3eed5aae71800510cc9f41c544e6a98b6936ede6` (Backspace/Ctrl works in Multiplan, Turbo Pascal, ED). Previous *WordStar arrow* development head `a8238b17cfedc40c91ce5d1fad4ece21cb10a34b` also passed CI but was not user-hardware-tested. Latest ANSI development documentation commit `3b707ed97ff6b41ba0f2eb131171bdac91ea18f1`.
+
+**Next immediate action:** Check final GitHub Actions native + both ESP32 builds for the current tip (https://github.com/timob0/EBTKS-Z80-Emulator/actions). When green, ask user to pull ESP32 `feature/cpm85-keyboard-forwarding`, run `pio run -e esp32dev-tft`, OTA flash `.pio/build/esp32dev-tft/firmware.bin`. No Teensy or HP LOADBIN rebuild. Test arrows/Home in an ANSI-configured terminal application/BBS, Insert/Delete/PgUp/PgDn/F1–F7 where supported; test application cursor mode if available. In classic Turbo Pascal/Multiplan with WordStar bindings, use manual Ctrl combinations instead of arrows unless application has ANSI key configuration. Regression test Backspace/Ctrl, K8 detach + re-CPM, Web/Telnet/TFT/SD. *Physical hardware result for new ANSI input build is pending*. Preserve old binary rollback.
+
+**Future:** UART/HP keyboard FIFO robustness under sustained input and loss/retry, and app-specific terminal profiles only if needed. ST7796 GRAM hardware scrolling remains deferred by user. No branch creation or merges without explicit authorization.
+
+---
+
+## CURRENT HANDOFF — HP-85 CURSOR KEY TRANSLATION ADDED; HARDWARE TEST NEXT (2026-10-21)
+
+**User request:** Complete physical HP-85 cursor-key forwarding to CP/M, particularly for Multiplan cell navigation and Turbo Pascal editing. Existing BACK SPACE/FAST BACK SPACE/CTRL mapping was previously user-verified in Multiplan, Turbo Pascal, and ED; K8 detach/re-CPM still works. ST7796 hardware scrolling remains intentionally deferred.
+
+**Implementation now committed, ESP32-only** to existing `feature/cpm85-keyboard-forwarding` branch:
+- HP-85A/B raw KEYHIT **octal 0234 LEFT -> ^S (0x13), 0235 RIGHT -> ^D (0x04), 0241 UP -> ^E (0x05), 0242 DOWN -> ^X (0x18)**. Both Multiplan for CP/M and Turbo Pascal 3's classic WordStar-style editor use these single-byte control commands. This is CP/M *keyboard input* and is intentionally independent of ANSI/VT100 *terminal display output*.
+- Extended pure `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h` without changing function signature or preexisting mapping, then expanded `tests/cpm85_keymap_native.cpp` to assert every direction, mixed typing sequence, K8 isolation, previous Backspace/END LINE/CTRL and suppression of unknown HP keys. Updated `ebtks_cpm85_keyboard.h` comments and `tests/check_cpm85_bridge.py` checks; `.github/workflows/z80-core-native.yml` already compiles/runs this native regression.
+- **CI for latest changes still needs verification and physical hardware test is PENDING.** Latest documentation commit in ESP32 branch is `c87319197a3d9ec50deb27ba0cb8d6350783c77e`; see https://github.com/timob0/EBTKS-Z80-Emulator/actions .
+- Existing known-good tested ESP32 predecessor for rollback: `3eed5aae71800510cc9f41c544e6a98b6936ede6`. Teensy branch / CPM85 v0.02a HP LOADBIN / optimized 12 MHz TFT / SD disk transport / all `main` branches **unchanged**.
+
+**Next action:** Confirm GitHub CI green for updated native plus `esp32dev`, `esp32dev-tft` before hardware deployment. User should pull `feature/cpm85-keyboard-forwarding`, build `pio run -e esp32dev-tft`, OTA flash `.pio/build/esp32dev-tft/firmware.bin` only. Do **not** rebuild Teensy/CPM85. Verify all 4 physical arrow keys navigate Multiplan cells and Turbo Pascal editor, including repeated keys and boundary conditions. Retest BACK SPACE/CTRL, K8 detach and CPM reattach, Web/Telnet and TFT. Avoid testing these arrow mappings at bare CP/M prompt: CTRL+S means XOFF there, CTRL+E etc may edit line. Roll back via old ESP32 bin if unexpectedly harmful.
+
+**Intentional scope limits:** HOME (`0245`), -CHAR (`0244`), INS/RPL (`0243`), -LINE (`0240`), ROLL UP/DOWN (`0236/0237`) and other HP special/function keys remain dropped because behavior differs across Multiplan/Turbo Pascal/CP/M (e.g. HOME is ^Q in Multiplan vs ^Q ^S in Turbo Pascal). Need explicit application mode strategy/validation before assigning conflicting/destructive operations. No feature branching or production merges without explicit user request.
+
+---
+
+## CURRENT HANDOFF — CPM85 BACKSPACE/CTRL HARDWARE PASS (2026-10-21)
+
+**NEW HARDWARE RESULT — USER-VERIFIED:** The ESP32-only CPM85 keyboard translation update (physical BACK SPACE / FAST BACK SPACE -> BS, END LINE -> CR, and preserved ASCII Ctrl codes 0x00–0x1F) **works on the physical HP-85 with CP/M**. User explicitly reports successful operation in **Multiplan, Turbo Pascal, and ED**. This supersedes all older “not yet hardware tested” notes below. Do not infer that every possible individual Ctrl combination or unsupported HP special key was exhaustively tested; report is application-level success.
+
+**Unchanged and also hardware-proven:** CPM85 v0.02a HP keyboard hook / Teensy forwarding / K8 detach to BASIC / CPM reattach to the same running CP/M; TFT ST7796 12 MHz display, enlarged Font0 glyph and dirty-span renderer (user reports better CP/M and Multiplan responsiveness).
+
+**Source/status:** ESP32 `feature/cpm85-keyboard-forwarding` contains `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h`, wired through `ebtks_cpm85_keyboard.h`; native mapping regressions and both ESP32 PlatformIO targets passed GitHub Actions on commit `3a08f4864cd094e79e9323235f78109a4aeb01e0` (run https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39484098413). Teensy dev branch and HP `CPM85 v0.02a` remain unchanged; all production `main` branches untouched.
+
+**Next areas only when requested:** Physical navigation/editor/function keys require raw HP KEYHIT validation and CP/M terminal dialect choice (VT100/ANSI vs HP-86/82900), plus stress/replay testing for FIFO/CRC robustness. ST7796 hardware-scroll investigation **explicitly deferred** by user. **Do not merge branches, create branches, or change the working keyboard code without user authorization.**
+
+---
+
+## CURRENT HANDOFF — TFT HARDWARE VERIFIED; CP/M KEYBOARD EDITING/CTRL TRANSLATOR READY (2026-10-20)
+
+**This section supersedes the prior "TFT hardware test pending" checkpoint immediately below.**
+
+**New user hardware result:** The **12 MHz VSPI / Font0 scaled 6×12 / dirty-cell redraw** TFT build works on the physical HP-85. The font now fills display height and **CP/M and Multiplan are noticeably more responsive**. Scrolling is improved. **User deferred ST7796 hardware scrolling** to complete the keyboard first. No exact speed measurements or long-duration stress numbers were reported.
+
+**New keyboard implementation (ESP32 only, NOT YET hardware tested):**
+- Physical HP-85A/B BACK SPACE octal **0231** (153 decimal) and FAST BACK SPACE octal **0233** (155) now map to CP/M BS `0x08`; physical END LINE octal **0232** maps to CR `0x0D`. Existing printable ASCII and ASCII DEL→BS remain.
+- All HP Ctrl-generated ASCII control bytes **0x00–0x1F** now pass through unchanged, including `0x00`, Ctrl+C / H / Q / S / Z / [ and all other controls; prior ESP filter accidentally dropped most of them. Unsupported HP-specific keys still dropped rather than inventing sequences.
+- New source `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h` (pure C++ mapping), integrated by `ebtks_cpm85_keyboard.h`. Added `tests/cpm85_keymap_native.cpp` including exhaustive ASCII control and K8 isolation tests; updated `tests/check_cpm85_bridge.py` and CI `.github/workflows/z80-core-native.yml` to compile/run the native test.
+- Standalone local host C++11 mapping test passed. Latest GitHub Actions firmware/native run must finish before claiming CI success; hardware test of the new mappings is **PENDING**. CI: https://github.com/timob0/EBTKS-Z80-Emulator/actions .
+- No new branch or production merge. Existing ESP32 dev branch `feature/cpm85-keyboard-forwarding` only. Teensy dev firmware and `CPM85 v0.02a` LOADBIN untouched; their forwarding/K8 attach-detach and reattach remain physically tested.
+- CP/M special navigation/function keys remain an intentionally separate question: test expected terminal input (ANSI/VT100 vs HP-86/82900) before mapping cursor keys or editing keys. Do not assume GUI/browser HP-86 key codes represent HP-85 physical KEYHIT.
+- Existing FIFO polling CRC-loss caveat persists; no retries/ACK added.
+
+**Next step for user (after checking latest CI):** retain current known-good binaries; in the local ESP32 checkout `git fetch origin && git switch feature/cpm85-keyboard-forwarding && git pull --ff-only && pio run -e esp32dev-tft`, OTA upload `.pio/build/esp32dev-tft/firmware.bin`. Do **not** rebuild or reflash Teensy or HP CPM85. With HP `CPM` attached, type `DIRX`, use BACK SPACE to erase X, END LINE to run DIR. Try CTRL+H, CTRL+C, CTRL+S/CTRL+Q, CTRL+Z in a safe test environment, then verify Multiplan editing and K8 detach/re-CPM. Ensure Web UI/Telnet/TFT/disk remain normal. For any still-unmapped physical key, use a separate raw-key diagnostic while attached: K8 itself overwrites `CPLAST` with 135, so `CPLAST` queried after K8 cannot identify the preceding key. If trouble, OTA flash previous known-good ESP32 TFT image. **Never merge into `main` without explicit authorization.**
+
+---
+
+
+## CURRENT HANDOFF — CPM85 WORKING; TFT OPTIMIZATION CODE AND CI GREEN, AWAITING HARDWARE TEST (2026-10-19)
+
+### What the user requested now / where to resume
+The user explicitly asked to **save the conversation's latest state in this handoff document** because of an impending context/conversation length limit. The next chat should **resume from here**, rather than trust older historical entries lower down that describe previous branches, build stages or incomplete tests. Do not perform unrequested merges or modify Teensy/HP source as part of the TFT follow-up.
+
+**NEXT IMMEDIATE ACTION:** Ask user to **pull/build/OTA-flash the optimized ESP32 TFT** from **`feature/cpm85-keyboard-forwarding`** using `pio run -e esp32dev-tft`, *only once they are ready for hardware testing*. The optimization implementation **was committed** in commit **`8e14b5dd94e2e93472272390ba22a06753e678eb`** (`perf(tft): test 12 MHz VSPI and partial-cell ANSI redraw`) on that ESP32 dev branch and automated CI **PASSED BOTH** native and firmware jobs, run [#39323689592](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39323689592). At the instant this handoff was prepared, **user has NOT yet built, flashed or reported any hardware result for the new optimized TFT image**; software/CI success is not hardware performance validation. The current code is on GitHub, not merely an uncommitted scratchpad. No extra Teensy or HP-85 assembly change is needed to test this TFT update.
+
+### Hardware-proven keyboard bridge — currently stable experimental baseline
+User successfully tested the **complete HP-85 physical keyboard → Teensy FIFO/CRC UART → ESP32 shared Z80 UART → CP/M** integration:
+- `LOADBIN "CPM85"` and `CPM` attach HP keyboard to independent running CP/M.
+- Keystrokes are forwarded and work in CP/M.
+- **K8 (raw HP key 135 decimal / octal 207) returns to HP BASIC locally and reliably**, without resetting Z80 or stopping CP/M.
+- Entering `CPM` again reconnects to the **same running CP/M system**.
+- Earlier keyboard-only v0.01b verified `CPCOUNT=9`, `CPLAST=135`; v0.02a adds forwarding.
+- These real-hardware successes do **not** yet demonstrate all special-key translations, sustained fast typing without drops, CRC retry replay, simultaneous extreme disk load, or printer hook coexistence.
+- ESP32 developer branch: [`timob0/EBTKS-Z80-Emulator` / `feature/cpm85-keyboard-forwarding`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/feature/cpm85-keyboard-forwarding) — current code commit `8e14b5d...` is TFT-only atop working keyboard path.
+- Teensy developer branch: [`timob0/ebtks-alt-firmware` / `feature/cpm85-keyboard-forwarding`](https://github.com/timob0/ebtks-alt-firmware/tree/feature/cpm85-keyboard-forwarding), latest tested head `009f7feeeb9936177937c94b7da31d4d0fd37861`, both host FIFO and firmware checks green [CI #39316211084](https://github.com/timob0/ebtks-alt-firmware/actions/runs/39316211084). Teensy production `main` is unchanged.
+- HP LOADBIN/Option ROMs developer branch: [`timob0/HP85-Option-Roms` / `feature/cpm85-keyboard-capture`](https://github.com/timob0/HP85-Option-Roms/tree/feature/cpm85-keyboard-capture), documentation-only latest commit `dbe86143f36fcfff8ce01f8fafa49e21c0e734ae`, working `src/cpm85.asm` v0.02a. Earlier v0.01b hardware-proven keyboard-only source saved in `src/archive/cpm85_v0.01b.asm`. CAPASM/LIF image succeeded [CI #39316882685](https://github.com/timob0/HP85-Option-Roms/actions/runs/39316882685). No new assembly build required for TFT-only test.
+- Keyboard bridge port protocol: HP I/O `0177741` (raw key) and `0177742` (1 attach, 0 detach), Teensy request/reply `{"cpm_keys":{"max":24}}`, FIFO 127 usable events, ESP32 `consoleRxEnqueue()` through its existing queue. No unsolicited UART traffic; Z80/CP/M disk HSPI separate. Raw HP special keys not yet fully mapped. K8 is intercepted locally.
+
+### Why TFT optimization was requested
+With HP keyboard now controlling CP/M directly, user noticed the ST7796 TFT is **significantly slower than Telnet**, especially full-screen scrolling: visible line-by-line rebuilding. The glyphs appeared small, with a perceived margin of about 3–4 text-column widths at right and almost an extra text row below. Actual physical geometry: **480×320 TFT, 80 columns × 6 px = 480 exactly, 24 rows × 13 px = 312**, so true additional columns cannot be added without reducing the logical 80 columns or using narrower glyphs; blank-looking margins are largely glyph shape/border. Old Font0 glyphs were **6×8** within **6×13** cells, leaving large vertical gaps. Old TFT was 4 MHz VSPI and worker repainted up to 3 complete rows per pass with 35 ms scheduling delay, black-cleared each whole row and repainted text and per-cell styles.
+
+### TFT optimizer implementation — COMMITTED, CI GREEN, HARDWARE TEST PENDING
+**ESP32 dev branch commit `8e14b5dd94e2e93472272390ba22a06753e678eb`** made **only** TFT-related changes plus tests/documentation:
+- `ESP32_Z80_Emulator/ebtks_tft_test.h`: TFT `cfg.freq_write = EBTKS_TFT_SPI_HZ`, default **12,000,000**; static bounds **4–20 MHz**; 8 MHz fallback compile flag `-DEBTKS_TFT_SPI_HZ=8000000`. **VSPI ST7796**, existing GPIO14 SCLK, GPIO23 MOSI, GPIO13 CS, GPIO33 D/C, GPIO19 RST; DMA remains disabled and MISO absent. **The Teensy/ESP32 HSPI disk bus and Z80 link remain unchanged**.
+- `ESP32_Z80_Emulator/ebtks_tft_terminal.h`: LovyanGFX 1.2.7 `Font0` with `tft.setTextSize(1.0f,1.5f)` for glyphs **6×12** and same 13-pixel row pitch; keeps **80×24**, raw IBM CP437 glyph support, ANSI color/inverse/underline/bold intensity, DEC line graphics and concurrent Web UI/Telnet. More screen area visibly filled without adding logical columns.
+- `ESP32_Z80_Emulator/tft_terminal_vt100.h`: per-row **inclusive dirtyFirst / dirtyLast** span. A single-cell edit marks only that cell; full-row operations including scroll mark full rows. Still **no pixel framebuffer**.
+- Renderer now draws only dirty columns on routine text changes; clears each style run using its actual background **instead of flashing whole row black**; uses `startWrite()/endWrite()` transaction grouping and scans all changed rows with bounded yields, rather than limiting to 3 then sleeping 35ms. It remains a CPU-driven repaint on full scroll (no ST7796 hardware GRAM scroll implemented). Faster scrolling is the **expected goal**, not an observed performance number.
+- Both original public PlatformIO targets remain `esp32dev` (headless) and `esp32dev-tft` (TFT), and BOTH dev builds retain the CPM85 keyboard service. A comment in `platformio.ini` describes fallback TFT clock flag.
+- `tests/tft_vt100_native.cpp` updated with dirty-cell/span and full-clear assertions; `tests/check_tft_bringuptest.py` updated for 12 MHz, glyph scale, dirty spans, batched draw, conservative SPI bus. All native checks and `esp32dev` / `esp32dev-tft` firmware builds (plus SPI-disabled headless regression) **green in GitHub Actions** [#39323689592](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39323689592).
+- Documentation `CPM85_KEYBOARD_BRIDGE.md` on this branch also covers this TFT experiment. **Do not claim actual speedup, lack of rendering artifacts, verified wiring at 12 MHz, runtime heap margin or sustained disk compatibility until user reports a physical test.**
+
+### Next hardware test instructions
+1. Preserve known-good currently flashed **Teensy development firmware** and **CPM85 v0.02a LOADBIN**; **do not rebuild/reflash Teensy or CPM85** for this TFT-only change.
+2. In local ESP32 checkout: `git fetch origin`; `git switch feature/cpm85-keyboard-forwarding`; `git pull --ff-only`; `pio run -e esp32dev-tft`. OTA upload `.pio/build/esp32dev-tft/firmware.bin` with existing ESP32 Web UI. This is still experimental; retain the old working ESP32 binary for rollback.
+3. Verify normal CP/M startup, Web UI, Telnet, **HP-85 `CPM`/K8/re-`CPM`**, SD/SPI disk access, and live ST7796 terminal.
+4. Visual A/B: type commands; run `DIR` repeatedly to trigger scrolling; try Multiplan (inverse highlight, cursor) and previous Turbo Pascal ANSI/CP437 demo. Check drawing rate, uniform enlarged glyphs, 80×24 alignment, colors, box-drawing, underlines/inverse, missing/stale characters, flicker, SPI glitches and responsiveness under CP/M disk traffic.
+5. If any LCD artifacts at **12 MHz** on existing Dupont wiring, **change only TFT clock** to **8 MHz** by uncommenting `-DEBTKS_TFT_SPI_HZ=8000000` in the `esp32dev-tft` build flags (or use an equivalent explicit build-time override), rebuild same target and OTA flash; for old speed/control compare 4 MHz `-DEBTKS_TFT_SPI_HZ=4000000`. Neither variant changes HSPI disk transport. Compare response/quality; don't merge anything based on CI alone.
+6. User can report subjective comparison with Telnet, and ESP32 runtime free/largest heap if available. Further improvements (ST7796 GRAM scroll or drawing cache, more redraw optimization) **should be considered only after measuring this simple baseline**.
+
+### Git safety / status
+- **This handoff is a docs-only update to the existing ESP32 development branch.** ESP32 production `main` still contains the prior verified ST7796 ANSI terminal plus Web/Telnet with **4 MHz TFT**, and no CPM85 forwarding until explicitly merged.
+- Teensy and HP85-Option-Roms production `main` are untouched. **Do not merge these three development branches without new explicit authorization**, or create an unrelated new branch. Do not mistake older historical sections below for current instructions.
+- Historical user-tested performance/attribute baseline: Turbo Pascal ANSI demo matched Telnet, Multiplan cursor/inverse; prior ST7796 refresh slower than Telnet. The optimized 12MHz font/dirty-span build is not yet tested on physical hardware.
+
+---
+
+
 ## ESP32 TFT TERMINAL MERGED INTO MAIN — 2026-10-19 (CURRENT STATUS)
 
 **MERGED & BUILDS CONSOLIDATED (2026-10-19; LATEST):** User explicitly approved the TFT integration into ESP32 `main`; [PR #4](https://github.com/timob0/EBTKS-Z80-Emulator/pull/4) merged successfully as commit `9f0fad1cd5fd09ee999d37f6d0f8200f6d9bb1f8`. **Exactly two PlatformIO targets are supported:** `pio run -e esp32dev` (headless; CP/M Web UI and Telnet; no LovyanGFX) and `pio run -e esp32dev-tft` (full 80×24 ANSI 16-color/VT100/DEC graphics→IBM CP437 ST7796 SPI terminal, **plus** Web UI/Telnet; LovyanGFX 1.2.7; 4 MHz VSPI GPIO14 SCK/23 MOSI/13 CS/33 D/C/19 RST). Normal no-TFT build is unchanged in purpose and keeps Z80/CP/M SPI disk read-ahead, OTA and network terminal functionality. Previous separate color-bar, monochrome terminal and ANSI experimental *build targets* were retired; existing source/version history remains in Git for rollback. Native Z80, Web UI/static TFT, first-generation terminal and new ANSI parser regressions and both production ESP32 firmware targets plus headless SPI-off variant all passed [CI run #39296077196](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39296077196) **before merge**. On physical hardware user previously tested the corresponding ANSI code (old env `esp32dev-tft-ansi`) with Turbo Pascal ANSI colors and DEC graphics matching Telnet and Multiplan cursor/inverse highlighting. The rename/build selection was validated in CI but a fresh post-merge flash of the renamed output has not yet been reported. No changes made to Teensy firmware; the separate Teensy `main` remains at its prior working baseline. User requests that new branch creation still needs explicit permission. Remaining non-blocking future checks: live heap/largest block, long-term stability, sustained SPI disk read-ahead under heavy TFT redraw and full VT100 terminal status-query behavior. Supersedes all obsolete pre-merge notes below.

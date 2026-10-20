@@ -28,6 +28,7 @@
 #include "web_terminal_v2.h"
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
+#include "ebtks_cpm85_keyboard.h" // before disk.h transitively includes serial.h
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
@@ -77,6 +78,10 @@ void setup() {
 
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
+
+  // HP-85 keyboard router: low-priority control-link poll,
+  // no extra UART, no SPI bus overlap, no Z80 reset or CP/M bootstrap.
+  Cpm85Input::start();
 
   // Start the CRC-checked 16-sector SPI cache after Wi-Fi/web and worker
   // initialization but BEFORE CP/M bootstrap/read traffic. If Teensy storage
