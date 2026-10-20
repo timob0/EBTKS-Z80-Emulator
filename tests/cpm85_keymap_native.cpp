@@ -107,7 +107,7 @@ int main() {
   assert(!t.applicationCursor());
   output(t,"\x1b[?1;7h");
   assert(t.applicationCursor());
-  output(t,"\x1bc");
+  output(t,"\x1b" "c");
   assert(!t.applicationCursor());
   output(t,"\x1b[?1h");
   assert(t.applicationCursor());
