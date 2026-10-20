@@ -25,18 +25,27 @@ int main() {
   assert(toConsoleByte(0231) == 8); // Physical BACK SPACE.
   assert(toConsoleByte(0233) == 8); // Physical FAST BACK SPACE.
   assert(toConsoleByte(0232) == 13);// Physical END LINE.
-  assert(toConsoleByte(0207) == -1);// K8 must never reach CP/M.
+  // Documented HP-85A/B physical arrows; CP/M Multiplan and Turbo Pascal
+  // understand WordStar-style single control bytes (no escape fragments).
+  assert(toConsoleByte(0234) == 0x13); // LEFT ^S
+  assert(toConsoleByte(0235) == 0x04); // RIGHT ^D
+  assert(toConsoleByte(0241) == 0x05); // UP ^E
+  assert(toConsoleByte(0242) == 0x18); // DOWN ^X
+  assert(toConsoleByte(0207) == -1);  // K8 must never reach CP/M.
   for (int ch = 0200; ch < 0400; ++ch)
-    if (ch != 0231 && ch != 0232 && ch != 0233)
+    if (ch != 0231 && ch != 0232 && ch != 0233 &&
+        ch != 0234 && ch != 0235 && ch != 0241 && ch != 0242)
       assert(toConsoleByte(ch) == -1);
   // Test mixed physical typing with controls/edits and no phantom key bytes.
-  const uint8_t keys[] = {'D','I','X',0231,'R',0232,3,19,17,26,0207,0233};
-  const uint8_t expected[] = {'D','I','X','\b','R','\r',3,19,17,26,'\b'};
+  const uint8_t keys[] = {'D','I','X',0231,'R',0232,
+                          0241,0235,0242,0234,3,19,17,26,0207,0233};
+  const uint8_t expected[] = {'D','I','X','\b','R','\r',
+                              5,4,24,19,3,19,17,26,'\b'};
   std::vector<uint8_t> delivered;
   for (uint8_t hp : keys) {
     const int mapped = toConsoleByte(hp);
     if (mapped >= 0) delivered.push_back(static_cast<uint8_t>(mapped));
   }
   assert(delivered == std::vector<uint8_t>(expected, expected + sizeof(expected)));
-  std::puts("PASS: CPM85 physical BACKSPACE/FAST BACKSPACE, END LINE, CTRL 0..31, K8 isolation");
+  std::puts("PASS: CPM85 arrows / BACKSPACE / END LINE / all CTRL 0..31 / K8 isolation");
 }
