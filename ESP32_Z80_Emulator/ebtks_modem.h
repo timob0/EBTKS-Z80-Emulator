@@ -1,6 +1,8 @@
 #pragma once
 #include <Arduino.h>
 #include <WiFi.h>
+#include <new>
+#include <stdlib.h>
 #include "ebtks_modem_uart.h"
 #include "ebtks_modem_hayes.h"
 
@@ -12,16 +14,20 @@
 namespace CpmWifiModem {
 static constexpr uint8_t kBase=0x88;
 static portMUX_TYPE uartMux=portMUX_INITIALIZER_UNLOCKED;
-static EbtksModem::Uart8250 uart;
+// Allocate modem buffers from the runtime heap, NOT .dram0.bss:
+// the classic ESP32's internal static DRAM is near its link-time limit.
+static EbtksModem::Uart8250* uart=nullptr;
 static TaskHandle_t workerHandle=nullptr;
 static WiFiClient socketClient; // never touched by the Z80 CPU task
 static EbtksModem::Hayes hayes;
 static bool online=false,commandMode=true;
 static uint8_t telState=0,telCommand=0,sbOption=0,sbValue=0;
 static bool txBinary=false;
-static uint8_t response[256]={};
+static constexpr uint16_t kResponseSize=256;
+static uint8_t* response=nullptr;
 static uint16_t responseIn=0,responseOut=0;
-static uint8_t netTx[512]={};
+static constexpr uint16_t kNetTxSize=512;
+static uint8_t* netTx=nullptr;
 static uint16_t netIn=0,netOut=0;
 static uint32_t lastDataMs=0,plusStartMs=0;
 static uint8_t pendingPluses=0;
@@ -29,41 +35,42 @@ static uint8_t pendingPluses=0;
 inline bool isPort(uint8_t p){return (p&0xf8)==kBase;}
 inline uint8_t readPort(uint8_t p) {
   portENTER_CRITICAL(&uartMux);
-  uint8_t v=uart.read(static_cast<uint8_t>(p-kBase));
+  uint8_t v=uart?uart->read(static_cast<uint8_t>(p-kBase))
+                :static_cast<uint8_t>((p==kBase+5)?0x60:0);
   portEXIT_CRITICAL(&uartMux);
   return v;
 }
 inline void writePort(uint8_t p,uint8_t v) {
   portENTER_CRITICAL(&uartMux);
-  uart.write(static_cast<uint8_t>(p-kBase),v);
+  if(uart)uart->write(static_cast<uint8_t>(p-kBase),v);
   portEXIT_CRITICAL(&uartMux);
 }
 inline bool takeTx(uint8_t& c) {
   portENTER_CRITICAL(&uartMux);
-  bool ok=uart.popTx(c);
+  bool ok=uart && uart->popTx(c);
   portEXIT_CRITICAL(&uartMux);
   return ok;
 }
 inline uint16_t rxFree() {
   portENTER_CRITICAL(&uartMux);
-  uint16_t n=uart.rxFree();
+  uint16_t n=uart?uart->rxFree():0;
   portEXIT_CRITICAL(&uartMux);
   return n;
 }
 inline void pushRx(uint8_t c) {
   portENTER_CRITICAL(&uartMux);
-  uart.pushRx(c);
+  if(uart)uart->pushRx(c);
   portEXIT_CRITICAL(&uartMux);
 }
 inline void setCarrier(bool on) {
   portENTER_CRITICAL(&uartMux);
-  uart.setCarrier(on);
+  if(uart)uart->setCarrier(on);
   portEXIT_CRITICAL(&uartMux);
 }
 static uint16_t next(uint16_t p,uint16_t size){return (p+1==size)?0:static_cast<uint16_t>(p+1);}
-static uint16_t netFree(){return static_cast<uint16_t>((netOut+sizeof(netTx)-netIn-1)%sizeof(netTx));}
+static uint16_t netFree(){return static_cast<uint16_t>((netOut+kNetTxSize-netIn-1)%kNetTxSize);}
 static bool queueNet(uint8_t c) {
-  uint16_t n=next(netIn,sizeof(netTx));
+  uint16_t n=next(netIn,kNetTxSize);
   if(n==netOut)return false;
   netTx[netIn]=c;netIn=n;return true;
 }
@@ -75,7 +82,7 @@ static void queueWire(uint8_t c) {
   else queueNet(c);
 }
 static void queueResponseByte(uint8_t c) {
-  const uint16_t n=next(responseIn,sizeof(response));
+  const uint16_t n=next(responseIn,kResponseSize);
   if(n!=responseOut){response[responseIn]=c;responseIn=n;}
 }
 static void queueText(const char* s) {
@@ -84,7 +91,7 @@ static void queueText(const char* s) {
 static void flushResponse() {
   for(int i=0;i<64 && responseOut!=responseIn && rxFree();++i) {
     pushRx(response[responseOut]);
-    responseOut=next(responseOut,sizeof(response));
+    responseOut=next(responseOut,kResponseSize);
   }
 }
 static void result(uint8_t code) {
@@ -193,10 +200,10 @@ static void flushNet() {
     // Up to 96 bytes in one socket write; avoid one TCP send per character.
     uint8_t buf[96];size_t n=0;
     uint16_t p=netOut;
-    while(p!=netIn && n<sizeof(buf)){buf[n++]=netTx[p];p=next(p,sizeof(netTx));}
+    while(p!=netIn && n<sizeof(buf)){buf[n++]=netTx[p];p=next(p,kNetTxSize);}
     const size_t sent=socketClient.write(buf,n);
     if(!sent)break; // don't discard unaccepted tail
-    for(size_t i=0;i<sent;++i)netOut=next(netOut,sizeof(netTx));
+    for(size_t i=0;i<sent;++i)netOut=next(netOut,kNetTxSize);
     if(sent<n)break;
   }
 }
@@ -259,10 +266,25 @@ static void worker(void*) {
 }
 inline void start() {
   if(workerHandle)return;
+  // Existing hardware health reports ~65 KiB runtime heap; allocating
+  // ~1.8 KiB here is much safer than exhausting linker-only .dram0.bss.
+  EbtksModem::Uart8250* newUart=new(std::nothrow) EbtksModem::Uart8250;
+  uint8_t* newNet=static_cast<uint8_t*>(malloc(kNetTxSize));
+  uint8_t* newResponse=static_cast<uint8_t*>(malloc(kResponseSize));
+  if(!newUart||!newNet||!newResponse) {
+    delete newUart;free(newNet);free(newResponse);
+    EbtksDebugSerial.println("CP/M modem: FIFO allocation failed");
+    return;
+  }
+  uart=newUart;netTx=newNet;response=newResponse;
+  uart->reset();
   BaseType_t ok=xTaskCreatePinnedToCore(worker,"CPMWifiModem",5120,nullptr,
                                         1,&workerHandle,0);
   if(ok!=pdPASS) {
     workerHandle=nullptr;
+    delete uart;uart=nullptr;
+    free(netTx);netTx=nullptr;
+    free(response);response=nullptr;
     EbtksDebugSerial.println("CP/M modem: worker allocation failed");
   } else EbtksDebugSerial.println("CP/M modem: virtual UART 88h-8Fh online");
 }
