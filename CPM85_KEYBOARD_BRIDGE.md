@@ -8,6 +8,70 @@ The test confirms HP CHIDLE capture/release, Teensy I/O/FIFO and serial polling,
 
 **Development only; all three main branches remain unchanged.** This builds on the physical-machine-confirmed `CPM85 v0.01b` LOADBIN keyboard capture, K8 detach and `CPCOUNT`/`CPLAST` diagnostics.
 
+## VT100/ANSI keyboard input profile — 2026-10-21 (hardware test pending)
+
+**User-requested design correction:** The physical HP-85 keyboard defaults to
+normal **VT100/ANSI input**, rather than hardwired WordStar control codes.
+This better supports BBS software and terminal applications. Legacy Turbo
+Pascal/Multiplan installations that expect WordStar arrows can still receive
+the *explicit* Ctrl+E/X/S/D combinations from the HP keyboard. Configure
+terminal input appropriately in each application; output ANSI/VT100 display
+emulation by itself does not make every CP/M program understand ANSI input.
+
+Physical HP-85A/B keycodes (all **octal**) and output bytes:
+
+| HP-85 physical key | Raw HP KEYHIT | CP/M input in normal mode |
+| --- | --- | --- |
+| Up / Down | `0241` / `0242` | `ESC [ A` / `ESC [ B` |
+| Right / Left | `0235` / `0234` | `ESC [ C` / `ESC [ D` |
+| Home Cursor | `0245` | `ESC [ H` |
+| INS/RPL | `0243` | `ESC [ 2 ~` (Insert) |
+| -CHR | `0244` | `ESC [ 3 ~` (Delete) |
+| Roll Up / Roll Down | `0236` / `0237` | `ESC [ 5 ~` / `ESC [ 6 ~` (PgUp/PgDn) |
+| K1 / K2 / K3 / K4 | `0200`–`0203` | `ESC O P` through `ESC O S` (F1–F4) |
+| K5 / K6 / K7 | `0204`–`0206` | `ESC [ 15 ~` / `ESC [ 17 ~` / `ESC [ 18 ~` (F5–F7) |
+| K8 | `0207` | HP-local detach to BASIC, **never forwarded** |
+
+When CP/M emits `ESC [ ? 1 h`, a tiny output-side parser enables VT100
+**application cursor mode**: four arrows send `ESC O A/B/C/D`, and Home
+sends `ESC O H`. `ESC [ ? 1 l` or VT100 reset `ESC c` returns to
+normal mode. Private-mode settings can share CSI params and arrive split
+across output chunks. This independent parser works with TFT enabled or
+disabled and leaves Telnet/Web/TFT output unchanged.
+
+Original physical BACK SPACE, FAST BACK SPACE, END LINE, all ASCII/CTRL
+characters **including NUL**, and K8 behavior are retained. The rest of
+the HP system keys, including -LINE and HP BASIC's separate DELETE key,
+remain suppressed as they have no unambiguous ANSI terminal equivalent.
+Arrow input emits **3 bytes per press**; five bytes is the largest function
+key sequence. The keyboard worker now reserves space in its 128-byte FIFO
+for each *entire* key sequence or drops that whole key on full FIFO instead
+of leaking half an escape prefix. Its downstream serial-task drain also
+keeps buffered bytes when the last virtual Z80 UART input ring is full.
+
+The pure `ebtks_cpm85_keymap.h` holds both the mapping and DECCKM parser,
+covered by the updated native regression; `ebtks_cpm85_keyboard.h` handles
+ESP32 queueing and atomic cursor-mode publication, while `serial.h`
+passively feeds outgoing CP/M characters to the mode tracker.
+No Teensy or CPM85 v0.02a rebuild, CP/M disk, TFT renderer or production
+`main` modification. Native and firmware CI checks must complete and
+**physical tests are still pending** for this new mapping.
+
+**Hardware acceptance:** Save the user-verified previous firmware and
+OTA-flash only the ESP32 `esp32dev-tft` firmware from
+`feature/cpm85-keyboard-forwarding` after CI green. Check all four
+arrows and Home in an ANSI-configured screen program/BBS, then INS/RPL,
+-CHR, Roll Up/Down and K1–K7 where supported. Verify normal and
+application cursor modes with a program that requests DECCKM. For classic
+Turbo Pascal and Multiplan, verify manual WordStar Ctrl+E/X/S/D still
+work, and configure the application for an ANSI-compatible terminal if
+it supports one. Retest Backspace, Ctrl, K8/re-CPM, web terminal, Telnet,
+TFT and disk access. Roll back the prior ESP32 build if necessary.
+
+References: [EBTKS HP-85 key table](https://www.fliptronics.com/EBTKS/_downloads/98e10facfac7c36aab48e2d1fb2ef0e4/EBTKS_Website_as_PDF_2023_06_16.pdf),
+[DEC VT101 keyboard modes](https://vt100.net/dec/ek-vt101-ug-002.pdf),
+[xterm control sequences](https://www.x.org/docs/xterm/ctlseqs.pdf).
+
 ## Backspace and control-key hardware acceptance — 2026-10-21
 
 **PASS on user's physical HP-85.** After flashing the ESP32-only keyboard
@@ -83,7 +147,12 @@ editing functions, then K8 detach and CPM reattach. Confirm no regressions
 in Web/Telnet, 12 MHz TFT, or disk I/O. All production `main` branches remain
 unchanged.
 
+## Historical superseded WordStar-arrow experiment — 2026-10-21 (not current behavior)
+
+**Superseded by the ANSI/VT100 input profile documented above.** The temporary CTRL+E/X/S/D arrow translation was committed, passed CI, but is no longer the current source behavior.
+
 ## Physical HP-85 cursor arrows for CP/M — development update, 2026-10-21
+
 
 **Implemented, not yet hardware-validated.** The HP-85A/B physical cursor
 key codes are confirmed by the EBTKS special-key table. Both Microsoft
