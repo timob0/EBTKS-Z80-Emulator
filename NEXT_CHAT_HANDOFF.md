@@ -1,5 +1,24 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT HANDOFF — TFT HARDWARE VERIFIED; CP/M KEYBOARD EDITING/CTRL TRANSLATOR READY (2026-10-20)
+
+**This section supersedes the prior "TFT hardware test pending" checkpoint immediately below.**
+
+**New user hardware result:** The **12 MHz VSPI / Font0 scaled 6×12 / dirty-cell redraw** TFT build works on the physical HP-85. The font now fills display height and **CP/M and Multiplan are noticeably more responsive**. Scrolling is improved. **User deferred ST7796 hardware scrolling** to complete the keyboard first. No exact speed measurements or long-duration stress numbers were reported.
+
+**New keyboard implementation (ESP32 only, NOT YET hardware tested):**
+- Physical HP-85A/B BACK SPACE octal **0231** (153 decimal) and FAST BACK SPACE octal **0233** (155) now map to CP/M BS `0x08`; physical END LINE octal **0232** maps to CR `0x0D`. Existing printable ASCII and ASCII DEL→BS remain.
+- All HP Ctrl-generated ASCII control bytes **0x00–0x1F** now pass through unchanged, including `0x00`, Ctrl+C / H / Q / S / Z / [ and all other controls; prior ESP filter accidentally dropped most of them. Unsupported HP-specific keys still dropped rather than inventing sequences.
+- New source `ESP32_Z80_Emulator/ebtks_cpm85_keymap.h` (pure C++ mapping), integrated by `ebtks_cpm85_keyboard.h`. Added `tests/cpm85_keymap_native.cpp` including exhaustive ASCII control and K8 isolation tests; updated `tests/check_cpm85_bridge.py` and CI `.github/workflows/z80-core-native.yml` to compile/run the native test.
+- Standalone local host C++11 mapping test passed. Latest GitHub Actions firmware/native run must finish before claiming CI success; hardware test of the new mappings is **PENDING**. CI: https://github.com/timob0/EBTKS-Z80-Emulator/actions .
+- No new branch or production merge. Existing ESP32 dev branch `feature/cpm85-keyboard-forwarding` only. Teensy dev firmware and `CPM85 v0.02a` LOADBIN untouched; their forwarding/K8 attach-detach and reattach remain physically tested.
+- CP/M special navigation/function keys remain an intentionally separate question: test expected terminal input (ANSI/VT100 vs HP-86/82900) before mapping cursor keys or editing keys. Do not assume GUI/browser HP-86 key codes represent HP-85 physical KEYHIT.
+- Existing FIFO polling CRC-loss caveat persists; no retries/ACK added.
+
+**Next step for user (after checking latest CI):** retain current known-good binaries; in the local ESP32 checkout `git fetch origin && git switch feature/cpm85-keyboard-forwarding && git pull --ff-only && pio run -e esp32dev-tft`, OTA upload `.pio/build/esp32dev-tft/firmware.bin`. Do **not** rebuild or reflash Teensy or HP CPM85. With HP `CPM` attached, type `DIRX`, use BACK SPACE to erase X, END LINE to run DIR. Try CTRL+H, CTRL+C, CTRL+S/CTRL+Q, CTRL+Z in a safe test environment, then verify Multiplan editing and K8 detach/re-CPM. Ensure Web UI/Telnet/TFT/disk remain normal and collect any unexpected raw HP code using `CPLAST` after detaching. If trouble, OTA flash previous known-good ESP32 TFT image. **Never merge into `main` without explicit authorization.**
+
+---
+
 
 ## CURRENT HANDOFF — CPM85 WORKING; TFT OPTIMIZATION CODE AND CI GREEN, AWAITING HARDWARE TEST (2026-10-19)
 
