@@ -9,10 +9,14 @@ pio=(root/"platformio.ini").read_text()
 assert 'ebtksLinkTransaction(' in a and 'cpm_keys' in a
 assert 'xQueueSend(keyQueue' in a and 'xQueueReceive(keyQueue' in a
 keymap=(root/"ESP32_Z80_Emulator/ebtks_cpm85_keymap.h").read_text()
-assert 'ebtks_cpm85_keymap.h' in a and 'toConsoleByte(hp)' in a
-for code in ['hp == 0231', 'hp == 0232', 'hp == 0233',
-             'hp == 0234', 'hp == 0235', 'hp == 0241', 'hp == 0242',
-             'hp <= 0176']:
+assert 'ebtks_cpm85_keymap.h' in a and 'toInputBytes(' in a
+assert 'uxQueueSpacesAvailable(keyQueue)' in a
+assert 'Cpm85Input::observeConsoleOutput(chunk,n);' in b
+assert 'CursorModeTracker' in keymap
+for code in ['case 0234:', 'case 0235:', 'case 0241:', 'case 0242:',
+             'case 0245:', 'case 0243:', 'case 0244:',
+             'case 0236:', 'case 0237:', 'case 0200:', 'case 0206:',
+             'hp == 0231', 'hp == 0232', 'hp == 0233', 'hp <= 0176']:
     assert code in keymap
 assert 'code!=0207' in a
 assert 'Cpm85Input::drain();' in b
