@@ -246,6 +246,8 @@ inline bool ebtksWebBegin()
       doc["telnet_listener_mode"]=EBTKS_TELNET_SHARED_WORKER?"shared_web_task":"dedicated_task";
       doc["telnet_connected"]=serverClient.connected();
       doc["min_heap_free"]=(uint32_t)ESP.getMinFreeHeap();
+      doc["min_free_8bit"]=(uint32_t)
+          heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
       doc["modem_state"]=(unsigned)CpmWifiModem::status();
       doc["modem_dial_refused_low_heap"]=CpmWifiModem::lowMemoryDialRefusals();
       doc["min_dial_heap"]=CpmWifiModem::kDialMinimumFreeHeap;
