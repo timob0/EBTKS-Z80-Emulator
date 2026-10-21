@@ -52,7 +52,7 @@ inline void status() {
   }
   size_t used=0;
   used+=snprintf(lastText,kTextMax,"CP/M DRIVE STATUS\n");
-  for(uint8_t i=0;i<CPM_DRIVE_COUNT && used<kTextMax-85;++i) {
+  for(uint8_t i=0;i<CPM_DRIVE_COUNT && used<kTextMax-44;++i) {
     const CpmMountEntry &a=cpmActiveMounts[i];
     const CpmMountEntry &d=cpmDesiredMounts[i];
     if(!a.mounted && !d.mounted)continue;
@@ -60,7 +60,7 @@ inline void status() {
     const char *desired=d.mounted?basename(d.path):"-";
     const bool changed=!cpmMountEntryEqual(a,d);
     int n=snprintf(lastText+used,kTextMax-used,
-                   "%c: %.21s%s",char('A'+i),active,changed?" -> ":"\n");
+                   "%c: %.14s%s",char('A'+i),active,changed?" -> ":"\n");
     if(n<0 || (size_t)n>=kTextMax-used)break;
     used+=(size_t)n;
     if(changed) {
