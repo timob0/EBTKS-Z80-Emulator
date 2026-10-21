@@ -206,7 +206,8 @@ inline bool ebtksWebBegin()
       v["internal_largest_block"]=(uint32_t)
           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
       v["spi_enabled"]=(bool)spiDiskReadsEnabled;
-      v["spi_cache_allocated"]=spiDiskCache!=nullptr;
+      v["spi_cache_allocated"]=spiDiskCacheAllocated();
+      v["spi_cache_storage"]=spiDiskCacheStorage();
       v["spi_worker_created"]=spiDiskWorkerHandle!=nullptr;
       v["spi_dma_initialized"]=(bool)spiTestInitialized;
       v["spi_job_active"]=(bool)spiDiskJobActive;
