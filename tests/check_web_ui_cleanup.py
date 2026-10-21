@@ -90,4 +90,16 @@ assert 'MALLOC_CAP_32BIT' in memory
 assert 'EbtksMemory::capture(EbtksMemory::ARDUINO_SETUP_ENTRY)' in ino
 assert 'EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY)' in ino
 assert (ROOT.parent / "tools/report_esp32_memory.py").is_file()
-print("PASS: Web, lazy modem, RAM capability inventory, shared Telnet listener, SPI")
+assert "spiDiskCacheStoreSector(block,data);" in spi
+assert "spiDiskCacheLoadSector" in spi
+assert "MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL" in spi
+assert "free8After>=free8Before" in spi
+assert "EBTKS_SPI_CACHE_WORD32" in spi
+assert 'doc["cache_storage"] = spiDiskCacheStorage();' in spi
+assert 'v["spi_cache_storage"]=spiDiskCacheStorage();' in web
+assert 'v["spi_cache_allocated"]=spiDiskCacheAllocated();' in web
+word_cache = (ROOT / "spi_cache_words.h").read_text(encoding="utf-8")
+assert "words[i]=value" in word_cache
+assert "const uint32_t value=words[i]" in word_cache
+assert "memcpy" not in word_cache.replace("memcpy/memset", "")
+print("PASS: Web, modem, heap capability inventory, shared Telnet, IRAM32 SPI cache, SPI safeguards")
