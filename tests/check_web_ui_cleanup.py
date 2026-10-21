@@ -43,4 +43,16 @@ assert "#ifndef EBTKS_SPI_READAHEAD_DEFAULT_ON" in spi
 assert 'server.on("/api/cpm/spireads"' in spi
 assert "spiDiskReadCached(" in media_api
 assert "spiDiskInvalidateCache()" in media_api
-print("PASS: Media Manager, dot-file filtering, /sdtest retirement, SPI safeguards")
+# Low-heap modem regression: never start another network task at ESP boot.
+modem = (ROOT / "ebtks_modem.h").read_text(encoding="utf-8")
+term = (ROOT / "web_terminal.h").read_text(encoding="utf-8")
+assert "CpmWifiModem::start();" not in ino
+assert 'CpmWifiModem::service();' in web
+assert "startState.compare_exchange_strong" in modem
+assert "ESP.getFreeHeap()<48U*1024U" in modem
+assert "heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)<8192U" in modem
+assert 'if(!active())return 0;' in modem
+assert 'reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE)' in term
+assert 'r->send(200,"text/html",EBTKS_TERM_PAGE);' not in term
+assert '"cpm_modem_state"' in web
+print("PASS: Media Manager, dot-file filtering, lazy modem, flash-backed pages, SPI safeguards")

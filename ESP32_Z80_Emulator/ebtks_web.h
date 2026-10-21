@@ -119,6 +119,11 @@ inline void ebtksWebBackgroundTask(void *parameter)
     ebtksWebSocket.cleanupClients();
     z80WebSocket.cleanupClients();
 
+    // Preserve idle UI memory: no modem socket, FIFOs or task until a
+    // CP/M program actually polls the virtual serial port at 88h-8Fh.
+    // Allocations are guarded by a free-heap and largest-block reserve.
+    CpmWifiModem::service();
+
     if (ebtksRestartRequired) {
       Serial.println("Firmware update complete; rebooting ESP32");
       delay(1000);
@@ -186,6 +191,8 @@ inline bool ebtksWebBegin()
       v["reset_panic"]=(reason==ESP_RST_PANIC);
       v["reset_brownout"]=(reason==ESP_RST_BROWNOUT);
       v["heap_free"]=(uint32_t)ESP.getFreeHeap();
+      v["cpm_modem_state"]=(unsigned)CpmWifiModem::status();
+      v["cpm_modem_active"]=CpmWifiModem::active();
       v["heap_min_free"]=(uint32_t)ESP.getMinFreeHeap();
       v["largest_free_8bit_block"]=(uint32_t)
           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);

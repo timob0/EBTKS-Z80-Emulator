@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include <new>
 #include <stdlib.h>
+#include <atomic>
+#include <esp_heap_caps.h>
 #include "ebtks_modem_uart.h"
 #include "ebtks_modem_hayes.h"
 
@@ -18,6 +20,17 @@ static portMUX_TYPE uartMux=portMUX_INITIALIZER_UNLOCKED;
 // the classic ESP32's internal static DRAM is near its link-time limit.
 static EbtksModem::Uart8250* uart=nullptr;
 static TaskHandle_t workerHandle=nullptr;
+// 0 dormant; 1 requested by Z80 I/O; 5 starting; 2 running;
+// 3 insufficient heap; 4 allocation/task startup failure.
+// The modem must NOT allocate before TFT/SPI/HP/web services are ready.
+static std::atomic<uint8_t> startState{0};
+inline uint8_t status(){return startState.load(std::memory_order_acquire);}
+inline bool active(){return status()==2;}
+inline void requestStart(){
+  uint8_t expected=0;
+  startState.compare_exchange_strong(expected,1,std::memory_order_relaxed);
+}
+
 static WiFiClient* socketClient=nullptr; // network worker only; heap allocated
 static EbtksModem::Hayes* hayes=nullptr; // parser on runtime heap
 static bool online=false,commandMode=true;
@@ -34,6 +47,10 @@ static uint8_t pendingPluses=0;
 
 inline bool isPort(uint8_t p){return (p&0xf8)==kBase;}
 inline uint8_t readPort(uint8_t p) {
+  requestStart();
+  // A polling CP/M application must not see TX-ready until the modem worker
+  // and its FIFOs exist. Returning 0 here makes it wait without dropping AT.
+  if(!active())return 0;
   portENTER_CRITICAL(&uartMux);
   uint8_t v=uart?uart->read(static_cast<uint8_t>(p-kBase))
                 :static_cast<uint8_t>((p==kBase+5)?0x60:0);
@@ -41,6 +58,8 @@ inline uint8_t readPort(uint8_t p) {
   return v;
 }
 inline void writePort(uint8_t p,uint8_t v) {
+  requestStart();
+  if(!active())return; // clients must poll LSR.THRE before writing
   portENTER_CRITICAL(&uartMux);
   if(uart)uart->write(static_cast<uint8_t>(p-kBase),v);
   portEXIT_CRITICAL(&uartMux);
@@ -265,7 +284,19 @@ static void worker(void*) {
   }
 }
 inline void start() {
+  // Called only by the existing low-priority web background task, and only
+  // after CP/M software touches modem registers for the first time.
   if(workerHandle)return;
+  // Leave room for AsyncTCP, Web UI, disk and TFT. Refuse modem startup
+  // instead of breaking previously working web endpoints.
+  if(ESP.getFreeHeap()<48U*1024U ||
+     heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)<8192U) {
+    startState.store(3,std::memory_order_release);
+    EbtksDebugSerial.printf("CP/M modem: disabled, low heap (free=%lu, largest=%lu)\n",
+          (unsigned long)ESP.getFreeHeap(),
+          (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    return;
+  }
   // Existing hardware health reports ~65 KiB runtime heap; allocating
   // ~1.8 KiB here is much safer than exhausting linker-only .dram0.bss.
   EbtksModem::Uart8250* newUart=new(std::nothrow) EbtksModem::Uart8250;
@@ -276,6 +307,7 @@ inline void start() {
   if(!newUart||!newNet||!newResponse||!newClient||!newHayes) {
     delete newUart;free(newNet);free(newResponse);
     delete newClient;delete newHayes;
+    startState.store(4,std::memory_order_release);
     EbtksDebugSerial.println("CP/M modem: FIFO allocation failed");
     return;
   }
@@ -291,7 +323,16 @@ inline void start() {
     free(response);response=nullptr;
     delete socketClient;socketClient=nullptr;
     delete hayes;hayes=nullptr;
+    startState.store(4,std::memory_order_release);
     EbtksDebugSerial.println("CP/M modem: worker allocation failed");
-  } else EbtksDebugSerial.println("CP/M modem: virtual UART 88h-8Fh online");
+  } else {
+    startState.store(2,std::memory_order_release);
+    EbtksDebugSerial.println("CP/M modem: virtual UART 88h-8Fh online");
+  }
+}
+inline void service(){
+  uint8_t wanted=1;
+  if(startState.compare_exchange_strong(wanted,5,
+                                        std::memory_order_acq_rel))start();
 }
 } // namespace CpmWifiModem

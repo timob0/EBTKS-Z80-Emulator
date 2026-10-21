@@ -26,10 +26,10 @@
 #include "spi_link_test.h"
 #include "spi_disk_read.h" // default-on (build-configurable) 4 MHz CP/M reads; all writes remain UART
 #include "web_terminal_v2.h"
+#include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
 #include "ebtks_web.h"
 #include "ebtks_storage.h"
 #include "ebtks_cpm85_keyboard.h" // before disk.h transitively includes serial.h
-#include "ebtks_modem.h" // CPU I/O handlers + core-0 Wi-Fi modem worker
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
@@ -83,8 +83,9 @@ void setup() {
   // HP-85 keyboard router: low-priority control-link poll,
   // no extra UART, no SPI bus overlap, no Z80 reset or CP/M bootstrap.
   Cpm85Input::start();
-  // Independent Hayes/Telnet Wi-Fi modem on 88h-8Fh, not console 80h.
-  CpmWifiModem::start();
+  // Modem starts only on first Z80 I/O at 88h-8Fh. Starting the extra
+  // worker here reduced available heap for the Web UI, breaking /crt,/z80
+  // and /cpmmedia on real HP hardware. Never start at global boot time.
 
   // Start the CRC-checked 16-sector SPI cache after Wi-Fi/web and worker
   // initialization but BEFORE CP/M bootstrap/read traffic. If Teensy storage

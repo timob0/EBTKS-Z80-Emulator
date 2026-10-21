@@ -22,6 +22,30 @@ socket and network FIFOs were dynamically allocated as a result.
 **Actual runtime heap margin and live BBS use still require HP-85 hardware
 acceptance**. Save the previously verified firmware for rollback.
 
+## Hardware regression identified (2026-10-21)
+
+**Physical user report:** after flashing first modem firmware, the ESP32
+`/z80`, `/cpmmedia` and `/crt` pages terminated HTTP connections
+unexpectedly. Only the firmware updater page loaded. A low-heap condition
+is the leading explanation, **not yet confirmed by runtime health figures**.
+
+**Recovery hardening:** instead of allocating the modem UART FIFOs, Hayes
+parser, WiFiClient and dedicated 5120-byte task stack during ESP32 boot,
+the feature now leaves the modem completely dormant until a CP/M application
+reads or writes port `88h`–`8Fh`. It then requests activation through the
+existing low-priority Web worker. While activation is pending, `LSR` reports
+not-ready, so correctly polling clients such as MODEM.COM wait. The modem
+startup is denied rather than starving the UI if heap is below 48 KiB or
+largest allocatable 8-bit block is below 8 KiB. Startup state `0`=idle,
+`1`=requested, `5`=initializing, `2`=active, `3`=low-memory refusal,
+`4`=allocation/task failure is included in `/api/system/health`.
+
+The large Z80 terminal HTML is now served directly from flash (like
+Media Manager and CRT), eliminating a ~17 KiB transient heap copy. The
+modem's changed startup is **not yet physically validated**. If old UI
+remains unstable, recover via the still-accessible OTA updater using the
+last stable `main` firmware, or serial flash if OTA fails.
+
 ## Architecture
 
 - The Z80 port I/O dispatch calls **only** `CpmWifiModem::readPort/writePort`,
