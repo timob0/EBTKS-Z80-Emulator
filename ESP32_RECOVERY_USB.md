@@ -50,9 +50,9 @@ polling/services are suspended.
    import struct
    buf=Path("flash-partitions.bin").read_bytes()
    for i in range(0,len(buf),32):
-       if buf[i:i+2]!=b'\\xaa\\x50': break
+       if buf[i:i+2]!=bytes.fromhex("aa50"): break
        _,type_,sub,offset,size,label,flags=struct.unpack_from("<HBBII16sI",buf,i)
-       print(label.split(b'\\0')[0].decode("ascii"),hex(offset),hex(size))
+       print(label.split(bytes([0]))[0].decode("ascii"),hex(offset),hex(size))
    ```
    For this project's standard Arduino/PlatformIO 4MB default layout,
    verify BOTH OTA app slots really are `app0/ota_0 0x10000 0x140000`
