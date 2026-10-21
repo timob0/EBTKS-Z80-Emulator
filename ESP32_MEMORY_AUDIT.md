@@ -47,9 +47,10 @@ to **39,856 B** during the longer session. It is a historic low, not
 current available RAM, and the corresponding minimum 8BIT value was not
 captured. Do not subtract current INTERNAL−8BIT pool gaps from an
 all-time per-region low watermark as though they were simultaneous.
-The next low-cost observability improvement could show
-`heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)`, and sustained stress
-tests should check simultaneous WebSocket/Telnet/large CRT/OTA page
+The existing `/api/system/memory/pools` endpoint already includes
+`min_free` for `byte_8bit` (from ESP-IDF allocator low-water data), so
+**request that JSON next without reflashing**. Sustained stress tests
+should also check simultaneous WebSocket/Telnet/large CRT/updater-page
 responses and modem reconnects. Do not issue actual OTA writes during
 stress experiments. Physical field results are strong evidence that the
 original problem has been resolved, not exhaustive proof against future
