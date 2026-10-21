@@ -1,5 +1,7 @@
 # EBTKS Z80 / CP/M integration — current project links
 
+**Current mainline status — 21 October 2026:** Hardware-validated CP/M/Z80, TFT, 16-color/CP437 Web terminal, HP keyboard integration, IRAM SPI disk cache, inbound Telnet and CP/M Hayes Wi-Fi modem are merged in the ESP32 **`main`** branch via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) (commit `b3d02b43`). The post-merge native/firmware CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). For the definitive current state and next-chat instructions see **[NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md)**; [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the full historical chronology, including superseded experimental status statements. The matching Teensy and HP Option-ROM firmware remain separately tested and **were not merged by PR #6**.
+
 ## ESP32 build configurations
 
 There are exactly **two supported PlatformIO build targets**:
@@ -26,7 +28,7 @@ The previous experimental `esp32dev-tft-ansi`, `esp32dev-tft-terminal` and color
 >
 > The standalone emulator README below is historical and may describe different hardware.
 
-**For new development conversations:** Read [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) first and check both repositories' current branches. Only create a branch with explicit user permission.
+**For new development conversations:** Read [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) **first**, then the top of [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md); check repository branches and request explicit user approval before any new development branch.
 
 ---
 
