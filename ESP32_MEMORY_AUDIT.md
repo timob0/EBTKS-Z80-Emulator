@@ -167,6 +167,51 @@ The present diagnostic build **does not move that allocation**;
 it also leaves the modem dial guard, CP/M BIOS, SPI/TFT and Z80 memory
 mapping unchanged.
 
+## Experimental SPI read-ahead IRAM32 cache (2026-10-21)
+
+The physical memory issue makes the SPI cache an excellent early target:
+the CRC-validated **8,192-byte, 16-sector read-ahead cache** in
+`spi_disk_read.h` is *not* the peripheral DMA buffer. A 528-byte
+DMA receive frame is already transferred and validated in ordinary
+DMA-capable DRAM before committing its 512-byte payload into the
+read-ahead cache. The cache can therefore live in word-accessible IRAM.
+
+**Implemented on the existing experimental modem branch**, enabled by
+default for controlled tests; no Z80 RAM address-map changes:
+- New `spi_cache_words.h` packs each 512-byte sector into 128 aligned
+  `uint32_t` words, and performs the inverse unpack on sector fetch.
+  The actual IRAM pointer is **never passed to memcpy or byte-indexed**.
+- Prefer an 8-KiB `MALLOC_CAP_INTERNAL|MALLOC_CAP_32BIT|MALLOC_CAP_EXEC`
+  allocation, and verify at runtime that free MALLOC_CAP_8BIT has not
+  decreased. If no appropriate region can be used, free the tentative
+  allocation and fall back to the **original** MALLOC_CAP_8BIT cache.
+- Existing 528-byte RX and TX DMA buffers, CRC/frame handshake,
+  read-ahead geometry, Z80 memory and FreeRTOS stacks are unchanged.
+  DMA buffers cannot be relocated to 32-bit-only IRAM. Nor can the
+  SPI worker's 8-KiB task stack be moved there directly.
+- `GET /api/cpm/spireads` reports `cache_storage: "iram32"`,
+  `"dram8"`, or `"none"` as well as cache bytes and backend default.
+  `GET /api/system/health` exposes `spi_cache_storage`.
+- Compile-time A/B opt-out: `-DEBTKS_SPI_CACHE_WORD32=0` restores
+  the old DRAM-only cache without changing CP/M behavior.
+- Native 16-sector pack/unpack tests verify every byte, boundary,
+  independently rewritten sector, and isolation of adjacent sectors.
+  ESP32 platform builds and actual 4-MHz SPI/CP/M media benchmarks
+  remain required for hardware acceptance.
+
+**Expected improvement:** If `cache_storage=iram32` is reported,
+we expect roughly **8,192 extra bytes of free 8-bit heap** compared
+with the old DRAM cache. Generic total internal free heap may be
+approximately unchanged because 8 KiB is *relocated* to a different
+internal memory region, not actually freed. DMA and stack allocations
+remain in byte-capable DRAM. The reserve may be enough when combined
+with the Telnet task consolidation and (later) 5,632-byte packed
+CP/M shadow relocation, but this must be confirmed while opening
+full Web pages and then using the modem. Until validated, the modem
+dial admission guard remains unchanged. Keep Teensy USB serial
+recovery available. **Never infer that a successful native/CI build
+is a physical SPI hardware test.**
+
 ## Next controlled experiments
 
 First capture the CI ELF report, then compare hardware pool metrics at
