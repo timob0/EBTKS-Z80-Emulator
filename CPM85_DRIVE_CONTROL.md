@@ -1,5 +1,15 @@
 # CPM85 v0.03a — HP-85 control of CP/M disk assignments
 
+## 2026-10-21: CPDMNT hang root cause and HP-only v0.03f correction
+
+**New physical failure on CPM85 v0.03e:** `CPDMNT "G:","TP301A.DSK"` hung HP BASIC and made no visible desired G: mount in Media Manager. Physical RESET aborted the HP command; `CPSTATUS` still displayed the previous list. **Do not claim HP mount/unmount/reset validated.**
+
+**Root cause established from HP-85 Assembler manual (CPU register boundaries, section 3-4) and source:** The v0.03e runtime used `POMD R40,-R12`, `POMD R42,-R12`, `POMD R44,-R12` and `POMD R46,-R12` as though each popped two bytes from HP BASIC's parsed string parameters. In fact R40 spans an **8-byte** multi-byte register group, R42 spans **6**, R44 spans **4**, and R46 spans **2** bytes; these instructions consumed far too much of R12, corrupting the runtime parameter stack before completing the command. Further `LDM R40,R44` and `LDM R42,R46` moves overlapped the R40–R47 register group, creating additional corruption. The same issue existed in `CPDUMNT`.
+
+**Fixed in HP85-Option-Roms `feature/cpm85-drive-control`, now CPM85 v0.03f:** Pop each BASIC string address and length into an exact **2-byte** register pair within R20–R37 (octal): image R26/R24, drive R30/R32, in last-argument-first stack order. Stream drive using R30/R32; move image with `LDM R30,R26` and `LDM R32,R24` (2 bytes each), then stream image. `CPWRDR` and `CPWRIM` now use R30/R32 so pointer increments, length checks, and decrements all operate in 2-byte groups. Expanded static tests reject high-register `POMD` use and verify exact operand order. **GitHub CI run 39655664676 passed both static ABI checks and CAPASM/CAPLIF assembly/packaging.** Hardware testing v0.03f is still required.
+
+**Safe next test:** Pull/build/reload **only HP CPM85.bin/.dat** v0.03f, verify `CPVER`, `CPSTATUS`; try `CPDMNT "G:","TP301A.DSK"` (pre-existing spare image, drive G unmounted), then `CPSTATUS` and Web Media Manager to confirm desired/pending G: only. If successful, `CPDUMNT "G:"` and verify pending mount removed, before any `CPRESET`. If a command hangs, use RESET and report result. Preserve known-working ESP32/Teensy builds; no need to flash them for this HP-only fix. After passing these, separately test `CPRESET` at the CP/M prompt with no disk I/O.
+
 ## 2026-10-21 successful combined BBS and cross-interface unmount test
 
 User successfully ran HP `CPSTATUS` repeatedly, dialed a live BBS through CP/M MODEM.COM, logged off, exited MODEM, and retained functional Web UI and Media Manager throughout. Unmount in Web Manager was visible from HP `CPSTATUS` (desired NVS assignment; active only after reset). Previous HTTP/Media Manager failure did not recur. **No leak proved, but minimum free byte-addressable heap historically fell to only 628 B** with current 19,160 B free / 17,396 B largest. See `ESP32_MEMORY_AUDIT.md`. HP-side `CPDMNT`, `CPDUMNT`, `CPRESET` still require dedicated acceptance. Firmware unchanged.
