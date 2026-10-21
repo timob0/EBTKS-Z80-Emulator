@@ -2,6 +2,17 @@
 
 **Experimental implementation, 21 October 2026.** Not hardware tested until user confirms the three coordinated builds. The existing, accepted ESP32 `main`, Teensy keyboard branch and HP CPM85 v0.02a remain available for rollback; do not merge this branch before physical acceptance.
 
+## 2026-10-21 hardware finding and v0.03b correction
+
+**Physical test:** HP BASIC `CPSTATUS` appeared to hang while Z80 CP/M and the ESP32 Web UI kept working. HP RESET recovered the BASIC prompt and the existing `CPM` keyboard attachment remained usable. Do not test mount/unmount/reset commands until the corrected read-only status command is confirmed.
+
+**Root cause confirmed in source:** The EBTKS `ioReadFuncPtr_t` callback returns a **bool claiming the read cycle**, and must assign the response byte to global `readData`. The new firmware incorrectly returned the status/reply byte as if the callback signature were `uint8_t (*)()`. This never placed the correct byte on the bus, and returning `false` for a status of 0 left the cycle unclaimed. The proven write-only keyboard path was unaffected.
+
+**Fix:** On the Teensy `feature/cpm85-drive-control` branch, `onReadCpm85DriveState` and `onReadCpm85DriveReply` now assign `readData` and return true unconditionally, including when the byte is zero. Added `test/check_cpm85_drive_read_abi.py` to catch regression. On the HP85 ROM repository's same feature branch, **CPM85 v0.03b** caps reply reads at 768 bytes and reduces the bounded mailbox timeout. ESP32 code does not change for this fix.
+
+**Retest:** Build and flash the *updated Teensy firmware*, then assemble/load CPM85 v0.03b on HP-85. **No ESP32 reflash needed** if already running `feature/cpm85-drive-control`. Try only `CPVER` and `CPSTATUS` first. After they return normally and the displayed mappings match Media Manager, proceed to the earlier mount/unmount/reset tests.
+
+
 ## HP BASIC API
 
 ```basic
