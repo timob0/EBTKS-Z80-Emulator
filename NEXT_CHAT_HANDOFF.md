@@ -1,5 +1,11 @@
 # Handoff / durable project memory for the next development chat
 
+## RECOVERY NOTE UPDATED WITH ACTUAL MACOS COMMANDS AND SCRIPTS (2026-10-21)
+
+The user requested a permanent **standalone reference note** for the successful EBTKS Teensy USB ESP32 serial recovery procedure. Updated `ESP32_RECOVERY_USB.md` on the existing `feature/cpm-wifi-modem` branch (no firmware/Teensy/HP option-ROM/main changes). It now contains the physical Teensy USB service console **`ESP32 Prog`** setup/30-second timeout and need to disconnect terminal before esptool; exact user's macOS serial port `/dev/cu.usbmodem141960601`; standalone `esptool` command (not `python3 -m esptool`); the user's full **`rdflash.sh`** and **`wflash.sh`** contents; the `python3 -c` 32-byte partition-entry extraction; confirmed partition layout **nvs 0x9000/0x5000, otadata 0xe000/0x2000, app0 0x10000/0x140000, app1 0x150000/0x140000, spiffs 0x290000/0x170000**; app-only known-good `main` TFT firmware in BOTH slots while preserving NVS and SPIFFS; verification steps and common errors. Scripts expect current working directory to contain `firmware.bin`, e.g. `.pio/build/esp32dev-tft`. Physical recovery **CONFIRMED SUCCESSFUL** by user; leave experimental modem firmware unmerged. Permanent note URL: https://github.com/timob0/EBTKS-Z80-Emulator/blob/feature/cpm-wifi-modem/ESP32_RECOVERY_USB.md
+
+---
+
 ## CURRENT STATUS -- ESP32 SERIAL RECOVERY SUCCEEDED ON PHYSICAL HP-85 HARDWARE (2026-10-21)
 
 **USER CONFIRMED:** The ESP32 has been successfully restored to the **known-good `main` TFT firmware**, following failure of the experimental modem firmware's Web UI and OTA uploader. The Teensy USB service-console `ESP32 Prog` serial bridge provided the successful recovery path; the actual physical partition table was inspected and matched `nvs 0x9000/0x5000`, `otadata 0xE000/0x2000`, `app0 0x10000/0x140000`, `app1 0x150000/0x140000`, `spiffs 0x290000/0x170000`. Both application slots were instructed to be reflashed with the known-good firmware; user confirms recovery worked. **Do not suggest reflashing the modem feature branch in its current form.** The user has NOT yet reported modem AT/BBS tests on recovered hardware, and the actual root cause of the Web/OTA failures remains unconfirmed. Additional CI passing does not constitute hardware acceptance.
