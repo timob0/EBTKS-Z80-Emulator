@@ -311,6 +311,30 @@ Do not prematurely shrink task stacks or rewrite CPU memory mapping.
 Preserve this tested build/commit as a regression baseline; experimental
 branch remains separate from `main` until final acceptance decision.
 
+## Web terminal parity with ST7796 ANSI/CP437 (2026-10-21)
+
+Updated browser `/z80` terminal (flash-backed `EBTKS_TERM_PAGE`) to
+render the **same 16 ANSI standard/bright foreground/background colors**
+as the TFT, including SGR bold, underline, inverse, default-color reset,
+cell-background-aware clearing, and correct skip of unsupported 256-color
+and truecolor commands. The physical TFT's 16-color RGB565 palette was
+converted to CSS RGB and its default green/black foreground/background
+preserved. Raw bytes 0x80..0xFF now map to **IBM CP437** Unicode glyphs
+rather than Latin-1; DEC G0/G1 Special Graphics maps full TFT-supported
+line drawing and symbols. 80x24 VT100, HP86/Soroc key mode and raw mode
+are retained. Adjacent equal-style cells are batched into a common
+HTML span to avoid 80 independent elements for a colored line.
+
+Changes affect only the browser-side JS and CSS stored in flash; no new
+FreeRTOS tasks or network buffers, and unchanged Z80 I/O, modem, SPI
+and TFT native parser. `tests/web_terminal_browser_native.js` runs the
+**actual embedded browser code** inside a simulated DOM + WebSocket
+under Node.js and verifies ANSI, CP437, DEC graphics, styles, HTML
+escaping and HP backward compatibility. CI executes it with the native
+regressions. Hardware acceptance is still needed after confirming
+the TFT firmware CI build is green. Preserve the proven stable IRAM
+cache and BBS firmware during initial browser validation.
+
 ## Architecture
 
 - The Z80 port I/O dispatch calls **only** `CpmWifiModem::readPort/writePort`,
