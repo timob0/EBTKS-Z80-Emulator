@@ -47,6 +47,8 @@
 #include "serial.h"
 
 void setup() {
+  // Before EBTKS Wi-Fi/services; Arduino framework already initialized.
+  EbtksMemory::capture(EbtksMemory::ARDUINO_SETUP_ENTRY);
   // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
   // exclusively by TeensySerial for the framed ESP32 <-> Teensy protocol.
   ebtksLinkBegin();
@@ -150,6 +152,8 @@ void loop() {
   // reload it. The helper keeps page zero standard (0005 -> D806) and patches
   // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
+  // Includes boot-time CP/M shadow and potentially SPI DMA/worker allocations.
+  EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY);
 
 #ifdef EBTKS_Z80_LEGACY_CPU
   PC=0;
