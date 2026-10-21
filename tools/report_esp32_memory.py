@@ -48,17 +48,29 @@ def main():
         if re.match(r"\s*\.(?:dram|iram|rtc|bss|data)", line, re.I):
             print(" ", line.strip())
     pattern = re.compile(r"^\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([bBdDcCsS])\s+(.+)$")
-    hits = []
+    dram = []
+    flash = []
     for line in symbols.splitlines():
         m = pattern.match(line)
-        if m:
-            hits.append((int(m.group(2), 16), m.group(3), m.group(4)))
-    print(f"\nLargest defined BSS/DATA symbols (top {args.top}):")
-    for length, kind, name in sorted(hits, reverse=True)[:args.top]:
+        if not m:
+            continue
+        addr = int(m.group(1), 16)
+        hit = (int(m.group(2), 16), m.group(3), m.group(4))
+        # Actual ESP32 mapped address range distinguishes DRAM from flash.
+        # A lowercase nm 'd' symbol may still be a flash-backed constant.
+        if 0x3FFAE000 <= addr < 0x40000000:
+            dram.append(hit)
+        elif 0x3F400000 <= addr < 0x3F800000:
+            flash.append(hit)
+    print(f"\nLargest actually DRAM-resident symbols (top {args.top}):")
+    for length, kind, name in sorted(dram, reverse=True)[:args.top]:
         print(f"{length:>8} bytes [{kind}] {name}")
-    print(f"\nParsed {len(hits)} defined BSS/DATA symbols.")
-    if not hits:
-        parser.error("No symbols parsed: check toolchain nm output format")
+    print("\nLargest flash-mapped constant symbols (top 12, not DRAM):")
+    for length, kind, name in sorted(flash, reverse=True)[:12]:
+        print(f"{length:>8} bytes [{kind}] {name}")
+    print(f"\nParsed {len(dram)} DRAM symbols, {len(flash)} flash constants.")
+    if not dram:
+        parser.error("No DRAM symbols parsed: check nm output or address ranges")
 
 
 if __name__ == "__main__":
