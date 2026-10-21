@@ -14,6 +14,11 @@
 #define EBTKS_CPM85_KEYBOARD_ENABLE 0
 #endif
 
+namespace Cpm85DriveControl {
+  void receiveCommand(JsonVariantConst command);
+  void appendAck(JsonObject request);
+  void ackPollCompleted();
+}
 namespace Cpm85Input {
 #if EBTKS_CPM85_KEYBOARD_ENABLE
 static QueueHandle_t keyQueue=nullptr;
@@ -64,13 +69,21 @@ inline void worker(void*) {
   uint32_t missing=0;
   for(;;) {
     String reply;
-    const bool ok=ebtksLinkTransaction("{\"cpm_keys\":{\"max\":24}}",reply,200);
+    JsonDocument requestDoc;
+    JsonObject poll=requestDoc["cpm_keys"].to<JsonObject>();
+    poll["max"]=24;
+    Cpm85DriveControl::appendAck(poll);
+    String request;
+    serializeJson(requestDoc,request);
+    const bool ok=ebtksLinkTransaction(request,reply,350);
     if(ok) {
       JsonDocument doc;
       auto err=deserializeJson(doc,reply);
       JsonVariantConst item=doc["cpm_keys"];
       if(!err && !item.isNull()) {
         missing=0;
+        Cpm85DriveControl::ackPollCompleted();
+        Cpm85DriveControl::receiveCommand(item["command"]);
         const bool nowActive=item["active"] | false;
         active=nowActive;
         // Process pending data even after K8 detached the HP keyboard:
