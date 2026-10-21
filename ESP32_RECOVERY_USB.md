@@ -1,86 +1,214 @@
-# ESP32 recovery without working Web OTA (EBTKS v3.x)
+# ESP32 emergency recovery via the EBTKS Teensy USB bridge (macOS)
 
-**Problem observed on HP-85 hardware (2026-10-21):** New experimental
-`feature/cpm-wifi-modem` ESP32 firmware caused `/z80`, `/crt` and
-`/cpmmedia` to terminate HTTP connections. Even firmware updater POST
-fails, so do **not** rely on OTA to recover. Root cause may be runtime heap
-starvation/fragmentation, not yet conclusively demonstrated by live metrics.
-Native tests and firmware CI cannot validate web stability at runtime.
+**Status: successfully used on the physical EBTKS/HP-85 system on 21 October 2026.**
 
-**Known-good source:** ESP32 `timob0/EBTKS-Z80-Emulator` `main` with full
-ST7796 TFT, merged physical HP keyboard, CP/M, Teensy SD/SPI and Web UI.
-Build with `pio run -e esp32dev-tft` and preserve the resulting
-`.pio/build/esp32dev-tft/firmware.bin` application image. It is an
-**application-only image**; never flash it at 0x0000, and do not erase flash.
+This note records the proven procedure for restoring an ESP32 application
+when the EBTKS Web UI and its **firmware updater are no longer functional**.
+The recovery uses the **Teensy 4.1's built-in USB-to-ESP32 programming
+bridge**, so no additional USB/UART adapter or board rewiring is needed.
 
-## Built-in EBTKS recovery programmer
+This procedure preserves the ESP32 bootloader, partition table, Wi-Fi
+configuration (NVS), OTA metadata and SPIFFS contents. It flashes only
+the two application partitions.
 
-Verified by inspection of `timob0/ebtks-alt-firmware/src/ESP_Programmer.cpp`
-(same blob on Teensy `main` and `feature/cpm85-keyboard-forwarding`) and
-`src/EBTKS_Utilities.cpp`: the Teensy 4.1 USB service console exposes
-**`ESP32 Prog`**, which brings ESP32 GPIO0/EN to ROM DOWNLOAD mode
-and bridges the Teensy USB CDC serial port to ESP32 UART0 via Teensy
-Serial2 at **115200 baud**. Service terminal message:
-`Ready to disconnect Tera Term and run esptool.py....`.
-Close the serial terminal before using the same USB serial port with
-`esptool`. The bridge automatically resets ESP32 into normal run mode
-**after 30 seconds of inactivity**; prepare each next command first.
-DTR/RTS auto-reset does not control this special bridge: use esptool
-`--before no-reset --after no-reset` (esptool 5 spelling) or
-`--before no_reset --after no_reset` (esptool 4 spelling).
-Leave the HP-85 idle: while this bridge runs the Teensy's normal EBTKS
-polling/services are suspended.
+## System and tools
 
-### Serial recovery procedure (esptool v5)
+- EBTKS v3.x with classic ESP32 and Teensy 4.1, using the Teensy's existing USB connection.
+- macOS Teensy USB serial device: **\`/dev/cu.usbmodem141960601\`**.
+  (The device name can change if the USB topology or Teensy re-enumeration changes.)
+- \`esptool\` installed and accessible as a shell command, plus \`python3\` for
+  inspecting the partition-table dump.
+- ESP32 firmware **\`firmware.bin\` from the known-good \`main\` branch**, built with
+  \`pio run -e esp32dev-tft\`. Do not recover with an unverified modem build.
+- Two shell scripts: \`rdflash.sh\` and \`wflash.sh\`, reproduced below.
 
-1. Identify Teensy USB CDC port, such as `COM4` on Windows or
-   `/dev/ttyACM0` on Linux. Install esptool as needed
-   (`python -m pip install esptool`). Substitute actual port below.
-2. Build ESP32 `main` TFT firmware. Connect to Teensy USB service
-   console, send `ESP32 Prog`, wait for download-mode message, then
-   immediately **close the terminal**.
-3. First read the live partition table; this is **read only**:
-   ```sh
-   python -m esptool --chip esp32 -p COM4 -b 115200 --before no-reset --after no-reset read-flash 0x8000 0x1000 flash-partitions.bin
-   ```
-   If the utility says the port is busy, close the serial terminal.
-4. Decode it on your computer:
-   ```python
-   from pathlib import Path
-   import struct
-   buf=Path("flash-partitions.bin").read_bytes()
-   for i in range(0,len(buf),32):
-       if buf[i:i+2]!=bytes.fromhex("aa50"): break
-       _,type_,sub,offset,size,label,flags=struct.unpack_from("<HBBII16sI",buf,i)
-       print(label.split(bytes([0]))[0].decode("ascii"),hex(offset),hex(size))
-   ```
-   For this project's standard Arduino/PlatformIO 4MB default layout,
-   verify BOTH OTA app slots really are `app0/ota_0 0x10000 0x140000`
-   and `app1/ota_1 0x150000 0x140000`. The partition table on the
-   **physical ESP32** controls; if it differs, STOP and adjust recovery
-   plan instead of assuming these offsets.
-5. Enter **`ESP32 Prog` again** (the read command may have allowed
-   the programmer's 30-second idle timeout to expire). Close terminal.
-   Once partition table matches, program the **same known-good application
-   binary into both OTA slots**:
-   ```sh
-   python -m esptool --chip esp32 -p COM4 -b 115200 --before no-reset --after no-reset write-flash 0x10000 .pio/build/esp32dev-tft/firmware.bin 0x150000 .pio/build/esp32dev-tft/firmware.bin
-   ```
-   This preserves existing NVS Wi-Fi configuration, OTA metadata, SPIFFS,
-   bootloader and partition table. ESP32 boot can choose either application
-   slot, both now contain stable firmware. Do not add `erase-flash`.
-6. After esptool reports write completion/verification, close esptool
-   and leave the Teensy USB serial port idle until its programmer timeout
-   resets ESP32 into normal firmware. Reopen Web UI `/z80`, `/cpmmedia`,
-   `/crt`, `/updater` and validate the old CP/M/HP85/TFT use cases.
+**Safety rule:** The \`firmware.bin\` file is *application-only*. Never flash it at
+\`0x0000\`, never run \`erase-flash\`, and do not overwrite the bootloader,
+partition table, NVS, OTA data or SPIFFS.
 
-With older esptool v4 use underscore forms `no_reset`, `read_flash`,
-`write_flash`; v5 hyphen forms above. Avoid `pio run -t upload` because
-its usual DTR/RTS reset assumptions are not the EBTKS USB serial bridge.
-Do not update Teensy firmware, HP option ROM, SD images or reset NVS.
+## 1. Prepare the firmware and the working directory
 
-**Status:** this is verified from project source and ESP flash layout
-references, but the actual physical rescue has not yet been performed.
-**Once recovered:** keep experimental modem branch **unmerged**, do not flash
-it again until web/UI runtime stress has been addressed and appropriate
-memory telemetry can be collected.
+In the ESP32 repository, build the stable firmware:
+
+\`\`\`bash
+git fetch origin
+git switch main
+git pull --ff-only
+pio run -e esp32dev-tft
+\`\`\`
+
+The application image is created as:
+
+\`\`\`text
+.pio/build/esp32dev-tft/firmware.bin
+\`\`\`
+
+Because \`wflash.sh\` refers to \`firmware.bin\` without a directory prefix,
+run the scripts from the directory holding that file, for example:
+
+\`\`\`bash
+cd .pio/build/esp32dev-tft
+# Copy rdflash.sh and wflash.sh into this directory if necessary.
+ls -lh firmware.bin
+\`\`\`
+
+Check that this is the **stable main** build before proceeding.
+The separate experimental modem branch remains unmerged and should not be
+flashed as part of recovery.
+
+## 2. Enable the Teensy's ESP32 programming bridge
+
+1. Connect the Mac to the **Teensy 4.1 USB port** (not directly to the ESP32).
+2. Open the EBTKS **USB service console** on
+   \`/dev/cu.usbmodem141960601\` at **115200 baud**.
+   Keep the HP-85 idle: while the programmer bridge is active, the Teensy's
+   normal EBTKS polling/services are suspended.
+3. At the \`EBTKS>\` service prompt enter:
+
+   \`\`\`text
+   ESP32 Prog
+   \`\`\`
+
+4. The Teensy takes the ESP32 into ROM download mode via its ESP32 EN/BOOT
+   control signals. The console should display ESP32 ROM startup text similar
+   to \`DOWNLOAD_BOOT\` and then:
+
+   \`\`\`text
+   Ready to disconnect Tera Term and run esptool.py....
+   \`\`\`
+
+5. **Completely close/disconnect the serial terminal** so \`esptool\` can
+   open the same USB device. No second serial program can hold that port.
+
+The bridge sends data between the Teensy USB serial connection and the
+ESP32 hardware UART at 115200 baud. It automatically leaves programming
+mode and reboots the ESP32 after **30 seconds without incoming serial
+activity**. Have each \`esptool\` command ready before entering \`ESP32 Prog\`.
+If the bridge times out between steps, repeat this section. The explicit
+\`--before no-reset --after no-reset\` arguments are important because
+the Teensy, not esptool DTR/RTS, controls ESP32 boot mode.
+
+Source: \`timob0/ebtks-alt-firmware/src/ESP_Programmer.cpp\` and the
+\`ESP32 Prog\` service-console entry in \`src/EBTKS_Utilities.cpp\`.
+The bridge implementation is the same in the tested Teensy
+\`feature/cpm85-keyboard-forwarding\` and \`main\` sources.
+
+## 3. Download and inspect the ESP32 partition table
+
+Create **\`rdflash.sh\`** with exactly these commands:
+
+\`\`\`bash
+# download partition table
+esptool --chip esp32 -p /dev/cu.usbmodem141960601 -b 115200 --before no-reset --after no-reset read-flash 0x8000 0x1000 flash-partitions.bin
+
+# display partition info
+python3 -c "import struct; b=open('flash-partitions.bin','rb').read(); [print('%-16s offset=0x%06X size=0x%X' % (x[5].split(bytes([0]))[0].decode(),x[3],x[4])) for i in range(0,len(b)-31,32) if b[i:i+2]==bytes.fromhex('AA50') for x in [struct.unpack_from('<HBBII16sI',b,i)]]"
+\`\`\`
+
+After step 2 has placed the ESP32 in download mode and the terminal is closed,
+run from the working directory:
+
+\`\`\`bash
+bash rdflash.sh
+\`\`\`
+
+The first command **reads**, without writing to flash, the 4096-byte region
+at \`0x8000\` into \`flash-partitions.bin\`. The second command decodes the
+32-byte ESP32 partition entries and prints their offsets and sizes.
+
+### Actual partition output from this ESP32
+
+\`\`\`text
+nvs              offset=0x009000 size=0x5000
+otadata          offset=0x00E000 size=0x2000
+app0             offset=0x010000 size=0x140000
+app1             offset=0x150000 size=0x140000
+spiffs           offset=0x290000 size=0x170000
+\`\`\`
+
+| Partition | Offset | Size | Recovery action |
+|---|---:|---:|---|
+| NVS | \`0x009000\` | \`0x5000\` | Leave intact (Wi-Fi/configuration) |
+| OTA metadata | \`0x00E000\` | \`0x2000\` | Leave intact |
+| App 0 | \`0x010000\` | \`0x140000\` (1,280 KiB) | Flash stable application |
+| App 1 | \`0x150000\` | \`0x140000\` (1,280 KiB) | Flash stable application |
+| SPIFFS | \`0x290000\` | \`0x170000\` | Leave intact (web assets) |
+
+**Always compare the actual output before flashing.**
+This table is specific to the recovered ESP32. In particular, SPIFFS is
+\`0x170000\`, not \`0x160000\`. If the physical partition offsets or slot sizes
+do **not** match these values, do not run the fixed-offset write script.
+
+Also ensure that the application image fits within each \`0x140000\`-byte
+application slot.
+
+## 4. Re-enter programming mode and reflash both applications
+
+The partition-read command may have allowed the Teensy service programmer
+to time out. **Reopen the Teensy service console, enter \`ESP32 Prog\`
+again, confirm download mode, and close the terminal** before proceeding.
+
+Create **\`wflash.sh\`** with the tested command:
+
+\`\`\`bash
+# Loads the firmware.bin to both application partitions - verify offsets with rdflash before!
+esptool --chip esp32 -p /dev/cu.usbmodem141960601 -b 115200 --before no-reset --after no-reset write-flash 0x10000 firmware.bin 0x150000 firmware.bin
+\`\`\`
+
+Make sure the current directory contains the **known-good** \`firmware.bin\`
+and that the partition table matches the output in section 3. Then:
+
+\`\`\`bash
+bash wflash.sh
+\`\`\`
+
+This installs the **same stable application image** in both OTA slots.
+Whichever slot the retained OTA metadata selects, the ESP32 will boot the
+stable application. **No erasure or modification of any other partition
+is required.**
+
+Keep the USB connection and power stable during the write. Inspect the
+\`esptool\` output and proceed only if it reports successful completion/
+verification. If it fails, do not format or erase flash; correct the
+connection/bridge state and retry the same controlled procedure.
+
+## 5. Leave programming mode and verify recovery
+
+1. Close \`esptool\`/any serial program and allow the Teensy bridge's
+   **30-second idle timeout** to reset the ESP32 into normal run mode.
+2. Confirm that the ESP32 reconnects to Wi-Fi.
+3. Recheck the ESP32 Web UI:
+   - \`/z80\` — CP/M/Z80 terminal
+   - \`/cpmmedia\` — CP/M disk Media Manager
+   - \`/crt\` — HP-85 remote CRT display
+   - \`/updater\` — ESP32 firmware updater
+4. Confirm existing CP/M disk access, TFT output and HP-85 keyboard
+   bridge still behave as before.
+
+**Result on 2026-10-21:** Recovery was successful and the ESP32 returned
+to the known-good firmware. The experimental modem firmware caused a
+serious Web UI/OTA regression and remains **unmerged**; its exact runtime
+failure mechanism has not yet been conclusively established.
+
+## Troubleshooting and precautions
+
+- **Serial port busy:** Exit/disconnect the Teensy serial console completely
+  before starting \`esptool\`.
+- **Cannot connect to ESP32 ROM bootloader:** Re-enter \`ESP32 Prog\` and
+  run the command promptly before the 30-second idle timeout.
+- **Incorrect working directory:** The scripts use relative paths:
+  \`flash-partitions.bin\` is written/read in the current directory, and
+  \`wflash.sh\` expects \`firmware.bin\` there too.
+- **Another serial device name:** Verify the Teensy USB device path on macOS,
+  then edit the \`-p\` argument in both scripts as appropriate.
+- **Partition mismatch:** Stop; do not assume hard-coded offsets from
+  a different ESP32 or partition scheme.
+- **Different esptool major versions:** This procedure uses the
+  \`read-flash\`, \`write-flash\` and \`no-reset\` spelling from the
+  successfully used installation. Older versions may use underscores.
+- **Never run \`erase-flash\`; never flash \`firmware.bin\` at \`0x0000\`.**
+  A full factory image is a different artifact requiring the correct
+  bootloader and partition table.
+
+Related project files: \`GETTING_STARTED.md\`,
+\`NEXT_CHAT_HANDOFF.md\`, \`platformio.ini\`.
