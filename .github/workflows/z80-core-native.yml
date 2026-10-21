@@ -21,6 +21,8 @@ jobs:
           /tmp/modem_uart_test
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/modem_hayes_native.cpp -o /tmp/modem_hayes_test
           /tmp/modem_hayes_test
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/spi_cache_words_native.cpp -o /tmp/spi_cache_words_test
+          /tmp/spi_cache_words_test
           python3 tools/build_modemterm.py --check
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_terminal_model_native.cpp -o /tmp/tft_terminal_test
           /tmp/tft_terminal_test
