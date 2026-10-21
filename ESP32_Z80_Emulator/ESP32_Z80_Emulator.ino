@@ -13,6 +13,7 @@
 
 #include "globals.h"
 #include "z80_debug.h"
+#include "ebtks_memory_profile.h"
 #include "ebtks_tft_test.h" // normal build: inert; ST7796 VSPI panel config
 #include "ebtks_tft_terminal.h" // optional ANSI/VT100 TFT mirror (headless no-op)
 
@@ -63,12 +64,14 @@ void setup() {
     delay(3000);
     ESP.restart();
   }
+  EbtksMemory::capture(EbtksMemory::WEB_READY);
 
   // Milestone 2: verify that the Teensy SD card contains /cpm/boot.txt. All
   // actual file and disk traffic is serviced over TeensySerial by the Teensy.
   Serial.print("Probing Teensy-backed Z80 storage... ");
   sdfound = ebtksStorageProbe();
   Serial.println(sdfound ? "ready" : "not available (BASIC fallback)");
+  EbtksMemory::capture(EbtksMemory::STORAGE_READY);
 
   RUN=false;
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
@@ -79,10 +82,12 @@ void setup() {
 
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
+  EbtksMemory::capture(EbtksMemory::CPU_CONSOLES_READY);
 
   // HP-85 keyboard router: low-priority control-link poll,
   // no extra UART, no SPI bus overlap, no Z80 reset or CP/M bootstrap.
   Cpm85Input::start();
+  EbtksMemory::capture(EbtksMemory::KEYBOARD_READY);
   // Modem starts only on first Z80 I/O at 88h-8Fh. Starting the extra
   // worker here reduced available heap for the Web UI, breaking /crt,/z80
   // and /cpmmedia on real HP hardware. Never start at global boot time.
@@ -106,6 +111,8 @@ void setup() {
   Serial.println("CP/M disk reads: UART startup default (compile-time override)");
 #endif
 
+  EbtksMemory::capture(EbtksMemory::SPI_READY);
+
 #if EBTKS_TFT_TERMINAL_MIRROR
   // Create a low-priority TFT worker, never do SPI drawing inside the UART
   // console task. 80x24 character storage: 1,920 bytes, no pixel framebuffer.
@@ -117,6 +124,7 @@ void setup() {
   EbtksTft::drawBootPattern();
 #endif
 
+  EbtksMemory::capture(EbtksMemory::TFT_READY);
   Serial.println("Milestone 2 services started");
   Serial.print("EBTKS home: http://"); Serial.println(WiFi.localIP());
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");

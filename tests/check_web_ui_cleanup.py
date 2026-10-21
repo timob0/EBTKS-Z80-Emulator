@@ -56,4 +56,18 @@ assert 'return (p==kBase+5 && (s==3 || s==4))?0x60:0;' in modem
 assert 'reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE)' in term
 assert 'r->send(200,"text/html",EBTKS_TERM_PAGE);' not in term
 assert '"cpm_modem_state"' in web
-print("PASS: Media Manager, dot-file filtering, lazy modem, flash-backed pages, SPI safeguards")
+# Hardware regression: previous open BBS connection left no large free 8-bit
+# block and caused simultaneous HTTP/Telnet unavailability. Guard the dial
+# BEFORE any TCP connect allocation, preserve existing Web UI and OTA.
+memory = (ROOT / "ebtks_memory_profile.h").read_text(encoding="utf-8")
+assert 'server.on("/api/system/memory"' not in web # the live handler uses ebtksServer
+assert 'ebtksServer.on("/api/system/memory"' in web
+assert 'EbtksMemory::capture(EbtksMemory::MODEM_DIAL_BEFORE)' in modem
+assert modem.index('largest<kDialMinimumLargest8Bit') < modem.index('socketClient->connect(e.host')
+assert 'kDialMinimumLargest8Bit=12U*1024U' in modem
+assert 'MEMORY LOW - DIAL REFUSED' in modem
+assert '"stack_unused_bytes"' in web
+assert 'uxTaskGetStackHighWaterMark' in memory
+assert 'CpmWifiModem::lowMemoryDialRefusals()' in web
+assert 'EbtksMemory::capture(EbtksMemory::TFT_READY)' in ino
+print("PASS: Media Manager, lazy modem, memory stages/dial guard, flash-backed pages, SPI safeguards")

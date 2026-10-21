@@ -7,6 +7,7 @@
 #include <esp_heap_caps.h>
 #include "ebtks_modem_uart.h"
 #include "ebtks_modem_hayes.h"
+#include "ebtks_memory_profile.h"
 
 // 8250-compatible, polling-only virtual modem at Z80 ports 88h..8Fh.
 // CPU port I/O NEVER calls Wi-Fi, malloc, DNS, delays or network functions.
@@ -34,6 +35,14 @@ inline void requestStart(){
 static WiFiClient* socketClient=nullptr; // network worker only; heap allocated
 static EbtksModem::Hayes* hayes=nullptr; // parser on runtime heap
 static bool online=false,commandMode=true;
+static std::atomic<uint32_t> dialRefusedLowMemory{0};
+// Deliberately conservative until real hardware confirms that AsyncTCP,
+// Telnet and OTA all remain responsive during an active BBS session.
+static constexpr uint32_t kDialMinimumFreeHeap=48U*1024U;
+static constexpr uint32_t kDialMinimumLargest8Bit=12U*1024U;
+inline uint32_t lowMemoryDialRefusals(){
+  return dialRefusedLowMemory.load(std::memory_order_relaxed);
+}
 static uint8_t telState=0,telCommand=0,sbOption=0,sbValue=0;
 static bool txBinary=false;
 static constexpr uint16_t kResponseSize=256;
@@ -135,11 +144,13 @@ static void result(uint8_t code) {
   }
 }
 static void hangup(bool respond) {
+  const bool hadConnection=online;
   socketClient->stop();
   online=false;commandMode=true;
   netIn=netOut=0;pendingPluses=0;txBinary=false;
   telState=0;
   setCarrier(false);
+  if(hadConnection)EbtksMemory::capture(EbtksMemory::MODEM_HUNG_UP);
   if(respond)result(0);
 }
 static void handleHayes(const EbtksModem::HayesEvent& e) {
@@ -159,8 +170,21 @@ static void handleHayes(const EbtksModem::HayesEvent& e) {
       break;
     case HayesEvent::DIAL: {
       hangup(false);
+      EbtksMemory::capture(EbtksMemory::MODEM_DIAL_BEFORE);
+      const uint32_t freeHeap=ESP.getFreeHeap();
+      const uint32_t largest=heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      if(freeHeap<kDialMinimumFreeHeap || largest<kDialMinimumLargest8Bit){
+        dialRefusedLowMemory.fetch_add(1,std::memory_order_relaxed);
+        EbtksDebugSerial.printf(
+          "CP/M modem: TCP dial refused (heap=%lu largest8=%lu) to protect Web UI\n",
+          (unsigned long)freeHeap,(unsigned long)largest);
+        queueText("\r\nMEMORY LOW - DIAL REFUSED\r\n");
+        result(3);
+        break;
+      }
       bool ok=(WiFi.status()==WL_CONNECTED) &&
               socketClient->connect(e.host,e.port,3000);
+      EbtksMemory::capture(EbtksMemory::MODEM_DIAL_AFTER);
       if(ok) {
         socketClient->setNoDelay(true);
         online=true;commandMode=false;lastDataMs=millis();
@@ -333,6 +357,7 @@ inline void start() {
     EbtksDebugSerial.println("CP/M modem: worker allocation failed");
   } else {
     startState.store(2,std::memory_order_release);
+    EbtksMemory::capture(EbtksMemory::MODEM_READY);
     EbtksDebugSerial.println("CP/M modem: virtual UART 88h-8Fh online");
   }
 }

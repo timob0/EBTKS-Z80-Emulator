@@ -91,6 +91,46 @@ CP/M `Ctrl+X` exit and K8 detach, and recheck heap over reconnections.
 Do not upload firmware as an updater test. No OTA flash or Teensy changes
 needed now. Modem development branch remains **unmerged**.
 
+## Physical freeze under live BBS traffic; staged RAM investigation (2026-10-21)
+
+**User clarified:** After successfully receiving the remote Synchronet BBS
+banner, the physical ESP32 became unresponsive: *all* Web UI pages and
+even the separate Wi-Fi Telnet service could not be reached. Power cycling
+restored functionality. This **supersedes** any interpretation that the
+first live BBS dial passed overall acceptance; the branch is NOT safe to
+merge and runtime network functionality remains experimental.
+
+The prior snapshot *after AT/ATI and before the dial* was already
+`heap_free=55976` but `largest_free_8bit_block=5620`, down from
+`16372` before launching MODEM. Fragmentation / contiguous RAM shortage
+is a leading hypothesis, **not proof** of the freeze's cause. Other
+possibilities include the modem worker blocking the Wi-Fi stack,
+CPU/TFT/terminal backpressure, or a watchdogless deadlock.
+
+**Conservative diagnostic change:** Save low-overhead free/contiguous
+heap snapshots after Web startup, Teensy probe, core tasks, keyboard,
+SPI cache, TFT, modem worker, before/after TCP connect and on hangup.
+A new read-only endpoint `/api/system/memory` reports those stage
+snapshots and unused-stack high-water readings for the Web, CPU, console,
+Telnet, keyboard, SPI, modem and TFT workers. In the modem worker,
+**refuse an outbound ATD/ATDT TCP dial before calling WiFiClient::connect**
+unless free heap is at least **48 KiB** and the largest allocatable 8-bit
+block is at least **12 KiB**. Refusal emits `MEMORY LOW - DIAL REFUSED`
+and `NO CARRIER` and is counted in health and memory endpoints. This
+threshold is intentionally conservative rather than a proven minimum.
+The previously observed active modem's 5.6 KiB largest block would
+**refuse the dial** instead of risking the entire ESP32/OTA interface.
+`AT`, `ATI`, `MODEM` and CP/M/TFT/Web console continue to work.
+
+**Next development cycle:** Run ONLY the instrumented memory profile first
+before reducing any task stack. Identify oversized stack reservations,
+SPI/TFT footprint, allocation fragmentation and the benefit of sharing
+existing network worker stacks or shrinking FIFO sizes. Test independent
+HTTP/Telnet/Web UI operation before attempting another Internet dial.
+Do not weaken the dial guard until a controlled optimization demonstrably
+restores robust contiguous space. The fixed version is *not yet hardware
+validated* and must not be flashed without rollback readiness.
+
 ## Architecture
 
 - The Z80 port I/O dispatch calls **only** `CpmWifiModem::readPort/writePort`,

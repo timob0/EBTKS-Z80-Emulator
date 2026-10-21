@@ -193,6 +193,7 @@ inline bool ebtksWebBegin()
       v["heap_free"]=(uint32_t)ESP.getFreeHeap();
       v["cpm_modem_state"]=(unsigned)CpmWifiModem::status();
       v["cpm_modem_active"]=CpmWifiModem::active();
+      v["cpm_modem_low_memory_dial_refusals"]=CpmWifiModem::lowMemoryDialRefusals();
       v["heap_min_free"]=(uint32_t)ESP.getMinFreeHeap();
       v["largest_free_8bit_block"]=(uint32_t)
           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
@@ -207,6 +208,35 @@ inline bool ebtksWebBegin()
       v["spi_requires_reboot"]=(bool)spiTestNeedsReboot;
       v["spi_read_failures"]=(uint32_t)spiDiskReadFailures;
       String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+  // Task-aware RAM profile for staged diagnosis. Query this BEFORE running
+  // MODEM and after AT/ATI. Neither endpoint touches Teensy, SD or Wi-Fi
+  // sockets, and existing OTA/CPM handlers are preserved unmodified.
+  ebtksServer.on("/api/system/memory", HTTP_GET,
+    [](AsyncWebServerRequest *r){
+      JsonDocument doc;
+      doc["uptime_ms"]=(uint32_t)millis();
+      doc["heap_free"]=(uint32_t)ESP.getFreeHeap();
+      doc["largest_8bit"]=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      doc["min_heap_free"]=(uint32_t)ESP.getMinFreeHeap();
+      doc["modem_state"]=(unsigned)CpmWifiModem::status();
+      doc["modem_dial_refused_low_heap"]=CpmWifiModem::lowMemoryDialRefusals();
+      doc["min_dial_heap"]=CpmWifiModem::kDialMinimumFreeHeap;
+      doc["min_dial_largest8"]=CpmWifiModem::kDialMinimumLargest8Bit;
+      EbtksMemory::append(doc);
+      JsonObject tasks=doc["stack_unused_bytes"].to<JsonObject>();
+      EbtksMemory::stack(tasks,"web",Task5);
+      EbtksMemory::stack(tasks,"z80_cpu",Task1);
+      EbtksMemory::stack(tasks,"console",Task2);
+      EbtksMemory::stack(tasks,"telnet",Task3);
+      EbtksMemory::stack(tasks,"hp_keyboard",Cpm85Input::taskHandle);
+      EbtksMemory::stack(tasks,"spi_disk",spiDiskWorkerHandle);
+      EbtksMemory::stack(tasks,"modem",CpmWifiModem::workerHandle);
+#if EBTKS_TFT_TERMINAL_MIRROR
+      EbtksMemory::stack(tasks,"tft",EbtksTft::mirrorTaskHandle);
+#endif
+      String body; serializeJson(doc,body);
       r->send(200,"application/json",body);
     });
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
