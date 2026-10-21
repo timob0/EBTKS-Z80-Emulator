@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
+#include <stdlib.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -19,7 +20,10 @@ struct Sample {
   uint32_t freeTotal, free8Bit, largest8Bit, internalFree, internalLargest;
   bool valid;
 };
-static Sample samples[COUNT]={};
+// The TFT target has <200 bytes spare static DRAM. Reserve snapshot
+// storage once on runtime heap, after the main Web server has started.
+// First capture is setup-side WEB_READY before any CP/M modem use.
+static Sample* samples=nullptr;
 static portMUX_TYPE mux=portMUX_INITIALIZER_UNLOCKED;
 inline const char* name(Stage s){
   switch(s){
@@ -37,6 +41,12 @@ inline const char* name(Stage s){
   }
 }
 inline void capture(Stage stage){
+  if(!samples){
+    // One-time initialization on setup; subsequent worker captures reuse
+    // the same fixed table and NEVER allocate again.
+    samples=static_cast<Sample*>(calloc(COUNT,sizeof(Sample)));
+    if(!samples)return;
+  }
   Sample sample={};
   sample.freeTotal=ESP.getFreeHeap();
   sample.free8Bit=heap_caps_get_free_size(MALLOC_CAP_8BIT);
@@ -50,6 +60,7 @@ inline void capture(Stage stage){
 }
 inline void append(JsonDocument& doc){
   JsonArray a=doc["stages"].to<JsonArray>();
+  if(!samples)return;
   for(uint8_t i=0;i<COUNT;++i){
     Sample s;
     portENTER_CRITICAL(&mux);
