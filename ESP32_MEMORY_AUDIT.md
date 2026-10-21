@@ -33,6 +33,30 @@ byte-addressable heap. They are likely principally unused instruction
 RAM, but the new capability endpoint must verify this rather than infer
 exact memory-region boundaries from one subtraction.
 
+## Confirmed TFT linker inventory (CI)
+
+The first ELF report from [CI run 39575413661](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39575413661) shows:
+
+| ELF section | Exact size |
+|---|---:|
+| `.dram0.bss` | 96,112 bytes |
+| `.dram0.data` | 28,400 bytes |
+| **Total statically linked DRAM** | **124,512 bytes** |
+| `.iram0.text` | 81,811 bytes |
+| `.iram0.vectors` | 1,027 bytes |
+
+The `RAM` symbol is exactly **65,536 bytes**, more than half the linked
+static DRAM. Other confirmed DRAM symbols include `g_cnxMgr` (3,800 B),
+`z80DebugBuffer` (2,048 B), `cpmDesiredMounts` and `cpmActiveMounts`
+(1,584 B each), and `rxBuf` / `txBuf` (1,024 B each).
+
+**Important interpretation:** The initial unfiltered `nm` output also
+listed flash-backed `const` HTML and BASIC ROM with lowercase
+`d` symbol codes. These must **not** be counted as DRAM. The reporting
+script now filters actual ESP32 DRAM addresses (`0x3FFAE000` through
+`0x3FFFFFFF`) and separately shows flash-mapped constants.
+The `size -A` section figures above are authoritative for static RAM.
+
 ## Audited firmware allocations
 
 The figures below are allocations visible directly in application source
