@@ -1,5 +1,13 @@
 # Handoff / durable project memory for the next development chat
 
+## CURRENT STATUS -- ESP32 SERIAL RECOVERY SUCCEEDED ON PHYSICAL HP-85 HARDWARE (2026-10-21)
+
+**USER CONFIRMED:** The ESP32 has been successfully restored to the **known-good `main` TFT firmware**, following failure of the experimental modem firmware's Web UI and OTA uploader. The Teensy USB service-console `ESP32 Prog` serial bridge provided the successful recovery path; the actual physical partition table was inspected and matched `nvs 0x9000/0x5000`, `otadata 0xE000/0x2000`, `app0 0x10000/0x140000`, `app1 0x150000/0x140000`, `spiffs 0x290000/0x170000`. Both application slots were instructed to be reflashed with the known-good firmware; user confirms recovery worked. **Do not suggest reflashing the modem feature branch in its current form.** The user has NOT yet reported modem AT/BBS tests on recovered hardware, and the actual root cause of the Web/OTA failures remains unconfirmed. Additional CI passing does not constitute hardware acceptance.
+
+**Next work, after user requests it:** Keep `main` untouched and modem feature unmerged. Instrument runtime heap/largest-contiguous block/task usage and web-response failures; prioritize safe diagnostic/A-B builds where the virtual UART, idle network task, and web page serving can be enabled independently, preserving Web UI/OTA throughout. The earlier lazy-start/flash-backed Z80 response fixes in `feature/cpm-wifi-modem` are unvalidated on physical hardware and should not be assumed sufficient. The serial recovery procedure is in `ESP32_RECOVERY_USB.md` in this branch and was verified operational by the user. No Teensy or HP-85 option-ROM firmware changes required. Do not introduce development branch or merge changes without permission.
+
+---
+
 ## CURRENT HANDOFF -- WEB OTA POST ALSO FAILS; RESTORE VIA TEENSY BUILT-IN ESP32 PROGRAMMER (2026-10-21)
 
 **USER HARDWARE REPORT:** `/updater` page initially appeared accessible, but flashing POST ALSO TERMINATES THE BROWSER CONNECTION. Experimental Wi-Fi modem firmware effectively blocks self-recovery through HTTP. Stop suggesting more browser OTA attempts. **NEXT PRIORITY IS RESTORE USER'S LAST USER-VERIFIED ESP32 `main` TFT FIRMWARE USING THE TEENSY USB SERIAL PROGRAMMING BRIDGE.** Do not flash experimental corrected modem build yet (even though GitHub CI passed) and do not merge modem branch.
