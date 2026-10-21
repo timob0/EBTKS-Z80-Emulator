@@ -1,5 +1,28 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
+## 2026-10-21 combined HP/Web/CP/M/BBS hardware acceptance and low-water warning
+
+User ran HP-85 `CPSTATUS` repeatedly, then CP/M F: `MODEM.COM`, dialed a BBS, logged off, and exited MODEM successfully. Web UI pages remained responsive, and Web Media Manager continued to display correct mappings. User unmounted a drive in **Web Media Manager**, and a subsequent HP-85 `CPSTATUS` reflected the change. This verifies that both interfaces see the same *desired* NVS mount table; unmount becomes active only after CP/M virtual reset. Previous blank Media Manager page / HTTP unresponsive incident **did not reproduce** in this combined session. The test demonstrates HP `CPSTATUS` v0.03e correct text, read-only cross-interface state, and successful Web unmount; HP `CPDMNT`, `CPDUMNT` and `CPRESET` still require physical acceptance.
+
+Memory snapshot at `uptime_ms=962093` (~16.0 min) after session:
+
+| Measurement | Bytes / value |
+| --- | ---: |
+| `heap_free` | 58,336 |
+| `free_8bit` | 19,160 |
+| `largest_8bit` | 17,396 |
+| **`min_free_8bit` (historic)** | **628** |
+| `min_heap_free` (historic) | 39,804 |
+| `modem_state` | 2 |
+| `modem_dial_refused_low_heap` | 0 |
+| `telnet_listener_mode` | `shared_web_task` |
+| `cpm_boot_ready` (last capture) | 70,852 INTERNAL / 31,676 8BIT / 27,636 largest |
+| `tcp_closed` checkpoint | 57,476 INTERNAL / 18,300 8BIT / 14,836 largest |
+
+**Interpretation:** The current 8BIT free is >19 KiB, with a 17.4-KiB contiguous block, and no low-memory dial refusal. No persistent leak established, and Web responsiveness held. The extraordinarily low **628-byte cumulative 8BIT minimum** nonetheless means that the system had very little remaining byte-addressable allocation reserve at some point since restart. It does not identify which operation caused the dip, and it is not current free space. **Do not silently mark heap safety as resolved or relax modem guard.** Note that `cpm_boot_ready` is captured inside `ESP32_Z80_Emulator.ino::loop()` after `bootstrap()` and can be overwritten at every Z80 *virtual* reset. It is not necessarily a fixed once-per-ESP32-coldboot checkpoint. Previous snapshot showed 81,464 INTERNAL/42,288 8BIT; difference alone is not proof of leak.
+
+Suggested next work if user wishes to pursue memory margin: correlate minimum with fresh reboot and isolated `/api/cpm/media` refresh vs repeated HP `CPSTATUS` vs MODEM connect/disconnect. Use runtime allocation-failure tracing or targeted per-operation free/min probes, preserving the hardware-accepted firmware. Existing media-status API returned valid full JSON (six mounted drives plus SD media) when tested directly; don't claim NVS/media loss. No code changes or new flashes for this documented acceptance.
+
 ## 2026-10-21: hardware modem/Web/TFT retest after clean ESP32 build
 
 User rebuilt and flashed ESP32 `feature/cpm85-drive-control` TFT target (`esp32dev-tft`) after discovering an older running image still had the `/api/system/memory/pools` HTTP prefix-shadowing bug. **Physical endpoints now behave correctly:** `/api/system/memory` includes `min_free_8bit`, and `/api/system/memory/pools` independently returns the seven overlapping capability classes. The Web-TFT terminal once again matches the 16-color ANSI/CP437 TFT visually.
