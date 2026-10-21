@@ -27,10 +27,10 @@
 #include "spi_link_test.h"
 #include "spi_disk_read.h" // default-on (build-configurable) 4 MHz CP/M reads; all writes remain UART
 #include "web_terminal_v2.h"
+#include "ebtks_storage.h"
+#include "ebtks_cpm85_keyboard.h" // must precede Web RAM profile and disk.h
 #include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
 #include "ebtks_web.h"
-#include "ebtks_storage.h"
-#include "ebtks_cpm85_keyboard.h" // before disk.h transitively includes serial.h
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
