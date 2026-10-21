@@ -82,6 +82,11 @@ assert "#if !EBTKS_TELNET_SHARED_WORKER" in ino
 assert "ESP32 Prog" not in telnet
 assert '"/api/system/memory/pools"' in web
 assert 'EbtksMemory::appendHeapPools(doc)' in web
+# ESPAsyncWebServer routes match child paths; first matching callback wins.
+# Preserve this ordering or /memory shadows /memory/pools on hardware.
+assert web.index('ebtksServer.on("/api/system/memory/pools"') < (
+    web.index('ebtksServer.on("/api/system/memory"'))
+assert 'doc["capability_rows_overlap"]=true' in web
 memory = (ROOT / "ebtks_memory_profile.h").read_text(encoding="utf-8")
 assert 'ARDUINO_SETUP_ENTRY' in memory
 assert 'CPM_BOOT_READY' in memory
