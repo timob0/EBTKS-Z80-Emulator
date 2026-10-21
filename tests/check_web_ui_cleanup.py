@@ -51,7 +51,8 @@ assert 'CpmWifiModem::service();' in web
 assert "startState.compare_exchange_strong" in modem
 assert "ESP.getFreeHeap()<48U*1024U" in modem
 assert "heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)<8192U" in modem
-assert 'if(!active())return 0;' in modem
+assert 's==3 || s==4' in modem
+assert 'return (p==kBase+5 && (s==3 || s==4))?0x60:0;' in modem
 assert 'reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE)' in term
 assert 'r->send(200,"text/html",EBTKS_TERM_PAGE);' not in term
 assert '"cpm_modem_state"' in web

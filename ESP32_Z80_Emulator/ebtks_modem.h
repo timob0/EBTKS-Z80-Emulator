@@ -50,7 +50,13 @@ inline uint8_t readPort(uint8_t p) {
   requestStart();
   // A polling CP/M application must not see TX-ready until the modem worker
   // and its FIFOs exist. Returning 0 here makes it wait without dropping AT.
-  if(!active())return 0;
+  if(!active()){
+    // If activation permanently failed, report transmitter ready so a
+    // polling CP/M program can complete its write and accept Ctrl+X/quit.
+    // During requested/starting state, report not-ready until worker exists.
+    const uint8_t s=status();
+    return (p==kBase+5 && (s==3 || s==4))?0x60:0;
+  }
   portENTER_CRITICAL(&uartMux);
   uint8_t v=uart?uart->read(static_cast<uint8_t>(p-kBase))
                 :static_cast<uint8_t>((p==kBase+5)?0x60:0);

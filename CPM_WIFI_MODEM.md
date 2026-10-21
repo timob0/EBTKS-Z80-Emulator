@@ -36,7 +36,10 @@ reads or writes port `88h`–`8Fh`. It then requests activation through the
 existing low-priority Web worker. While activation is pending, `LSR` reports
 not-ready, so correctly polling clients such as MODEM.COM wait. The modem
 startup is denied rather than starving the UI if heap is below 48 KiB or
-largest allocatable 8-bit block is below 8 KiB. Startup state `0`=idle,
+largest allocatable 8-bit block is below 8 KiB. When allocation is
+permanently refused, the polling UART reports transmitter ready (but
+silently discards data) so that the MODEM.COM utility can still exit
+cleanly with Ctrl+X rather than spin indefinitely. Startup state `0`=idle,
 `1`=requested, `5`=initializing, `2`=active, `3`=low-memory refusal,
 `4`=allocation/task failure is included in `/api/system/health`.
 
