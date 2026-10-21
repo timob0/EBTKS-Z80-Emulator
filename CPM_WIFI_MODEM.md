@@ -8,7 +8,7 @@ at Z80 I/O ports **88h..8Fh**, alongside the existing CP/M console at
 ## Build validation (source commit `38bb93ea`)
 
 GitHub Actions run [39518316821](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39518316821)
-has **passed** native Z80/8250/Hayes tests, MODEMTERM.COM generator check,
+has **passed** native Z80/8250/Hayes tests, MODEM.COM generator check,
 both headless and ST7796 builds, and headless SPI-off regression.
 
 | Build | Flash | OTA limit | Static RAM |
@@ -38,6 +38,19 @@ acceptance**. Save the previously verified firmware for rollback.
 - Existing HP-85/Teensy keyboard capture, CP/M boot/media, ESP32 OTA,
   WebSocket/Telnet server, and TFT routing are unchanged.
 
+## Creating a transferable 8 MiB disk image
+
+The 183-byte terminal executable is called **`MODEM.COM` on CP/M**.
+The historical development name `MODEMTERM.COM` contains nine characters
+before the extension, which exceeds the CP/M 2.2 8.3 filename limit.
+The `tools/build_modemterm.py` generator now defaults to `MODEM.COM`.
+In a raw EBTKS 8 MiB image (DSM=2047, BSH=5, DRM=511, AL0=F0h,
+OFF=0), its first directory entry belongs to user 0, spans two 128-byte
+records, and places the program at allocation block 4 (offset 16 KiB).
+An image containing this program is ideal for mounting temporarily to
+B: and copying into an existing A: with `PIP A:=B:MODEM.COM`. Never overwrite
+the existing mounted A.dsk to transfer the utility.
+
 ## 8250 register map
 
 | Z80 I/O | 8250 register | Initial support |
@@ -60,7 +73,7 @@ to apply backpressure.
 ## Hayes-style commands
 
 Commands use normal ASCII ending in carriage return on the **modem device**.
-Do **not** type them at the plain CP/M CCP prompt; use the MODEMTERM utility
+Do **not** type them at the plain CP/M CCP prompt; use the MODEM utility
 or a communications program adapted to serial ports 88h..8Fh.
 
 | Command | Action |
@@ -99,12 +112,12 @@ Plaintext Telnet is unencrypted. Do not reuse important passwords.
    `.pio/build/esp32dev-tft/firmware.bin` through existing Web UI.
    **No Teensy or HP CPM85 LOADBIN changes**.
 3. Create a stand-alone CP/M-80 COM file on the host:
-   `python3 tools/build_modemterm.py -o MODEMTERM.COM`.
+   `python3 tools/build_modemterm.py -o MODEM.COM`.
    This produces the same small Z80 program documented in
    `tools/modemterm.asm`, without requiring an assembler.
-4. Place `MODEMTERM.COM` on a writable CP/M disk image using the
+4. Place `MODEM.COM` on a writable CP/M disk image using the
    established SD-card/image transfer workflow. Start CP/M and type
-   `MODEMTERM` at its `A>` or other CCP prompt. Physical HP keyboard
+   `MODEM` at its `A>` or other CCP prompt. Physical HP keyboard
    requires the user-tested `CPM` HP command to be attached; the
    existing TFT/Web/Telnet terminals remain alternatives.
 5. Type `AT` + Enter: expect OK. Then `ATI`; then try
@@ -112,17 +125,17 @@ Plaintext Telnet is unencrypted. Do not reuse important passwords.
    These are **test instructions**, not claimed live availability.
 6. Leave the BBS with its logout command, or let 1s elapse,
    type `+++`, leave another 1s, type `ATH` and Enter.
-   **Ctrl+X quits MODEMTERM** back to CP/M. **HP K8** returns keyboard
+   **Ctrl+X quits MODEM** back to CP/M. **HP K8** returns keyboard
    control to HP BASIC without stopping the CP/M VM.
 
-If MODEMTERM is not on the disk, the Z80 modem can also be driven by
+If MODEM is not on the disk, the Z80 modem can also be driven by
 a separately prepared MEX/IMP machine overlay once port compatibility
 is verified.
 
 ## Status / boundaries
 
 - Native 8250 register semantics, Hayes command parsing, and deterministic
-  MODEMTERM image generation are regression-tested on the CI runner.
+  MODEM image generation are regression-tested on the CI runner.
 - ESP32 runtime heap allocation, UART I/O integration and firmware build are
   covered by headless and ST7796 CI builds.
 - Actual outbound TCP/BBS connectivity, high-volume file transfers,

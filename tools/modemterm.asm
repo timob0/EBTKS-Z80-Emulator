@@ -1,11 +1,11 @@
-; MODEMTERM.COM -- tiny CP/M 2.2 polling terminal, no machine overlay needed.
+; MODEM.COM -- tiny CP/M 2.2 polling terminal, no machine overlay needed.
 ; Intended for assembly with zmac or other Z80-compatible assembler.
 ; Z80 UART: 88h data (RBR/THR), 8Dh line status: bit0 RX ready,
 ; bit5 TX holding register ready. Uses BDOS 6 direct nonblocking console
 ; input and BDOS 2 output; never touches BIOS or the existing console UART.
 ;
 ; A ready-to-copy MODEMTERM.COM can be generated with
-;   python3 tools/build_modemterm.py -o MODEMTERM.COM
+;   python3 tools/build_modemterm.py -o MODEM.COM
 ; The Python builder emits the same opcodes without requiring an assembler.
         ORG 0100H
 START:  LD DE,HELLO

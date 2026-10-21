@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the stand-alone CP/M 2.2 MODEMTERM.COM, no assembler required.
+"""Create the stand-alone CP/M 2.2 MODEM.COM (8.3-safe), no assembler required.
 
 The matching Z80 assembly source is tools/modemterm.asm.
 --check runs self-tests without writing to disk.
@@ -61,7 +61,7 @@ def program():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("-o", "--output", default="MODEMTERM.COM")
+    ap.add_argument("-o", "--output", default="MODEM.COM")
     ap.add_argument("--check", action="store_true", help="verify image only")
     opts = ap.parse_args()
     payload, labels = program()
@@ -75,7 +75,7 @@ def main():
         Path(opts.output).write_bytes(payload)
         print(f"Wrote {opts.output}: {len(payload)} bytes")
     else:
-        print(f"PASS: MODEMTERM.COM {len(payload)} bytes, valid entry/BIOS-independent I/O")
+        print(f"PASS: MODEM.COM {len(payload)} bytes, valid entry/BIOS-independent I/O")
 
 
 if __name__ == "__main__":
