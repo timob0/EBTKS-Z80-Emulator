@@ -131,6 +131,42 @@ Do not weaken the dial guard until a controlled optimization demonstrably
 restores robust contiguous space. The fixed version is *not yet hardware
 validated* and must not be flashed without rollback readiness.
 
+## Proposed adaptive service lifetime -- design, not yet implemented
+
+The user proposes dynamically starting/stopping services and requesting
+consent to release resources when the ESP32 is under memory pressure.
+That is a good longer-term design, but tasks and browser pages are not
+one-to-one. Prioritize graceful, reversible shedding:
+
+| Component | Current resource / lifetime | Possible safe memory-management action |
+|---|---|---|
+| HTTP server, AsyncTCP, Web background | Shared network core and 4 KiB background task | **Always retain** for management, OTA and recovery. Do not shut down to save RAM. |
+| Z80 browser terminal | WebSocket handler on common server, **not** a dedicated task | Allocate per-client network buffers only while connected; close inactive WebSocket sessions. Handler registration itself is cheap. |
+| HP remote CRT/snapshot | Client-side page using common `/ws`; **not** a dedicated task | Send alpha snapshots only while browser subscribes; allocate graphics capture buffers only while capturing; release when done/disconnected. |
+| Incoming Telnet console | Dedicated 3072-byte `TelnetTask` + session socket | Integrate lightweight incoming connection acceptor into network supervisor; no separate Telnet polling task when idle; socket allocated on accept and closed on disconnect. Must preserve listen availability. |
+| ST7796 mirror | Dedicated 4096-byte task + 80x24 state + graphics allocations | Optional user-selected suspend/restore after renderer is quiescent; preserve a path to restart and clear/redraw. Never force-disable visible TFT without permission. |
+| SPI disk read-ahead | Dedicated 8192-byte task + 8192-byte cache, worker may hold DMA state | Optional fallback to UART with *safe worker teardown and buffer release after in-flight I/O completes*. Merely turning off SPI transport currently **does not free its cache/task**, by design. |
+| Physical HP-85 keyboard | Dedicated 3584-byte polling task | On-demand polling while keyboard captured; sleeping an existing task saves CPU, **not its stack RAM**. Need safe lifecycle or sharing before claiming RAM savings. |
+| Modem | Dedicated 5120-byte worker + 1 KiB UART FIFOs, socket and other bounded buffers | Already lazy at first use. On explicit hangup/dispose, eventually release socket and worker *after a serialized quiescence handshake*; automatic shutdown on modem inactivity must not break arbitrary CP/M serial programs. |
+| Z80 CPU/console | 4096-byte CPU / 3072-byte console tasks + 64 KiB Z80 RAM | **Keep running** for CP/M operation; do not stop to optimize modem memory. |
+
+A future **Memory Manager** Web UI can show used/free DRAM, largest
+allocatable 8-bit block, per-task stack high-water margins and
+connection/activity state. It should offer clear *user-approved*
+actions, e.g. "Disconnect BBS", "Disconnect inactive Web terminal",
+"Pause TFT mirror", or "Switch CP/M disk reads to UART and release SPI
+resources when idle", with documented performance/UX trade-offs.
+Once capacity falls below defined reserves, proactively refuse *new*
+resource-heavy operations and present a warning **while the existing
+Web/OTA control plane still works**. It should not terminate active
+CP/M disk I/O, HP keyboard capture, or OTA uploads.
+
+These changes require a staged design and physical tests; simply
+calling `vTaskDelete` or `vTaskSuspend` without owning all objects,
+DMA transfers and task references risks deadlocks and use-after-free.
+First collect `/api/system/memory` diagnostics on the guarded branch
+before choosing which stack or cache should actually be reclaimed.
+
 ## Architecture
 
 - The Z80 port I/O dispatch calls **only** `CpmWifiModem::readPort/writePort`,
