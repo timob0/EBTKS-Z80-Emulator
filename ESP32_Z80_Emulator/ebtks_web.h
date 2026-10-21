@@ -107,6 +107,11 @@ inline void ebtksWebBackgroundTask(void *parameter)
   EBTKSBrowserRequest request;
 
   for (;;) {
+#if EBTKS_TELNET_SHARED_WORKER
+    // Accept connection only; an active Telnet session is still handled by
+    // ConsoleTask. No permanently idle TelnetTask or its 3 KiB stack.
+    telnetPoll();
+#endif
     if (ebtksBrowserRequestQueue && xQueueReceive(ebtksBrowserRequestQueue, &request, 0) == pdTRUE) {
       String reply;
       if (ebtksLinkTransaction(String(request.text), reply, 3000)) {
@@ -118,6 +123,11 @@ inline void ebtksWebBackgroundTask(void *parameter)
 
     ebtksWebSocket.cleanupClients();
     z80WebSocket.cleanupClients();
+
+    // Preserve idle UI memory: no modem socket, FIFOs or task until a
+    // CP/M program actually polls the virtual serial port at 88h-8Fh.
+    // Allocations are guarded by a free-heap and largest-block reserve.
+    CpmWifiModem::service();
 
     if (ebtksRestartRequired) {
       Serial.println("Firmware update complete; rebooting ESP32");
@@ -186,6 +196,9 @@ inline bool ebtksWebBegin()
       v["reset_panic"]=(reason==ESP_RST_PANIC);
       v["reset_brownout"]=(reason==ESP_RST_BROWNOUT);
       v["heap_free"]=(uint32_t)ESP.getFreeHeap();
+      v["cpm_modem_state"]=(unsigned)CpmWifiModem::status();
+      v["cpm_modem_active"]=CpmWifiModem::active();
+      v["cpm_modem_low_memory_dial_refusals"]=CpmWifiModem::lowMemoryDialRefusals();
       v["heap_min_free"]=(uint32_t)ESP.getMinFreeHeap();
       v["largest_free_8bit_block"]=(uint32_t)
           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
@@ -193,13 +206,65 @@ inline bool ebtksWebBegin()
       v["internal_largest_block"]=(uint32_t)
           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
       v["spi_enabled"]=(bool)spiDiskReadsEnabled;
-      v["spi_cache_allocated"]=spiDiskCache!=nullptr;
+      v["spi_cache_allocated"]=spiDiskCacheAllocated();
+      v["spi_cache_storage"]=spiDiskCacheStorage();
       v["spi_worker_created"]=spiDiskWorkerHandle!=nullptr;
       v["spi_dma_initialized"]=(bool)spiTestInitialized;
       v["spi_job_active"]=(bool)spiDiskJobActive;
       v["spi_requires_reboot"]=(bool)spiTestNeedsReboot;
       v["spi_read_failures"]=(uint32_t)spiDiskReadFailures;
       String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+  // Task-aware RAM profile for staged diagnosis. Query this BEFORE running
+  // MODEM and after AT/ATI. Neither endpoint touches Teensy, SD or Wi-Fi
+  // sockets, and existing OTA/CPM handlers are preserved unmodified.
+  // ESPAsyncWebServer 3.6.0 matches a route on its child paths and
+  // selects the FIRST matching handler. Register /memory/pools BEFORE
+  // /memory or the shorter route hides the capability inventory.
+  // Read-only IDF allocator capability inventory; deliberately separate
+  // from the established small /api/system/memory health endpoint.
+  // All rows overlap, and must not be added together.
+  ebtksServer.on("/api/system/memory/pools",HTTP_GET,
+    [](AsyncWebServerRequest *r){
+      JsonDocument doc;
+      doc["uptime_ms"]=(uint32_t)millis();
+      doc["z80_static_ram_bytes"]=(uint32_t)sizeof(RAM);
+      doc["capability_rows_overlap"]=true;
+      EbtksMemory::appendHeapPools(doc);
+      String body;
+      serializeJson(doc,body);
+      r->send(200,"application/json",body);
+    });
+  ebtksServer.on("/api/system/memory", HTTP_GET,
+    [](AsyncWebServerRequest *r){
+      JsonDocument doc;
+      doc["uptime_ms"]=(uint32_t)millis();
+      doc["heap_free"]=(uint32_t)ESP.getFreeHeap();
+      doc["free_8bit"]=(uint32_t)heap_caps_get_free_size(MALLOC_CAP_8BIT);
+      doc["largest_8bit"]=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      doc["telnet_listener_mode"]=EBTKS_TELNET_SHARED_WORKER?"shared_web_task":"dedicated_task";
+      doc["telnet_connected"]=serverClient.connected();
+      doc["min_heap_free"]=(uint32_t)ESP.getMinFreeHeap();
+      doc["min_free_8bit"]=(uint32_t)
+          heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
+      doc["modem_state"]=(unsigned)CpmWifiModem::status();
+      doc["modem_dial_refused_low_heap"]=CpmWifiModem::lowMemoryDialRefusals();
+      doc["min_dial_heap"]=CpmWifiModem::kDialMinimumFreeHeap;
+      doc["min_dial_largest8"]=CpmWifiModem::kDialMinimumLargest8Bit;
+      EbtksMemory::append(doc);
+      JsonObject tasks=doc["stack_unused_bytes"].to<JsonObject>();
+      EbtksMemory::stack(tasks,"web",Task5);
+      EbtksMemory::stack(tasks,"z80_cpu",Task1);
+      EbtksMemory::stack(tasks,"console",Task2);
+      EbtksMemory::stack(tasks,"telnet",Task3);
+      EbtksMemory::stack(tasks,"hp_keyboard",Cpm85Input::taskHandle);
+      EbtksMemory::stack(tasks,"spi_disk",spiDiskWorkerHandle);
+      EbtksMemory::stack(tasks,"modem",CpmWifiModem::workerHandle);
+#if EBTKS_TFT_TERMINAL_MIRROR
+      EbtksMemory::stack(tasks,"tft",EbtksTft::mirrorTaskHandle);
+#endif
+      String body; serializeJson(doc,body);
       r->send(200,"application/json",body);
     });
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
@@ -243,6 +308,11 @@ inline bool ebtksWebBegin()
 
   ebtksServer.begin();
 
+#if EBTKS_TELNET_SHARED_WORKER
+  // Listener stays available for inbound TCP connections, while the
+  // already-existing Web worker polls it without a second idle thread.
+  telnetBegin();
+#endif
   xTaskCreatePinnedToCore(
     ebtksWebBackgroundTask,
     "EBTKSWebTask",

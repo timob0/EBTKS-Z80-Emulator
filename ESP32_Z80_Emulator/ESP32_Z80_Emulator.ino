@@ -13,6 +13,7 @@
 
 #include "globals.h"
 #include "z80_debug.h"
+#include "ebtks_memory_profile.h"
 #include "ebtks_tft_test.h" // normal build: inert; ST7796 VSPI panel config
 #include "ebtks_tft_terminal.h" // optional ANSI/VT100 TFT mirror (headless no-op)
 
@@ -26,9 +27,11 @@
 #include "spi_link_test.h"
 #include "spi_disk_read.h" // default-on (build-configurable) 4 MHz CP/M reads; all writes remain UART
 #include "web_terminal_v2.h"
-#include "ebtks_web.h"
 #include "ebtks_storage.h"
-#include "ebtks_cpm85_keyboard.h" // before disk.h transitively includes serial.h
+#include "ebtks_cpm85_keyboard.h" // must precede Web RAM profile and disk.h
+#include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
+#include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
+#include "ebtks_web.h"
 #include "init8250.h"
 #include "basic.h"
 #include "disk.h"
@@ -42,9 +45,10 @@
 #include "cpu_redcode.h"
 #endif
 #include "serial.h"
-#include "telnet.h"
 
 void setup() {
+  // Before EBTKS Wi-Fi/services; Arduino framework already initialized.
+  EbtksMemory::capture(EbtksMemory::ARDUINO_SETUP_ENTRY);
   // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
   // exclusively by TeensySerial for the framed ESP32 <-> Teensy protocol.
   ebtksLinkBegin();
@@ -62,26 +66,36 @@ void setup() {
     delay(3000);
     ESP.restart();
   }
+  EbtksMemory::capture(EbtksMemory::WEB_READY);
 
   // Milestone 2: verify that the Teensy SD card contains /cpm/boot.txt. All
   // actual file and disk traffic is serviced over TeensySerial by the Teensy.
   Serial.print("Probing Teensy-backed Z80 storage... ");
   sdfound = ebtksStorageProbe();
   Serial.println(sdfound ? "ready" : "not available (BASIC fallback)");
+  EbtksMemory::capture(EbtksMemory::STORAGE_READY);
 
   RUN=false;
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
 
+#if !EBTKS_TELNET_SHARED_WORKER
+  // Optional legacy A/B path: a separate 3072-byte acceptor task.
   xTaskCreatePinnedToCore(TelnetTask,"TelnetTask",3072,NULL,2,&Task3,0);
   while(!telnet_t) vTaskDelay(10);
+#endif
 
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
+  EbtksMemory::capture(EbtksMemory::CPU_CONSOLES_READY);
 
   // HP-85 keyboard router: low-priority control-link poll,
   // no extra UART, no SPI bus overlap, no Z80 reset or CP/M bootstrap.
   Cpm85Input::start();
+  EbtksMemory::capture(EbtksMemory::KEYBOARD_READY);
+  // Modem starts only on first Z80 I/O at 88h-8Fh. Starting the extra
+  // worker here reduced available heap for the Web UI, breaking /crt,/z80
+  // and /cpmmedia on real HP hardware. Never start at global boot time.
 
   // Start the CRC-checked 16-sector SPI cache after Wi-Fi/web and worker
   // initialization but BEFORE CP/M bootstrap/read traffic. If Teensy storage
@@ -102,6 +116,8 @@ void setup() {
   Serial.println("CP/M disk reads: UART startup default (compile-time override)");
 #endif
 
+  EbtksMemory::capture(EbtksMemory::SPI_READY);
+
 #if EBTKS_TFT_TERMINAL_MIRROR
   // Create a low-priority TFT worker, never do SPI drawing inside the UART
   // console task. 80x24 character storage: 1,920 bytes, no pixel framebuffer.
@@ -113,6 +129,7 @@ void setup() {
   EbtksTft::drawBootPattern();
 #endif
 
+  EbtksMemory::capture(EbtksMemory::TFT_READY);
   Serial.println("Milestone 2 services started");
   Serial.print("EBTKS home: http://"); Serial.println(WiFi.localIP());
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");
@@ -135,6 +152,8 @@ void loop() {
   // reload it. The helper keeps page zero standard (0005 -> D806) and patches
   // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
+  // Includes boot-time CP/M shadow and potentially SPI DMA/worker allocations.
+  EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY);
 
 #ifdef EBTKS_Z80_LEGACY_CPU
   PC=0;

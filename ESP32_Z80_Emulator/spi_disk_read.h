@@ -16,6 +16,7 @@
 #include <string.h>
 #include <esp_heap_caps.h>
 #include "spi_stream_frame.h"
+#include "spi_cache_words.h"
 
 // Build-time startup policy for CP/M read transport:
 // 1 = attempt CRC-framed 4 MHz SPI read-ahead before starting CP/M;
@@ -29,6 +30,18 @@
 #error "EBTKS_SPI_READAHEAD_DEFAULT_ON must be 0 or 1"
 #endif
 
+// Word-only cache is experimental but selected by default in this
+// isolated development branch. Set -DEBTKS_SPI_CACHE_WORD32=0 to restore
+// the original 8 KiB DRAM cache for A/B throughput and memory testing.
+#ifndef EBTKS_SPI_CACHE_WORD32
+#define EBTKS_SPI_CACHE_WORD32 1
+#endif
+#if EBTKS_SPI_CACHE_WORD32 != 0 && EBTKS_SPI_CACHE_WORD32 != 1
+#error "EBTKS_SPI_CACHE_WORD32 must be 0 or 1"
+#endif
+static_assert(EbtksStream::PAYLOAD_BYTES==EbtksSpiCache::kSectorBytes,
+              "SPI cache word transfer must match 512-byte sectors");
+
 // Globals declared in spi_link_test.h, included before this header:
 // spiDiskReadsEnabled, spiDiskJobActive, spiTestNeedsReboot,
 // spiTestStreamTaskHandle, spiTestInitialized, spiTestRx, spiTestTrans etc.
@@ -40,7 +53,31 @@ static constexpr size_t SPI_DISK_CACHE_BYTES =
 // linker region is almost full. This buffer is allocated from the runtime
 // heap on first SPI enable, retained for the boot, and NEVER freed while
 // a core-0 DMA worker might still reference it.
-static uint8_t *spiDiskCache = nullptr;
+static uint8_t *spiDiskCache = nullptr; // fallback DRAM-only cache
+static uint32_t *spiDiskWordCache = nullptr; // IRAM: aligned 32-bit access ONLY
+inline bool spiDiskCacheAllocated() {
+  return spiDiskCache != nullptr || spiDiskWordCache != nullptr;
+}
+inline const char* spiDiskCacheStorage() {
+  return spiDiskWordCache?"iram32":
+         (spiDiskCache?"dram8":"none");
+}
+inline void spiDiskCacheStoreSector(uint16_t block,const uint8_t* source){
+  if(spiDiskWordCache)
+    EbtksSpiCache::store(spiDiskWordCache+
+        (size_t)block*EbtksSpiCache::kSectorWords, source);
+  else
+    memcpy(spiDiskCache+(size_t)block*EbtksStream::PAYLOAD_BYTES,
+           source,EbtksStream::PAYLOAD_BYTES);
+}
+inline void spiDiskCacheLoadSector(uint16_t block,uint8_t* destination){
+  if(spiDiskWordCache)
+    EbtksSpiCache::load(destination, spiDiskWordCache+
+        (size_t)block*EbtksSpiCache::kSectorWords);
+  else
+    memcpy(destination,spiDiskCache+(size_t)block*EbtksStream::PAYLOAD_BYTES,
+           EbtksStream::PAYLOAD_BYTES);
+}
 static char spiDiskCachePath[96] = {};
 static uint32_t spiDiskCacheFirst = 0;
 static uint16_t spiDiskCacheCount = 0;
@@ -75,7 +112,27 @@ static volatile uint32_t spiDiskCacheInvalidations = 0;
 // area. Keep substantial RAM for Z80, AsyncTCP, Wi-Fi and other workers.
 inline bool spiDiskEnsureCache()
 {
-  if (spiDiskCache) return true;
+  if (spiDiskCacheAllocated()) return true;
+#if EBTKS_SPI_CACHE_WORD32
+  // The cache is only a validated 512-byte payload staging area, NOT a
+  // peripheral DMA buffer. Prefer executable 32-bit-accessible IRAM to
+  // reclaim scarce ordinary DRAM for AsyncTCP and the Z80 services.
+  // The EXEC requirement favors instruction RAM instead of DRAM.
+  const size_t free8Before=heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  void* wordBuffer=heap_caps_malloc(
+      SPI_DISK_CACHE_BYTES,MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL);
+  if(wordBuffer){
+    const size_t free8After=heap_caps_get_free_size(MALLOC_CAP_8BIT);
+    // Verify on each hardware platform that this allocation did NOT drain
+    // the ordinary 8-bit heap. If it did, fall back to original DRAM mode.
+    if(free8After>=free8Before){
+      spiDiskWordCache=static_cast<uint32_t*>(wordBuffer);
+      return true;
+    }
+    heap_caps_free(wordBuffer);
+  }
+#endif
+  // Safe fallback to the proven DRAM cache if IRAM cannot be allocated.
   const size_t reserveAfterAlloc = 32768;
   const size_t minLargestBlock = SPI_DISK_CACHE_BYTES + 4096;
   if (ESP.getFreeHeap() < SPI_DISK_CACHE_BYTES + reserveAfterAlloc ||
@@ -215,8 +272,7 @@ inline bool spiDiskDoBatch()
         spiDiskSetError(EbtksStream::checkName(check));
       } else {
         const uint8_t *data = spiTestRx + EbtksStream::HEADER_BYTES;
-        memcpy(spiDiskCache + (size_t)block * EbtksStream::PAYLOAD_BYTES,
-               data, EbtksStream::PAYLOAD_BYTES);
+        spiDiskCacheStoreSector(block,data);
         aggregate = EbtksStream::crc16(data, EbtksStream::PAYLOAD_BYTES,
                                        aggregate);
       }
@@ -298,7 +354,7 @@ inline bool spiDiskEnsureWorker()
 {
   if (!spiDiskDone) spiDiskDone = xSemaphoreCreateBinary();
   if (!spiDiskDone) return false;
-  if (!spiDiskCache && !spiDiskEnsureCache()) return false;
+  if (!spiDiskCacheAllocated() && !spiDiskEnsureCache()) return false;
   if (spiDiskWorkerHandle) return true;
   if (ESP.getFreeHeap() < 32000 ||
       heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 16000)
@@ -315,7 +371,7 @@ inline bool spiDiskReadCached(const char *path, uint32_t sector,
       spiTestNeedsReboot || spiTestState == 1 || spiDiskJobActive ||
       sector >= totalSectors) return false;
   // Defensive guard if a future caller bypasses the mode-switch allocation.
-  if (!spiDiskCache && !spiDiskEnsureCache()) {
+  if (!spiDiskCacheAllocated() && !spiDiskEnsureCache()) {
     spiDiskBootDisabled = true;
     spiDiskReadsEnabled = false;
     spiDiskSetError("Cannot allocate 8 KiB SPI disk cache");
@@ -325,9 +381,7 @@ inline bool spiDiskReadCached(const char *path, uint32_t sector,
   if (spiDiskCacheValid && !strcmp(spiDiskCachePath, path) &&
       sector >= spiDiskCacheFirst &&
       sector - spiDiskCacheFirst < spiDiskCacheCount) {
-    memcpy(dst, spiDiskCache +
-           (size_t)(sector - spiDiskCacheFirst) * EbtksStream::PAYLOAD_BYTES,
-           EbtksStream::PAYLOAD_BYTES);
+    spiDiskCacheLoadSector((uint16_t)(sector-spiDiskCacheFirst),dst);
     ++spiDiskHits;
     return true;
   }
@@ -375,8 +429,7 @@ inline bool spiDiskReadCached(const char *path, uint32_t sector,
   spiDiskCacheCount = count;
   strlcpy(spiDiskCachePath, path, sizeof(spiDiskCachePath));
   spiDiskCacheValid = true;
-  memcpy(dst, spiDiskCache + (size_t)(sector-first)*EbtksStream::PAYLOAD_BYTES,
-         EbtksStream::PAYLOAD_BYTES);
+  spiDiskCacheLoadSector((uint16_t)(sector-first),dst);
   return true;
 }
 
@@ -416,8 +469,10 @@ inline void spiDiskRegister(AsyncWebServer &server)
     doc["needs_reboot"] = (bool)spiTestNeedsReboot;
     doc["active"] = (bool)spiDiskJobActive;
     doc["cache_valid"] = (bool)spiDiskCacheValid;
-    doc["cache_allocated"] = spiDiskCache != nullptr;
-    doc["cache_bytes"] = spiDiskCache ? (uint32_t)SPI_DISK_CACHE_BYTES : 0U;
+    doc["cache_allocated"] = spiDiskCacheAllocated();
+    doc["cache_storage"] = spiDiskCacheStorage();
+    doc["word_cache_default"] = (bool)EBTKS_SPI_CACHE_WORD32;
+    doc["cache_bytes"] = spiDiskCacheAllocated() ? (uint32_t)SPI_DISK_CACHE_BYTES : 0U;
     doc["cache_first"] = (uint32_t)spiDiskCacheFirst;
     doc["cache_count"] = (unsigned)spiDiskCacheCount;
     doc["cache_hits"] = (uint32_t)spiDiskHits;

@@ -242,7 +242,19 @@ inline void webTerminalRegister(AsyncWebServer &server) {
   });
 
   server.on("/z80", HTTP_GET, [](AsyncWebServerRequest *r){
-    r->send(200,"text/html",EBTKS_TERM_PAGE);
+    // Serve the ~17-KiB terminal HTML from flash, not a heap String.
+    // In low heap, an AsyncBasicResponse may fail or reset TCP before
+    // replying; CRT and Media Manager already use this safe overload.
+    AsyncWebServerResponse *response=r->beginResponse(
+      200,"text/html; charset=utf-8",
+      reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE),
+      sizeof(EBTKS_TERM_PAGE)-1U);
+    if(!response){
+      r->send(503,"text/plain","Z80 terminal response unavailable");
+      return;
+    }
+    response->addHeader("Cache-Control","no-store");
+    r->send(response);
   });
 
   server.on("/crt", HTTP_GET, ebtksServeCrtDisplay);

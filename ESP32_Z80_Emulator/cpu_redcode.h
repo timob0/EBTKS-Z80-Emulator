@@ -10,6 +10,7 @@ static Z80Bridge ebtksCpuBridge;
 
 void portOut(uint8_t p, uint8_t v) {
   int i;  
+  if (CpmWifiModem::isPort(p)) {CpmWifiModem::writePort(p,v);return;}
   pOut[p] = v;                     //Save a copy of byte sent to IO Port
   switch (p) {
     case GPP:                                 //Write to GPIO Port
@@ -91,6 +92,7 @@ void portOut(uint8_t p, uint8_t v) {
 //****                             Z80 input port handler                                  ****
 //*********************************************************************************************
 uint8_t portIn(uint8_t p) {
+  if (CpmWifiModem::isPort(p))return CpmWifiModem::readPort(p);
   switch (p) {
     case GPP:        //Read GPIO port if Direction be is 0 (Input)     
       for(int i = 0; i <8; i++){
