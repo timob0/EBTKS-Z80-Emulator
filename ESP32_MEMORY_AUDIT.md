@@ -1,5 +1,27 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
+## 2026-10-21: hardware modem/Web/TFT retest after clean ESP32 build
+
+User rebuilt and flashed ESP32 `feature/cpm85-drive-control` TFT target (`esp32dev-tft`) after discovering an older running image still had the `/api/system/memory/pools` HTTP prefix-shadowing bug. **Physical endpoints now behave correctly:** `/api/system/memory` includes `min_free_8bit`, and `/api/system/memory/pools` independently returns the seven overlapping capability classes. The Web-TFT terminal once again matches the 16-color ANSI/CP437 TFT visually.
+
+**Real MODEM retest succeeded:** From Web Terminal, on CP/M F: drive, MODEM.COM connected successfully and the Web UI remained responsive throughout. Earlier dial-refused/frozen-Web behavior was not reproduced. Final snapshot at uptime 282,763 ms:
+
+| Metric | Value |
+| --- | ---: |
+| `heap_free` / INTERNAL current | 57,548 bytes |
+| `free_8bit` current | 18,372 bytes |
+| `largest_8bit` current | 15,348 bytes |
+| `min_heap_free` historic | 42,064 bytes |
+| **`min_free_8bit` historic** | **2,888 bytes** |
+| `modem_state` | 2 (worker running) |
+| `modem_dial_refused_low_heap` | 0 |
+| `telnet_listener_mode` | `shared_web_task` |
+
+The last successful `after_tcp_connect` stage showed 60,744 free INTERNAL bytes, 21,568 free 8BIT and largest 8BIT 15,348. `modem_task` stage recorded 58,924 / 19,748 / 15,348. The historical `min_free_8bit=2,888` **is very low**, despite normal current reserve and responsive Web UI, so mark extreme-stress/allocation margins as **not fully proven**. ESP-IDF allocator low-water marks and current snapshots are not interchangeable or necessarily simultaneous, particularly across overlapping region capabilities. Do not relax dial guard or claim general OOM immunity. Further work, only if necessary, should trace when the 8BIT minimum drops and whether an allocation fails; consider separate memory reservation tests without perturbing this hardware-proven build. **No firmware changes in this documentation update.**
+
+The CP/M drive-control branch is still in development. HP LOADBIN `CPM85 v0.03e` compilation/tests passed but **physical `CPSTATUS` newline acceptance remains unconfirmed**, and `CPDMNT`, `CPDUMNT`, `CPRESET` hardware tests are outstanding. Keep the accepted terminal/modem regression separate from those unfinished disk-management features.
+
+
 **Accepted result:** Real hardware confirmed `cache_storage="iram32"` for the 8,192-byte SPI read-ahead cache, zero SPI failures, and reliable HTTP alongside real Synchronet BBS modem operation. Browser terminal ANSI-16/CP437 and modem Ctrl+X exit were subsequently hardware-validated; the entire ESP32 integration merged into `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6), post-merge CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). **No Z80 RAM repartition is needed** for the demonstrated workload. Consult [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) for final current status; earlier experiment plans below are historical.
 
 **SIMON85 / EBTKS classic ESP32, developed on `feature/cpm-wifi-modem` and merged into stable `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) on 21 October 2026.**
