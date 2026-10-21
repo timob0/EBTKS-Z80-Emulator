@@ -19,8 +19,9 @@ both headless and ST7796 builds, and headless SPI-off regression.
 The TFT image has **119,687 bytes available** in the OTA slot.
 Static DRAM was very close to its linker limit: the modem's UART, Hayes,
 socket and network FIFOs were dynamically allocated as a result.
-**Actual runtime heap margin and live BBS use still require HP-85 hardware
-acceptance**. Save the previously verified firmware for rollback.
+**A later hardware test confirmed successful AT commands and initial BBS
+connection, but sustained network use and concurrent Web UI behavior
+remain untested.** Save the previously verified firmware for rollback.
 
 ## Hardware regression identified (2026-10-21)
 
@@ -45,9 +46,50 @@ cleanly with Ctrl+X rather than spin indefinitely. Startup state `0`=idle,
 
 The large Z80 terminal HTML is now served directly from flash (like
 Media Manager and CRT), eliminating a ~17 KiB transient heap copy. The
-modem's changed startup is **not yet physically validated**. If old UI
-remains unstable, recover via the still-accessible OTA updater using the
-last stable `main` firmware, or serial flash if OTA fails.
+modem's changed startup was subsequently **physically validated for
+boot, AT/ATI and outbound BBS dialing** (see below). If a regression
+recurs, use the proven Teensy USB serial recovery path documented in
+`ESP32_RECOVERY_USB.md`; Web OTA was inoperative on the earlier build.
+
+## Physical HP-85 acceptance -- corrected modem, successful real BBS dial (2026-10-21)
+
+**User hardware result:** Corrected firmware from `feature/cpm-wifi-modem`
+(lazy worker activation + flash-backed large Z80 page) was flashed
+successfully. All previously failing Web UI pages initially functioned
+normally. The CP/M program `MODEM.COM` on F: displayed its greeting,
+then `AT` returned `OK` and `ATI` returned `EBTKS Wi-Fi modem 0.1`
+plus `OK`. Dialing `ATDTvert.synchro.net:23` yielded `CONNECT 9600`
+followed by a genuine Synchronet BBS banner and additional remote text.
+This demonstrates real hardware Z80 I/O -> Hayes parser -> ESP32 Wi-Fi
+TCP -> remote BBS receive. Do not equate this with a tested sustained
+session, ANSI/VT100 fidelity, upload/download, or concurrent Web UI stability.
+
+Two user-provided health snapshots, each with SPI read-ahead/cache/worker
+enabled and `spi_read_failures=0`:
+
+| Field | Before MODEM (uptime ~56 s) | After AT/ATI (uptime ~302 s) |
+| --- | ---: | ---: |
+| `heap_free` | 65,400 | 55,976 |
+| `heap_min_free` | 47,588 | 47,588 |
+| `largest_free_8bit_block` | 16,372 | 5,620 |
+| `internal_free` | 65,400 | 55,916 |
+| `internal_largest_block` | 47,092 | 47,092 |
+| `cpm_modem_state` | 0 (dormant) | 2 (active) |
+
+**Important memory finding:** 9,424 bytes less total free heap and a
+10,752-byte reduction in the largest free 8-bit block (down to **5,620 B**).
+Large HTTP requests may still suffer under concurrent BBS traffic, even
+though the lightweight `/api/system/health` endpoint worked with active
+modem. The reported `heap_min_free` is a lifetime low-water mark and
+does not distinguish the immediate cause of this change.
+
+**Next physical checks before merging:** Try `/z80`, `/cpmmedia`,
+`/crt`, and GET `/updater` *while connected to the BBS* and report
+current free/largest heap; interact with BBS to check input and
+terminal output, exit using guard-time `+++` / `ATH`, confirm
+CP/M `Ctrl+X` exit and K8 detach, and recheck heap over reconnections.
+Do not upload firmware as an updater test. No OTA flash or Teensy changes
+needed now. Modem development branch remains **unmerged**.
 
 ## Architecture
 
