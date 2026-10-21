@@ -2,6 +2,14 @@
 
 **Experimental implementation, 21 October 2026.** Not hardware tested until user confirms the three coordinated builds. The existing, accepted ESP32 `main`, Teensy keyboard branch and HP CPM85 v0.02a remain available for rollback; do not merge this branch before physical acceptance.
 
+## 2026-10-21 follow-up: CPSTATUS formatting v0.03e
+
+**Physical result:** After reflashing Teensy, ESP32 and CPM85, the `CPSTATUS` mailbox finally returned the live active image table on the HP-85. In v0.03b it appeared on one line with up-arrow glyphs instead of newlines. In v0.03c the HP command returned cleanly but printed nothing. Both confirmed that the current firmware/hardware could communicate and the remaining work was the HP BASIC display routine.
+
+**Source-level causes found:** The assembler `D` suffix selects **decimal**: LF is `10D` / octal `12`, not `12D`; CR is `13D` / octal `15`, not `15D`. v0.03c also erroneously used `LDM R50,=3,0` claiming 768 bytes (in fact 3), and `STMD R50,...` to save an eight-byte register group into a two-byte buffer. The HP-85 manual specifies that multi-byte operations extend through the next register boundary: `R50` spans `R50-R57` (8 bytes) while `R56` spans `R56-R57` (2 bytes).
+
+**Correction:** CPM85 **v0.03e** on HP85-Option-Roms `feature/cpm85-drive-control`: restore the v0.03b byte-by-byte printable ASCII output via HP `OUTCHR`; ignore incoming CR `13D`; on LF `10D`, call HP `OUTSTR` with a single literal ASCII space `BYT 40` to perform native CRT newline. Use `R56-R57` as a 768-byte read limit (little-endian `=0,3`) and exactly two-byte `STMD/LDMD R56` save around CRT output. The HP mailbox waiting loop also uses 16-bit `R56`. Static regression and CAPASM/CAPLIF CI passed; **hardware validation pending**. Only the HP LOADBIN needs rebuilding; do **not** reflash Teensy or ESP32 for this formatting fix. Test only `CPVER` and `CPSTATUS` first and report actual output before mount commands.
+
 ## 2026-10-21 hardware finding and v0.03b correction
 
 **Physical test:** HP BASIC `CPSTATUS` appeared to hang while Z80 CP/M and the ESP32 Web UI kept working. HP RESET recovered the BASIC prompt and the existing `CPM` keyboard attachment remained usable. Do not test mount/unmount/reset commands until the corrected read-only status command is confirmed.
