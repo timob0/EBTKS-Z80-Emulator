@@ -1,5 +1,7 @@
 # CPM Wi-Fi modem -- development milestone (2026-10-21)
 
+**Final accepted baseline:** This modem, the 8 KiB IRAM-based SPI read-ahead cache, shared Web/Telnet listener, and ANSI-16/CP437 browser terminal are now hardware-tested and **merged into ESP32 `main`** via PR #6 (merge `b3d02b43`). Native/headless/TFT post-merge CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). The user confirmed another real Synchronet session rendered beautifully in the Web terminal, all Web UI pages remained reachable, and **Ctrl+X exits MODEM.COM to the CP/M prompt**. If an online connection needs clean closure: guard-time `+++`, then `ATH`, then Ctrl+X. A previously discussed cold boot was a user-initiated reset after trying `DIR` **inside** MODEM.COM (which replied `ERROR`), not an unexpected restart. Treat experimental warnings later in this historical document as **superseded**. For current project status read [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md).
+
 The ESP32 now contains a **separate, polling 8250-compatible virtual modem**
 at Z80 I/O ports **88h..8Fh**, alongside the existing CP/M console at
 80h/85h. This subsystem was developed on `feature/cpm-wifi-modem`, successfully
