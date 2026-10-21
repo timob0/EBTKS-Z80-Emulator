@@ -4,6 +4,14 @@
 
 **Experimental implementation, 21 October 2026.** Not hardware tested until user confirms the three coordinated builds. The existing, accepted ESP32 `main`, Teensy keyboard branch and HP CPM85 v0.02a remain available for rollback; do not merge this branch before physical acceptance.
 
+## 2026-10-21 physical CPSTATUS success, Web Media Manager JSON failure
+
+**Confirmed on physical HP-85:** HP LOADBIN CPM85 v0.03e now prints `CPSTATUS` drive assignment listing correctly with separate CRT lines (A: `A.dsk`, B: `cpm_1.lif`, etc.). HP command completes without hanging. This closes the HP status rendering regression; **it does not yet validate `CPDMNT`, `CPDUMNT` or `CPRESET`**.
+
+**New problem under investigation:** Web `/cpmmedia` shows empty Drive assignments and Available SD-card media tables, and Safari reports `The string did not match the expected pattern.` `CPSTATUS` works from the same live ESP32, so do not assume the NVS assignments have disappeared. Browser's `refreshAll()` uses `fetch('/api/cpm/media')`, `await r.json()`, `render()`. A response/body parsing exception can leave both tables blank. Backend `cpmStoreBuildMediaStatusJson(String &out)` allocates ArduinoJson documents for 16 drives and Teensy directory, then serializes to String; errors from allocator/serialization are not checked before returning HTTP 200. This makes low-memory or truncated JSON a plausible cause, NOT YET proven. The recently observed historical `min_free_8bit=2888` B strengthens the need to inspect actual response.
+
+**Next safe read-only diagnosis:** Open `http://<ESP32-IP>/api/cpm/media` directly or use `curl` to capture HTTP status, actual response body and JSON validity on the laptop. Also capture `/api/system/memory` at the same time. If raw API JSON is good, debug client JS; if invalid/empty, inspect the media JSON serialization and network response allocations. Do not modify drive mapping, reset CP/M, or flash an speculative fix until response is known. Existing ESP32/Teensy unchanged.
+
 ## 2026-10-21 follow-up: CPSTATUS formatting v0.03e
 
 **Physical result:** After reflashing Teensy, ESP32 and CPM85, the `CPSTATUS` mailbox finally returned the live active image table on the HP-85. In v0.03b it appeared on one line with up-arrow glyphs instead of newlines. In v0.03c the HP command returned cleanly but printed nothing. Both confirmed that the current firmware/hardware could communicate and the remaining work was the HP BASIC display routine.
