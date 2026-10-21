@@ -219,6 +219,23 @@ inline bool ebtksWebBegin()
   // Task-aware RAM profile for staged diagnosis. Query this BEFORE running
   // MODEM and after AT/ATI. Neither endpoint touches Teensy, SD or Wi-Fi
   // sockets, and existing OTA/CPM handlers are preserved unmodified.
+  // ESPAsyncWebServer 3.6.0 matches a route on its child paths and
+  // selects the FIRST matching handler. Register /memory/pools BEFORE
+  // /memory or the shorter route hides the capability inventory.
+  // Read-only IDF allocator capability inventory; deliberately separate
+  // from the established small /api/system/memory health endpoint.
+  // All rows overlap, and must not be added together.
+  ebtksServer.on("/api/system/memory/pools",HTTP_GET,
+    [](AsyncWebServerRequest *r){
+      JsonDocument doc;
+      doc["uptime_ms"]=(uint32_t)millis();
+      doc["z80_static_ram_bytes"]=(uint32_t)sizeof(RAM);
+      doc["capability_rows_overlap"]=true;
+      EbtksMemory::appendHeapPools(doc);
+      String body;
+      serializeJson(doc,body);
+      r->send(200,"application/json",body);
+    });
   ebtksServer.on("/api/system/memory", HTTP_GET,
     [](AsyncWebServerRequest *r){
       JsonDocument doc;
@@ -246,20 +263,6 @@ inline bool ebtksWebBegin()
       EbtksMemory::stack(tasks,"tft",EbtksTft::mirrorTaskHandle);
 #endif
       String body; serializeJson(doc,body);
-      r->send(200,"application/json",body);
-    });
-  // Read-only IDF allocator capability inventory; deliberately separate
-  // from the established small /api/system/memory health endpoint.
-  // All rows overlap, and must not be added together.
-  ebtksServer.on("/api/system/memory/pools",HTTP_GET,
-    [](AsyncWebServerRequest *r){
-      JsonDocument doc;
-      doc["uptime_ms"]=(uint32_t)millis();
-      doc["z80_static_ram_bytes"]=(uint32_t)sizeof(RAM);
-      doc["capability_rows_overlap"]=true;
-      EbtksMemory::appendHeapPools(doc);
-      String body;
-      serializeJson(doc,body);
       r->send(200,"application/json",body);
     });
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
