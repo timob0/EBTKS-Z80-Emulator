@@ -1,5 +1,24 @@
 # Handoff / durable project memory for the next development chat
 
+## PHYSICAL SUCCESS -- IRAM SPI CACHE FIXES PREVIOUS WEB/BBS MEMORY OUTAGE (2026-10-21)
+
+**Major acceptance milestone; user explicitly reports the ESP32 responsive throughout a real extended Synchronet BBS session and all Web UI pages remain reachable.** Development branch's `spiDiskWordCache` allocated successfully with `cache_storage=iram32`, cache 8,192 bytes. SPI works on hardware: 4 MHz, 16-sector batches, 112 verified frames / 7 batches, 64 hits, 7 misses, **zero CRC/SPI failures, zero UART fallback**. The combined IRAM read-ahead cache and earlier Telnet listener task consolidation now allow live Wi-Fi Hayes modem and Web UI to coexist. `modem_state=2`, no low-memory dial refusals.
+
+Snapshot metrics `heap_free/free_8bit/largest_8bit`:
+- Reboot 68980/29772/28660
+- Web Terminal 66520/27312/26612
+- After DIR 66408/27200/25588
+- MODEM.COM active 58940/19732/18420
+- After AT/ATI 59148/19940/19444
+- During Synchronet BBS 56820/17612/12788
+- After session uptime ~707 s: 57596/18408/17396
+
+Old free INTERNAL−8BIT capability difference 47416 B, new difference consistently 39208 B, a **8208-B shift** matching cache relocation + overhead. Old modem-active largest8 ~6900 B vs new 19444 B (roughly 2.82x). Web UI still worked during BBS when previous build would fail. This is strong evidence that the originally identified memory outage is **resolved in the tested scenario**, but exhaustive high-load testing and additional Telnet acceptance remain. Original `main` unchanged, no reason to split Z80 64-KiB DRAM yet.
+
+**One caution:** lifetime `min_heap_free` (INTERNAL) eventually 39856 B, much lower than final currently available ~57596 B; cannot deduce actual coincident byte-heap low watermark by subtracting current fixed difference from this aggregate historical low. Next useful read-only instrumentation `heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)` (ESP-IDF supports it), or controlled stress session of multiple WebSockets/remote CRT and modem reconnects. Do not modify working firmware merely for optimism; preserve the known tested candidate. Details in `ESP32_MEMORY_AUDIT.md` and `CPM_WIFI_MODEM.md`.
+
+---
+
 ## EXPERIMENTAL SPI DISK CACHE MOVED TO WORD-ONLY IRAM (2026-10-21)
 
 User insight: Can the SPI buffers relocate to ESP32 32-bit-only IRAM, potentially avoiding a Z80 64-KiB RAM split? **Yes for the 8,192-B read-ahead cache, not for the 528-B DMA RX/TX buffers or 8,192-B FreeRTOS worker stack.** Actual SPI code validates 512-byte frames into DMA-capable DRAM first, then caches sectors. Added `spi_cache_words.h` portable aligned word packing/unpacking, native `tests/spi_cache_words_native.cpp` for all 16 sectors, and `spi_disk_read.h` IRAM-backed cache selected by default under compile-time `EBTKS_SPI_CACHE_WORD32=1`. Tries `heap_caps_malloc(8192, MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL)` and **verifies free 8-bit heap did not decrease**; if unsuitable/absent, frees tentative block and falls back to original `MALLOC_CAP_8BIT` cache. Original mode `-DEBTKS_SPI_CACHE_WORD32=0`. DRAM-only DMA driver, CRC, sector transfers and CPU mapping unchanged. `GET /api/cpm/spireads` returns `cache_storage = iram32|dram8|none`; `GET /api/system/health` has `spi_cache_storage`. Expected gain around 8 KiB of real byte-addressable heap if IRAM32 selected, combined with prior ~3-KiB Telnet acceptor stack savings. System total internal heap may remain similar because memory has been moved, not freed. Speed/stack integrity and 4MHz SPI hardware test **NOT YET PROVEN**. Modem dial guard unchanged. See `ESP32_MEMORY_AUDIT.md` for design and recovery `ESP32_RECOVERY_USB.md`. `main` unchanged; development branch unmerged. Test branch CI status before telling user to flash; if green, check `/api/cpm/spireads` `cache_storage`, `/api/system/memory` `free_8bit` and `largest_8bit`, CP/M disk reads and writes, TFT/HP keyboard, then MODEM AT/ATI Web/OTA liveness; **do not attempt real dial before memory-safe checks.**
