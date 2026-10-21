@@ -1,5 +1,7 @@
 # CPM85 v0.03a — HP-85 control of CP/M disk assignments
 
+**ESP32 platform regression accepted (2026-10-21):** After a clean ESP32 TFT feature-branch rebuild, modem dialing worked and the Web UI remained responsive; the TFT and Web ANSI/CP437 terminal displays matched. Both memory diagnostic routes now return separate correct responses. The historical 8BIT minimum nonetheless dropped to 2,888 B; see `ESP32_MEMORY_AUDIT.md`. This validates the terminal/modem/platform side under the tested workload **not** HP `CPSTATUS` v0.03e newline output or disk-control commands; those physical tests remain pending. Do not merge drive-control branch before acceptance.
+
 **Experimental implementation, 21 October 2026.** Not hardware tested until user confirms the three coordinated builds. The existing, accepted ESP32 `main`, Teensy keyboard branch and HP CPM85 v0.02a remain available for rollback; do not merge this branch before physical acceptance.
 
 ## 2026-10-21 follow-up: CPSTATUS formatting v0.03e
