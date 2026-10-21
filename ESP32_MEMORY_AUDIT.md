@@ -1,6 +1,6 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
-**SIMON85 / EBTKS classic ESP32, experimental `feature/cpm-wifi-modem` branch.**
+**SIMON85 / EBTKS classic ESP32, developed on `feature/cpm-wifi-modem` and merged into stable `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) on 21 October 2026.**
 Source audit completed 21 October 2026. Linker report and runtime region diagnostics
 were added; physical test has now confirmed IRAM cache relocation and
 responsive HTTP alongside an extended Internet BBS session (see below).

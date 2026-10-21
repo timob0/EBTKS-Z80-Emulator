@@ -2,8 +2,10 @@
 
 The ESP32 now contains a **separate, polling 8250-compatible virtual modem**
 at Z80 I/O ports **88h..8Fh**, alongside the existing CP/M console at
-80h/85h. This is a new **development branch**, not part of production main:
-`feature/cpm-wifi-modem`.
+80h/85h. This subsystem was developed on `feature/cpm-wifi-modem`, successfully
+merged to stable `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6)
+on 21 October 2026 after physical HP-85 acceptance. Historical diagnostics
+and experimental limitations below document its development history.
 
 ## Build validation (source commit `38bb93ea`)
 
