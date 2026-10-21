@@ -13,6 +13,7 @@ jobs:
         run: |
           bash tests/run_z80_core_native.sh
           python3 tests/check_web_ui_cleanup.py
+          node tests/web_terminal_browser_native.js
           python3 tests/check_tft_bringuptest.py
           python3 tests/check_cpm85_bridge.py
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/cpm85_keymap_native.cpp -o /tmp/cpm85_keymap_test
