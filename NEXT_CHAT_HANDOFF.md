@@ -1,5 +1,13 @@
 # Handoff / durable project memory for the next development chat
 
+## WEB Z80 TERMINAL ANSI-16/CP437 PARITY WITH TFT (2026-10-21)
+
+User requested Web Terminal same standard as ST7796 TFT: full ANSI 16 colors, IBM CP437 special characters, DEC graphics. On **existing experimental `feature/cpm-wifi-modem` branch** modified `ESP32_Z80_Emulator/web_terminal_v2.h` flash-backed PROGMEM HTML/JS only. Existing 80x24 VT100, raw, and HP-86/Soroc browser modes preserved. Added accurate RGB equivalents of TFT 16-color RGB565 palette, default green #A5FF31, SGR 30..37/40..47/90..97/100..107, reset 39/49, bold/inverse/underline, ignored extended 38/48 color params (matching TFT). Added complete 128 high-byte CP437->Unicode lookup for 0x80..0xFF in VT, HP and raw; extended DEC graphics translation mapping consistent with `EbtksVt100::Screen::decGlyph`. Renderer merges runs of identically styled adjacent cells rather than emitting per-glyph spans; preserves HTML escaping. Terminal WebSocket transport /z80ws, CP/M core, SPI, modem and Teensy unchanged. Browser model's ESC 7/8 and CSI s/u now save/restore attributes like TFT. Native Node tests `tests/web_terminal_browser_native.js` execute actual script embedded in PROGMEM HTML with mocked DOM/WebSocket; check CP437, SGR, DEC graphics, HP mode, HTML escaping, style grouping. GitHub workflow now runs the tests. Native tests green; firmware builds running at time of initial commit. Physical browser acceptance NOT YET DONE. Need users to flash latest branch after CI passes and check e.g. CP/M box-line/color demo, Web UI and BBS, and check no heap regression. Previous physical IRAM modem/BBS stable build is important rollback candidate.
+
+**Also:** prior user reported `/api/system/memory/pools` returned same as /memory. Fixed AsyncWebServer route shadowing by registering longer path first (CI pass from earlier runs); added `min_free_8bit` to /memory. It is diagnostics-only and will be included in this later Web terminal test build.
+
+---
+
 ## PHYSICAL SUCCESS -- IRAM SPI CACHE FIXES PREVIOUS WEB/BBS MEMORY OUTAGE (2026-10-21)
 
 **Major acceptance milestone; user explicitly reports the ESP32 responsive throughout a real extended Synchronet BBS session and all Web UI pages remain reachable.** Development branch's `spiDiskWordCache` allocated successfully with `cache_storage=iram32`, cache 8,192 bytes. SPI works on hardware: 4 MHz, 16-sector batches, 112 verified frames / 7 batches, 64 hits, 7 misses, **zero CRC/SPI failures, zero UART fallback**. The combined IRAM read-ahead cache and earlier Telnet listener task consolidation now allow live Wi-Fi Hayes modem and Web UI to coexist. `modem_state=2`, no low-memory dial refusals.
