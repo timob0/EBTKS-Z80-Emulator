@@ -1,8 +1,64 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
 **SIMON85 / EBTKS classic ESP32, experimental `feature/cpm-wifi-modem` branch.**
-Source audit completed 21 October 2026. Runtime capability instrumentation and
-ELF static symbol reports have been committed, but still need physical test.
+Source audit completed 21 October 2026. Linker report and runtime region diagnostics
+were added; physical test has now confirmed IRAM cache relocation and
+responsive HTTP alongside an extended Internet BBS session (see below).
+
+## Real hardware acceptance: IRAM cache + Synchronet BBS + working Web UI (21 October 2026)
+
+**User confirmed success on the physical HP-85/Teensy/ESP32 system** after
+flashing the development branch containing the 8,192-byte IRAM32 SPI cache
+and shared Web/Telnet listener. All tested Web UI pages remained reachable
+before, during, and after a real Synchronet BBS session. CP/M and TFT kept
+working; SPI read-ahead returned zero errors and no UART fallback.
+The previously reproducible concurrent HTTP outage **did not recur**.
+
+| Phase | `heap_free` INTERNAL | `free_8bit` | `largest_8bit` |
+|---|---:|---:|---:|
+| Reboot + CP/M idle | 68,980 | 29,772 | 28,660 |
+| HP remote display opened | 67,040 | 27,832 | 26,612 |
+| Media Manager opened | 68,564 | 29,356 | 28,660 |
+| Web Z80 terminal opened | 66,520 | 27,312 | 26,612 |
+| `DIR` in terminal | 66,408 | 27,200 | 25,588 |
+| MODEM.COM launched | 58,940 | 19,732 | 18,420 |
+| MODEM + AT/ATI | 59,148 | 19,940 | 19,444 |
+| Dialed Synchronet, connected | 56,820 | 17,612 | 12,788 |
+| After BBS session (uptime 707 s) | 57,596 | 18,408 | 17,396 |
+
+**Direct proof of allocation relocation:** prior version's stable
+INTERNAL−8BIT heap gap was 47,416 B; new measurements yield 39,208 B
+throughout the run (±20 B at final sample), a **8,208 B reduction**
+matching an 8,192-byte IRAM cache plus allocator overhead. SPI endpoint:
+`cache_storage=iram32`, 16-sector/8,192-byte cache, at least
+**112 verified frames, 7 successful batches, 64 hits, 7 misses,
+0 failures, 0 UART fallbacks**, retained 4 MHz transport. The cache
+repeatedly served real CP/M disk operations and not merely memory tests.
+
+Prior experimental modem-active `largest_8bit=6,900` B, compared to
+**19,444 B** now; improvement **12,544 B (~2.82x)** with multiple
+simultaneous services. This reflects both cache relocation and Telnet
+task consolidation and workload differences, not IRAM relocation alone.
+The old modem-dial refusal/frozen Web UI failure is no longer reproduced,
+with `modem_state=2` and `modem_dial_refused_low_heap=0`.
+
+**Remaining reservation:** `min_heap_free` (INTERNAL low-water) declined
+to **39,856 B** during the longer session. It is a historic low, not
+current available RAM, and the corresponding minimum 8BIT value was not
+captured. Do not subtract current INTERNAL−8BIT pool gaps from an
+all-time per-region low watermark as though they were simultaneous.
+The next low-cost observability improvement could show
+`heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)`, and sustained stress
+tests should check simultaneous WebSocket/Telnet/large CRT/OTA page
+responses and modem reconnects. Do not issue actual OTA writes during
+stress experiments. Physical field results are strong evidence that the
+original problem has been resolved, not exhaustive proof against future
+heap exhaustion.
+
+**Next direction:** keep byte-addressed 64-KiB Z80 RAM unchanged.
+Do not prematurely shrink task stacks or rewrite CPU memory mapping.
+Preserve this tested build/commit as a regression baseline; experimental
+branch remains separate from `main` until final acceptance decision.
 
 ## Why 520 KiB is not available as a single 520-KiB heap
 
