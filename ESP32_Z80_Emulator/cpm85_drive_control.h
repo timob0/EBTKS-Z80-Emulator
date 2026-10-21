@@ -12,7 +12,8 @@ namespace Cpm85DriveControl {
 static bool pendingAck=false, haveLast=false;
 static uint16_t lastSequence=0;
 static bool lastOk=false;
-static char lastText[680]={};
+static constexpr size_t kTextMax=680;
+static char *lastText=nullptr; // lazily allocated, outside static TFT DRAM
 
 inline const char *basename(const char *path) {
   const char *p=path ? strrchr(path,'/') : nullptr;
@@ -41,34 +42,35 @@ inline bool safeBasename(const char *p) {
 }
 inline void setResult(bool ok,const char *msg) {
   lastOk=ok;
-  strlcpy(lastText,msg?msg:"",sizeof(lastText));
+  if(lastText) strlcpy(lastText,msg?msg:"",kTextMax);
 }
 inline void status() {
+  if(!lastText)return;
   if(!cpmStoreLoaded&&!cpmStoreLoadDesired()) {
     setResult(false,"CP/M MOUNTS UNAVAILABLE");
     return;
   }
   size_t used=0;
-  used+=snprintf(lastText,sizeof(lastText),"CP/M DRIVE STATUS\n");
-  for(uint8_t i=0;i<CPM_DRIVE_COUNT && used<sizeof(lastText)-85;++i) {
+  used+=snprintf(lastText,kTextMax,"CP/M DRIVE STATUS\n");
+  for(uint8_t i=0;i<CPM_DRIVE_COUNT && used<kTextMax-85;++i) {
     const CpmMountEntry &a=cpmActiveMounts[i];
     const CpmMountEntry &d=cpmDesiredMounts[i];
     if(!a.mounted && !d.mounted)continue;
     const char *active=a.mounted?basename(a.path):"-";
     const char *desired=d.mounted?basename(d.path):"-";
     const bool changed=!cpmMountEntryEqual(a,d);
-    int n=snprintf(lastText+used,sizeof(lastText)-used,
+    int n=snprintf(lastText+used,kTextMax-used,
                    "%c: %.21s%s",char('A'+i),active,changed?" -> ":"\n");
-    if(n<0 || (size_t)n>=sizeof(lastText)-used)break;
+    if(n<0 || (size_t)n>=kTextMax-used)break;
     used+=(size_t)n;
     if(changed) {
-      n=snprintf(lastText+used,sizeof(lastText)-used,"%.21s\n",desired);
-      if(n<0 || (size_t)n>=sizeof(lastText)-used)break;
+      n=snprintf(lastText+used,kTextMax-used,"%.21s\n",desired);
+      if(n<0 || (size_t)n>=kTextMax-used)break;
       used+=(size_t)n;
     }
   }
-  if(cpmMountTablesDiffer() && used+17<sizeof(lastText))
-    strlcat(lastText,"CPRESET REQUIRED\n",sizeof(lastText));
+  if(cpmMountTablesDiffer() && used+17<kTextMax)
+    strlcat(lastText,"CPRESET REQUIRED\n",kTextMax);
   lastOk=true;
 }
 
@@ -119,6 +121,9 @@ inline void receiveCommand(JsonVariantConst command) {
   const int seq=command["seq"] | -1;
   const int op=command["op"] | -1;
   if(seq<0||seq>65535)return;
+  // Only first use needs memory; preserve lean static TFT memory image.
+  if(!lastText)lastText=(char *)malloc(kTextMax);
+  if(!lastText){lastSequence=(uint16_t)seq;haveLast=true;lastOk=false;pendingAck=true;return;}
   // Repeated command after lost ACK gets the *original* result; in
   // particular CPRESET must not run twice.
   if(!haveLast || lastSequence!=(uint16_t)seq) {
@@ -135,7 +140,7 @@ inline void appendAck(JsonObject request) {
   JsonObject ack=request["ack"].to<JsonObject>();
   ack["seq"]=lastSequence;
   ack["ok"]=lastOk;
-  ack["text"]=lastText;
+  ack["text"]=lastText?lastText:"CPM85 MEMORY LOW";
 }
 inline void ackPollCompleted() {pendingAck=false;}
 } // namespace Cpm85DriveControl
