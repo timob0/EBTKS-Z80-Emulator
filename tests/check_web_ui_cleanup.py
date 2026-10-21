@@ -70,4 +70,14 @@ assert '"stack_unused_bytes"' in web
 assert 'uxTaskGetStackHighWaterMark' in memory
 assert 'CpmWifiModem::lowMemoryDialRefusals()' in web
 assert 'EbtksMemory::capture(EbtksMemory::TFT_READY)' in ino
-print("PASS: Media Manager, lazy modem, memory stages/dial guard, flash-backed pages, SPI safeguards")
+telnet = (ROOT / "telnet.h").read_text(encoding="utf-8")
+assert "EBTKS_TELNET_SHARED_WORKER" in telnet
+assert "inline void telnetPoll()" in telnet
+assert "inline void telnetBegin()" in telnet
+assert "telnetPoll();" in web
+assert "telnetBegin();" in web
+assert '"free_8bit"' in web
+assert '"telnet_listener_mode"' in web
+assert "#if !EBTKS_TELNET_SHARED_WORKER" in ino
+assert "ESP32 Prog" not in telnet
+print("PASS: Web, lazy modem, RAM telemetry/dial guard, shared Telnet listener, SPI safeguards")

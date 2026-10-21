@@ -107,6 +107,11 @@ inline void ebtksWebBackgroundTask(void *parameter)
   EBTKSBrowserRequest request;
 
   for (;;) {
+#if EBTKS_TELNET_SHARED_WORKER
+    // Accept connection only; an active Telnet session is still handled by
+    // ConsoleTask. No permanently idle TelnetTask or its 3 KiB stack.
+    telnetPoll();
+#endif
     if (ebtksBrowserRequestQueue && xQueueReceive(ebtksBrowserRequestQueue, &request, 0) == pdTRUE) {
       String reply;
       if (ebtksLinkTransaction(String(request.text), reply, 3000)) {
@@ -218,7 +223,10 @@ inline bool ebtksWebBegin()
       JsonDocument doc;
       doc["uptime_ms"]=(uint32_t)millis();
       doc["heap_free"]=(uint32_t)ESP.getFreeHeap();
+      doc["free_8bit"]=(uint32_t)heap_caps_get_free_size(MALLOC_CAP_8BIT);
       doc["largest_8bit"]=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      doc["telnet_listener_mode"]=EBTKS_TELNET_SHARED_WORKER?"shared_web_task":"dedicated_task";
+      doc["telnet_connected"]=serverClient.connected();
       doc["min_heap_free"]=(uint32_t)ESP.getMinFreeHeap();
       doc["modem_state"]=(unsigned)CpmWifiModem::status();
       doc["modem_dial_refused_low_heap"]=CpmWifiModem::lowMemoryDialRefusals();
@@ -280,6 +288,11 @@ inline bool ebtksWebBegin()
 
   ebtksServer.begin();
 
+#if EBTKS_TELNET_SHARED_WORKER
+  // Listener stays available for inbound TCP connections, while the
+  // already-existing Web worker polls it without a second idle thread.
+  telnetBegin();
+#endif
   xTaskCreatePinnedToCore(
     ebtksWebBackgroundTask,
     "EBTKSWebTask",

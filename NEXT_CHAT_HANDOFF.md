@@ -1,5 +1,13 @@
 # Handoff / durable project memory for the next development chat
 
+## HARDWARE PROFILE EXPLAINED; FIRST TELNET TASK CONSOLIDATION (2026-10-21)
+
+From user physical `/api/system/memory` snapshots: reboot `heap_free=65796` and largest8=17396, Web terminal `heap_free=62048` largest8=13812, active MODEM/AT/ATI `heap_free=55504` largest8=6900. Current modem dial guard correctly reports `MEMORY LOW - DIAL REFUSED`, `NO CARRIER`, counter increments; there was no TCP connect. Then large Web pages became unresponsive while small memory API still worked. Stage `modem_task` free8=8324 vs total heap 55740 (many free bytes from 32-bit-only pool). Heap fragmentation and insufficient byte-addressable contiguous space are *demonstrated*; exact interactions with AsyncTCP remain to be proven. User proposed on-demand task lifecycle/memory controls.
+
+**New development branch implementation:** `telnet.h` split into listener `telnetBegin()` and accept `telnetPoll()`. By default, the existing low-priority `EBTKSWebTask` polls the lightweight Telnet listener; **no idle TelnetTask is created** (saves a 3072-byte stack), TCP port 23 still listens, active Telnet I/O remains in the console router. Compile-time `-DEBTKS_TELNET_SHARED_WORKER=0` restores prior dedicated task as A/B diagnostic. `/api/system/memory` adds **live `free_8bit`** and `telnet_listener_mode`/`telnet_connected`. Changes to Telnet only for first controlled memory optimization; SPI task stack 8192, SPI cache 8192, TFT, keyboard and modem stacks intentionally unchanged. Need CI+physical Telnet/Web/CP/M tests, then compare memory and consider SPI stack at later milestone. Not safe to merge until test. Details in `CPM_WIFI_MODEM.md`. Serial recovery already tested.
+
+---
+
 ## DIAGNOSTIC BUILDS GREEN; TASK-LIFECYCLE PLAN RECORDED (2026-10-21)
 
 User proposed start/stop service tasks on demand and user-visible choice to shed memory (Web/Telnet/CRT/TFT/SPI/modem). An architectural service-lifetime table and safe Memory Manager approach are recorded in `CPM_WIFI_MODEM.md`. **No task teardown controls have been implemented yet**: WebConsole and remote CRT/screenshot are shared web handlers, not separate tasks. Stopping a FreeRTOS task without freeing buffers does not reclaim RAM; merely switching SPI off currently does not free worker/cache. Keep shared Web/OTA infrastructure permanently available and never silently interrupt active disk I/O or HP keyboard.

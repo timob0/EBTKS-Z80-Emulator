@@ -167,6 +167,42 @@ DMA transfers and task references risks deadlocks and use-after-free.
 First collect `/api/system/memory` diagnostics on the guarded branch
 before choosing which stack or cache should actually be reclaimed.
 
+## Incremental optimization: Telnet listener shares Web task (2026-10-21)
+
+**Live physical memory profile confirmed severe 8-bit heap pressure.**
+After reboot: `heap_free=65796`, largest free 8-bit block 17,396.
+After opening Web terminal: 62,048 and 13,812.
+After MODEM + AT/ATI: 55,504 and **6,900**. ATDT
+was correctly rejected by the guard (`NO CARRIER`) **but ordinary
+Web pages subsequently became unreachable**, while the very small
+`/api/system/memory` handler continued working. This is *selective*
+HTTP memory failure, not proof of a complete ESP32 crash.
+At `modem_task` checkpoint the full 8-bit heap was only 8,324
+bytes even though total free internal heap was 55,740: approximately
+47 KiB was unavailable for normal byte-oriented allocations.
+The previously observed failed dial never reached `WiFiClient::connect`.
+
+**First isolated component optimization**: remove the permanently running
+3,072-byte **TelnetTask** from the default configuration and fold
+`telnetPoll()` (inbound accept only) into the already-existing
+`EBTKSWebTask`. TCP port 23 remains listening at all times; CP/M console
+I/O for connected clients is unchanged and remains in `ConsoleTask`.
+This should save the Telnet task stack and task metadata without altering
+HP keyboard, SPI disk worker, TFT renderer, modem, OTA or WebSocket
+semantics. Compile-time A/B override
+`-DEBTKS_TELNET_SHARED_WORKER=0` restores the old TelnetTask.
+`/api/system/memory` now exposes live `free_8bit` and the Telnet
+listener mode/connected flag, so savings can be compared on physical
+hardware. **Not yet physically verified; do not claim free 8-bit savings
+or Telnet connect/close behavior until tested.**
+
+Next, consider *separate* controlled reductions to SPI worker's large
+reserved stack (8192 bytes, observed unused HWM 6324) or an
+on-demand worker lifecycle. Do **not** shrink Web/OTA and TFT or
+indiscriminately suspend asynchronous SPI/DMA operations.
+The memory profile and modem dial guard remain enabled; retain serial
+recovery. The modem feature stays unmerged.
+
 ## Architecture
 
 - The Z80 port I/O dispatch calls **only** `CpmWifiModem::readPort/writePort`,

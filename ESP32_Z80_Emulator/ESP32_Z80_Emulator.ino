@@ -30,6 +30,7 @@
 #include "ebtks_storage.h"
 #include "ebtks_cpm85_keyboard.h" // must precede Web RAM profile and disk.h
 #include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
+#include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
 #include "ebtks_web.h"
 #include "init8250.h"
 #include "basic.h"
@@ -44,7 +45,6 @@
 #include "cpu_redcode.h"
 #endif
 #include "serial.h"
-#include "telnet.h"
 
 void setup() {
   // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
@@ -77,8 +77,11 @@ void setup() {
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
 
+#if !EBTKS_TELNET_SHARED_WORKER
+  // Optional legacy A/B path: a separate 3072-byte acceptor task.
   xTaskCreatePinnedToCore(TelnetTask,"TelnetTask",3072,NULL,2,&Task3,0);
   while(!telnet_t) vTaskDelay(10);
+#endif
 
   xTaskCreatePinnedToCore(serialTask,"ConsoleTask",3072,NULL,3,&Task2,0);
   while(!serial_t) vTaskDelay(10);
