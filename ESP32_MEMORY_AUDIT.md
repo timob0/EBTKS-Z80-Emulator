@@ -61,6 +61,32 @@ Do not prematurely shrink task stacks or rewrite CPU memory mapping.
 Preserve this tested build/commit as a regression baseline; experimental
 branch remains separate from `main` until final acceptance decision.
 
+## Diagnostic endpoint routing correction (21 October 2026)
+
+User reported that requests to `GET /api/system/memory/pools`
+returned the *same* JSON as `GET /api/system/memory`, rather than
+the advertised `pools` array. This is a genuine server-routing bug:
+ESPAsyncWebServer 3.6.0 permits a callback registered on `/memory`
+to match the child path `/memory/pools`, and selects the first
+registered match. The shorter route had been registered first.
+
+**Fixed on development branch:** the more-specific `/memory/pools`
+handler now registers **before** `/memory`, with a static regression
+assertion enforcing the order. We additionally expose
+`min_free_8bit` (ESP-IDF's `heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)`)
+on the existing small memory endpoint for easier stress testing.
+Neither the SPI disk cache, Telnet/CP/M, modem workers nor OTA flash
+handler was modified. This change requires a new ESP32 application
+firmware upload to take effect; it is not yet physically validated.
+
+After a refreshed build is installed, verify that `/api/system/memory`
+returns `min_free_8bit` and `/api/system/memory/pools` returns
+`pools`, including the `byte_8bit` entry with `min_free`. The
+historic minimum is an aggregate of per-region low-water marks, not
+necessarily an exact simultaneous global low-water value.
+The previous hardware-validated application may safely remain installed
+until it is convenient to run this diagnostics-only regression.
+
 ## Why 520 KiB is not available as a single 520-KiB heap
 
 Espressif documents the classic ESP32 as having **520 KiB internal SRAM**:
