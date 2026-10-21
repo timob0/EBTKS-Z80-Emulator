@@ -49,5 +49,18 @@ jobs:
         run: pio run -e esp32dev
       - name: Build ST7796 CP/M ANSI/VT100/CP437 terminal
         run: pio run -e esp32dev-tft
+      - name: Report headless and TFT static ELF RAM
+        run: |
+          python3 tools/report_esp32_memory.py .pio/build/esp32dev/firmware.elf > esp32dev-memory.txt
+          python3 tools/report_esp32_memory.py .pio/build/esp32dev-tft/firmware.elf > esp32dev-tft-memory.txt
+          cat esp32dev-tft-memory.txt
+      - name: Upload memory symbol reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: esp32-memory-reports
+          path: |
+            esp32dev-memory.txt
+            esp32dev-tft-memory.txt
+          retention-days: 30
       - name: Regression - headless CP/M (SPI read-ahead default OFF)
         run: PLATFORMIO_BUILD_FLAGS=-DEBTKS_SPI_READAHEAD_DEFAULT_ON=0 pio run -e esp32dev
