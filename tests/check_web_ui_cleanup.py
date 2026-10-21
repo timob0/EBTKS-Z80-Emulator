@@ -80,4 +80,14 @@ assert '"free_8bit"' in web
 assert '"telnet_listener_mode"' in web
 assert "#if !EBTKS_TELNET_SHARED_WORKER" in ino
 assert "ESP32 Prog" not in telnet
-print("PASS: Web, lazy modem, RAM telemetry/dial guard, shared Telnet listener, SPI safeguards")
+assert '"/api/system/memory/pools"' in web
+assert 'EbtksMemory::appendHeapPools(doc)' in web
+memory = (ROOT / "ebtks_memory_profile.h").read_text(encoding="utf-8")
+assert 'ARDUINO_SETUP_ENTRY' in memory
+assert 'CPM_BOOT_READY' in memory
+assert 'heap_caps_get_info(&info,pool.caps)' in memory
+assert 'MALLOC_CAP_32BIT' in memory
+assert 'EbtksMemory::capture(EbtksMemory::ARDUINO_SETUP_ENTRY)' in ino
+assert 'EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY)' in ino
+assert (ROOT.parent / "tools/report_esp32_memory.py").is_file()
+print("PASS: Web, lazy modem, RAM capability inventory, shared Telnet listener, SPI")
