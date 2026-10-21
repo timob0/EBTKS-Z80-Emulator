@@ -1,5 +1,7 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
+**Accepted result:** Real hardware confirmed `cache_storage="iram32"` for the 8,192-byte SPI read-ahead cache, zero SPI failures, and reliable HTTP alongside real Synchronet BBS modem operation. Browser terminal ANSI-16/CP437 and modem Ctrl+X exit were subsequently hardware-validated; the entire ESP32 integration merged into `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6), post-merge CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). **No Z80 RAM repartition is needed** for the demonstrated workload. Consult [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) for final current status; earlier experiment plans below are historical.
+
 **SIMON85 / EBTKS classic ESP32, developed on `feature/cpm-wifi-modem` and merged into stable `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) on 21 October 2026.**
 Source audit completed 21 October 2026. Linker report and runtime region diagnostics
 were added; physical test has now confirmed IRAM cache relocation and
