@@ -203,6 +203,59 @@ indiscriminately suspend asynchronous SPI/DMA operations.
 The memory profile and modem dial guard remain enabled; retain serial
 recovery. The modem feature stays unmerged.
 
+## Heap-capability diagnosis -- **not primarily fragmentation** (2026-10-21)
+
+**Correction to earlier speculation:** On the classic ESP32 the Arduino
+`ESP.getFreeHeap()` sums `MALLOC_CAP_INTERNAL`, including internal
+regions unavailable to ordinary byte-addressable `malloc()`. The
+8-bit figures from `heap_caps_get_free_size(MALLOC_CAP_8BIT)`
+and `heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)` must be
+compared *to one another*, not directly to `ESP.getFreeHeap()`.
+
+Physical checkpoint data:
+
+| Stage | Free INTERNAL | Free 8-bit | Largest 8-bit | Free 8-bit outside largest |
+|---|---:|---:|---:|---:|
+| Web ready | 121,744 | 74,328 | 73,716 | 612 |
+| TFT ready | 85,720 | 38,304 | 36,852 | 1,452 |
+| Modem task | 55,740 | 8,324 | 7,924 | 400 |
+
+**All checkpoints have precisely a 47,416-byte difference between
+internal heap and free 8-bit heap.** Likely much of that free internal
+memory is 32-bit-only IRAM; only appropriately aligned, 32-bit-only
+data structures can safely use it with `MALLOC_CAP_32BIT`. Byte buffers,
+strings, DMA buffers and general network structures cannot be moved
+there indiscriminately. An accidental byte load/store on such memory
+can crash the classic ESP32.
+
+At refused dial, `heap_free=55944`, `largest8=7924`; assuming
+the 47,416-byte category offset remained constant, free8 was ~8,528 B,
+so only ~604 B lay outside the largest chunk. **This is almost
+entirely a 8-bit memory *capacity* problem, not severe fragmentation.**
+The Web UI failing while a tiny JSON endpoint still answers is
+consistent with memory-dependent allocations failing, but allocation
+failure must be instrumented before asserting that as the full cause.
+
+**FreeRTOS does not have a safe online compactor** that relocates live
+tasks, WiFi buffers and C++ allocations. Freeing memory coalesces
+adjacent blocks, but changing allocation order alone cannot turn the
+32-bit-only pool into normal byte-addressable DRAM.
+
+**Optimization priority:** preserve Web/OTA reserve; compare live
+`free_8bit` and `largest_8bit`; audit peak task-stack high-water
+marks before controlled stack reductions; reclaim SPI cache/worker only
+after implementing proper DMA/worker quiescence; avoid unnecessary
+network/client buffers; consider `MALLOC_CAP_32BIT` only for verified
+word-only structures. A separate startup-versus-post-boot allocation
+delta exists: `TFT_READY` occurs before full CP/M boot and the first
+SPI disk reads, so the fall from the TFT checkpoint to idle runtime
+must *not* all be attributed to TFT itself.
+
+Official references:
+- https://github.com/espressif/arduino-esp32/blob/master/cores/esp32/Esp.cpp
+- https://docs.espressif.com/projects/esp-idf/en/v5.2/esp32/api-reference/system/mem_alloc.html
+- https://docs.espressif.com/projects/esp-idf/en/v5.1.7/esp32/api-reference/system/heap_debug.html
+
 ## Architecture
 
 - The Z80 port I/O dispatch calls **only** `CpmWifiModem::readPort/writePort`,
@@ -212,7 +265,7 @@ recovery. The modem feature stays unmerged.
   parser, protocol state and network send queues.
 - Modem receive and transmit FIFO buffers (512 each), plus a 512-byte TCP
   transmit queue and 256-byte response queue, are allocated on the ESP32
-  runtime heap **at startup**. Allocation failure leaves the device inactive
+  runtime heap **on first virtual modem port use**. Allocation failure leaves the device inactive
   and records a message in `/z80debug`. They are not statically allocated
   in the scarce linker `.dram0.bss` section; the WiFiClient and
   Hayes parser instances are likewise allocated on the runtime heap.
