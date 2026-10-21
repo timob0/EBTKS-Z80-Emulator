@@ -87,6 +87,8 @@ assert 'EbtksMemory::appendHeapPools(doc)' in web
 assert web.index('ebtksServer.on("/api/system/memory/pools"') < (
     web.index('ebtksServer.on("/api/system/memory"'))
 assert 'doc["capability_rows_overlap"]=true' in web
+assert 'doc["min_free_8bit"]' in web
+assert 'heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT)' in web
 memory = (ROOT / "ebtks_memory_profile.h").read_text(encoding="utf-8")
 assert 'ARDUINO_SETUP_ENTRY' in memory
 assert 'CPM_BOOT_READY' in memory
