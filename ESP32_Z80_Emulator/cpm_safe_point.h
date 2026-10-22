@@ -36,6 +36,7 @@ public:
   std::atomic<uint32_t> inputGeneration{0};
   // Only Z80 CPU task changes this flag. It is consumed at the next CCP entry.
   bool blankInputReturned=false;
+  bool insideVerifiedCcpPrompt=false; // CPU-only; set by D382 before D19C
 
   static bool signature(const uint8_t *ram) {
     return ram &&
@@ -49,6 +50,7 @@ public:
 
   void reset(const uint8_t *ram,bool nativeCpm) {
     blankInputReturned=false;
+    insideVerifiedCcpPrompt=false;
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     mode.store(UNKNOWN,std::memory_order_release);
     result.store(NEVER,std::memory_order_release);
@@ -57,6 +59,7 @@ public:
 
   void onWarmBoot() {
     blankInputReturned=false;
+    insideVerifiedCcpPrompt=false;
     mode.store(BUSY,std::memory_order_release);
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE)
@@ -68,11 +71,16 @@ public:
   bool fetch(uint16_t pc,const uint8_t *ram) {
     if(!compatible.load(std::memory_order_acquire))return false;
     if(pc==kCcpConsoleInput) {
-      inputGeneration.fetch_add(1,std::memory_order_acq_rel);
-      mode.store(CCP_INPUT,std::memory_order_release);
+      // Reject a direct jump into the CCP input helper from an application.
+      // Only the normal CCP D382 prompt loop can authorize this state.
+      if(insideVerifiedCcpPrompt) {
+        inputGeneration.fetch_add(1,std::memory_order_acq_rel);
+        mode.store(CCP_INPUT,std::memory_order_release);
+      }
       return false;
     }
     if(pc==kCcpInputReturn) {
+      insideVerifiedCcpPrompt=false;
       mode.store(BUSY,std::memory_order_release);
       inputGeneration.fetch_add(1,std::memory_order_acq_rel);
       blankInputReturned=false;
@@ -91,6 +99,7 @@ public:
       return false;
     }
     if(pc==kCcpPrompt) {
+      insideVerifiedCcpPrompt=true;
       mode.store(BUSY,std::memory_order_release);
       if(blankInputReturned &&
          result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
