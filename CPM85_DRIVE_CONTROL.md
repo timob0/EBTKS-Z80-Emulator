@@ -1,5 +1,15 @@
 # CPM85 v0.03a — HP-85 control of CP/M disk assignments
 
+## 2026-10-22 — FULL DRIVE-CONTROL HARDWARE ACCEPTANCE (LATEST)
+
+**USER-VERIFIED SUCCESS:** After reflashing the ESP32 TFT `feature/cpm85-drive-control` image with the small-stack NVS verification correction and retaining HP `CPM85 v0.03f` and matching Teensy firmware, HP BASIC `CPDMNT` now completes normally and sets a disk assignment; `CPRESET` starts the Z80/CP/M with that assignment applied; user then **successfully accessed the newly mounted drive from CP/M**. Returning to HP BASIC, `CPDUMNT` also worked to remove the mount. The previously observed unexpected Z80 reset plus `CPM85 DRIVE TIMEOUT` on mount and unmount has not recurred in this acceptance report.
+
+**Acceptance status:** `CPSTATUS` multi-line listing **PASS**, `CPDMNT` **PASS**, `CPRESET` **PASS**, CP/M access to mounted media after reset **PASS**, `CPDUMNT` **PASS**. Earlier simultaneous Web Media Manager and HP `CPSTATUS` consistency **PASS**. Note mount/unmount always update **desired** NVS mapping first; active CP/M mapping is changed only on `CPRESET`/Apply-Reset. User did not explicitly report a *second* `CPRESET` and CP/M access-failure verification following unmount; this optional final regression remains unconfirmed, not a failure.
+
+**Diagnosis retrospective:** The source-level stack-overflow explanation remains highly consistent: prior NVS verification allocated two 16-drive tables inside a 3,584-byte FreeRTOS keyboard worker; per-entry verifier removed them without growing the task stack, and subsequent hardware operation succeeded. The ESP32 reset reason during the earlier crash was not captured, so label stack overflow a well-supported inference, not a directly measured panic. ESP32 memory low-water concern from prior modem stress (`min_free_8bit=628` B) remains an independent open observation and was not retested in this report.
+
+**Branches:** coordinated `feature/cpm85-drive-control` on ESP32 `timob0/EBTKS-Z80-Emulator`, Teensy `timob0/ebtks-alt-firmware`, and HP LOADBIN `timob0/HP85-Option-Roms`. **Do not claim merged**; user has confirmed hardware acceptance but has not requested integration into `main` in this turn. No additional firmware changes or flashes required for the validated workflow.
+
 ## 2026-10-22: CPDMNT and CPDUMNT trigger ESP32/Z80 restart; stack-overflow fix
 
 **Hardware feedback on CPM85 v0.03f:** Both HP BASIC `CPDMNT` and `CPDUMNT` cause the Z80 to reboot and then the HP reports `CPM85 DRIVE TIMEOUT`. HP `CPSTATUS` previously worked. User suspected accidental `CPRESET`; source verification shows opcodes 2 (mount) and 3 (unmount) do **not** set `RUN=false`. The *only* deliberate HP-driven Z80 reset is opcode 4 in `Cpm85DriveControl::execute()`.
