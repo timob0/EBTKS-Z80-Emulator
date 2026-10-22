@@ -30,6 +30,10 @@
 #include "ebtks_storage.h"
 #include "ebtks_cpm85_keyboard.h" // must precede Web RAM profile and disk.h
 #include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
+// Pure, allocation-free CCP command-input safety gate, initialized only
+// after the native CP/M image has been verified during bootstrap.
+#include "cpm_safe_point.h"
+static CpmSafePoint::Gate cpmSafeGate;
 #include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
 #include "ebtks_web.h"
 #include "init8250.h"
@@ -153,6 +157,12 @@ void loop() {
   // reload it. The helper keeps page zero standard (0005 -> D806) and patches
   // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
+#ifdef EBTKS_Z80_LEGACY_CPU
+  // The legacy engine has no safe instruction-fetch service trap.
+  cpmSafeGate.reset(RAM,false);
+#else
+  cpmSafeGate.reset(RAM,cpmResidentShadowValid);
+#endif
   // Includes boot-time CP/M shadow and potentially SPI DMA/worker allocations.
   EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY);
 
@@ -174,6 +184,7 @@ void loop() {
     while(RUN) vTaskDelay(100);
 
     if (cpmWarmBootHandleTrap()) {
+      cpmSafeGate.onWarmBoot();
       RUN = true;
       continue;
     }
