@@ -42,6 +42,10 @@ static void testRejectAbsentAndBusy() {
   Fixture f;
   assert(!f.gate.request());
   assert(f.gate.mode.load()==CpmSafePoint::UNKNOWN);
+  // A direct jump to D19C is NOT sufficient; must pass real CCP D382 first.
+  f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
+  assert(!f.gate.request());
+  f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem);
   f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
   assert(f.gate.request());
   assert(!f.gate.request()); // exactly one outstanding
@@ -51,6 +55,7 @@ static void testRejectAbsentAndBusy() {
   assert(!f.gate.fetch(CpmSafePoint::kCcpCommand,f.mem));
   assert(!f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem));
   assert(!f.gate.request()); // normal command executing
+  f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem);
   f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
   assert(f.gate.request()); // next verified CCP prompt
   f.gate.onWarmBoot();
