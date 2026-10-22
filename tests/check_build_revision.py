@@ -18,7 +18,7 @@ for target in ("esp32dev", "esp32dev-tft"):
     directory = root / ".pio" / "build" / target
     header = (directory / "ebtks_build_revision.h").read_text(encoding="utf-8")
     assert f'#define EBTKS_BUILD_GIT_COMMIT "{sha}"' in header, target
-    assert "#define EBTKS_BUILD_GIT_DIRTY 0" in header, target
+    assert "EBTKS_BUILD_GIT_DIRTY" not in header, target
     binary = (directory / "firmware.bin").read_bytes()
     assert sha.encode("ascii") in binary, f"commit not embedded in {target} firmware.bin"
 
