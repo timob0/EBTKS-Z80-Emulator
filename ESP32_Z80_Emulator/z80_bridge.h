@@ -22,9 +22,10 @@ struct Z80Bridge {
   uint16_t stopped_at;
   Z80BridgeStop stop_reason;
   // Optional exact-PC service hook. No network/SD/file access in opcode fetch.
-  bool service_trap_enabled;
+  // Reuse the existing device context for the optional service fetch.
+  // EBTKS I/O callbacks ignore device; native bridge clients may set it.
+  // Null callback disables the service with no extra bool/context in DRAM.
   bool (*service_fetch)(void *,uint16_t,const uint8_t *);
-  void *service_context;
 };
 static uint8_t z80BridgeRead(void *ctx,uint16_t address) {
   return static_cast<Z80Bridge*>(ctx)->memory[address];
@@ -40,10 +41,10 @@ static uint8_t z80BridgeOpcode(void *ctx,uint16_t address) {
     z80_break(&b->cpu);
     return Z80_NOP; // no side effect; rewind PC after the current step
   }
-  if (b->service_trap_enabled && b->service_fetch &&
+  if (b->service_fetch &&
       (address==0xD19C || address==0xD1A4 ||
        address==0xD382 || address==0xD398) &&
-      b->service_fetch(b->service_context,address,b->memory)) {
+      b->service_fetch(b->device,address,b->memory)) {
     b->stop_reason=Z80_BRIDGE_SERVICE;
     b->stopped_at=address;
     z80_break(&b->cpu);
