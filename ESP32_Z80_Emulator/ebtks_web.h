@@ -9,6 +9,7 @@
 #include <ArduinoJson.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#include "ebtks_network_diag.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal has its own independent websocket endpoint.
@@ -146,6 +147,9 @@ inline bool ebtksWebBegin()
     return false;
   }
 
+  // Subscribe to connection events before provisioning, without changing
+  // the existing Wi-Fi manager or reconnect policy.
+  EbtksNetDiag::begin();
   WiFi.mode(WIFI_STA);
 
   AsyncWiFiManager wm(&ebtksServer, &ebtksDns);
@@ -200,6 +204,9 @@ inline bool ebtksWebBegin()
       v["cpm_modem_active"]=CpmWifiModem::active();
       v["cpm_modem_low_memory_dial_refusals"]=CpmWifiModem::lowMemoryDialRefusals();
       v["heap_min_free"]=(uint32_t)ESP.getMinFreeHeap();
+      v["free_8bit"]=(uint32_t)heap_caps_get_free_size(MALLOC_CAP_8BIT);
+      v["min_free_8bit"]=(uint32_t)
+          heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
       v["largest_free_8bit_block"]=(uint32_t)
           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
       v["internal_free"]=(uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
@@ -213,6 +220,7 @@ inline bool ebtksWebBegin()
       v["spi_job_active"]=(bool)spiDiskJobActive;
       v["spi_requires_reboot"]=(bool)spiTestNeedsReboot;
       v["spi_read_failures"]=(uint32_t)spiDiskReadFailures;
+      EbtksNetDiag::append(v);
       String body;serializeJson(v,body);
       r->send(200,"application/json",body);
     });
