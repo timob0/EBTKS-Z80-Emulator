@@ -31,6 +31,9 @@ public:
   std::atomic<uint8_t> mode{UNKNOWN};
   std::atomic<uint8_t> result{NEVER};
   std::atomic<bool> compatible{false};
+  // Generation changes at BOTH entry to and exit from the input wait.
+  // A request racing with a submitted command cannot remain armed.
+  std::atomic<uint32_t> inputGeneration{0};
   // Only Z80 CPU task changes this flag. It is consumed at the next CCP entry.
   bool blankInputReturned=false;
 
@@ -46,6 +49,7 @@ public:
 
   void reset(const uint8_t *ram,bool nativeCpm) {
     blankInputReturned=false;
+    inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     mode.store(UNKNOWN,std::memory_order_release);
     result.store(NEVER,std::memory_order_release);
     compatible.store(nativeCpm && signature(ram),std::memory_order_release);
@@ -54,6 +58,7 @@ public:
   void onWarmBoot() {
     blankInputReturned=false;
     mode.store(BUSY,std::memory_order_release);
+    inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE)
       result.store(INVALIDATED,std::memory_order_release);
   }
@@ -63,11 +68,13 @@ public:
   bool fetch(uint16_t pc,const uint8_t *ram) {
     if(!compatible.load(std::memory_order_acquire))return false;
     if(pc==kCcpConsoleInput) {
+      inputGeneration.fetch_add(1,std::memory_order_acq_rel);
       mode.store(CCP_INPUT,std::memory_order_release);
       return false;
     }
     if(pc==kCcpInputReturn) {
       mode.store(BUSY,std::memory_order_release);
+      inputGeneration.fetch_add(1,std::memory_order_acq_rel);
       blankInputReturned=false;
       if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
         if(ram[kCcpInputLength]==0)blankInputReturned=true;
@@ -98,13 +105,25 @@ public:
   }
 
   bool request() {
+    const uint32_t generation=inputGeneration.load(std::memory_order_acquire);
     if(!compatible.load(std::memory_order_acquire) ||
        mode.load(std::memory_order_acquire)!=CCP_INPUT)return false;
     // Only one request can be pending. A completed one may be re-armed.
     uint8_t previous=result.load(std::memory_order_acquire);
     while(previous!=WAIT_EMPTY_LINE && previous!=RUNNING) {
       if(result.compare_exchange_weak(previous,WAIT_EMPTY_LINE,
-                                      std::memory_order_acq_rel))return true;
+                                      std::memory_order_acq_rel)) {
+        // The guest may have submitted a command between checking IDLE and
+        // publishing this request. Abort rather than queue behind a program.
+        if(inputGeneration.load(std::memory_order_acquire)!=generation ||
+           mode.load(std::memory_order_acquire)!=CCP_INPUT) {
+          uint8_t waiting=WAIT_EMPTY_LINE;
+          result.compare_exchange_strong(waiting,INPUT_NOT_EMPTY,
+                                         std::memory_order_acq_rel);
+          return false;
+        }
+        return true;
+      }
     }
     return false;
   }
