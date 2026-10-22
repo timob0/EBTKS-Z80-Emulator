@@ -10,6 +10,7 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include "ebtks_network_diag.h"
+#include "ebtks_build_revision.h" // generated at compile time by PlatformIO
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal has its own independent websocket endpoint.
@@ -193,6 +194,8 @@ inline bool ebtksWebBegin()
       const esp_reset_reason_t reason=esp_reset_reason();
       JsonDocument v;
       v["uptime_ms"]=(uint32_t)millis();
+      v["git_commit"]=EBTKS_BUILD_GIT_COMMIT;
+      v["git_dirty"]=(bool)EBTKS_BUILD_GIT_DIRTY;
       v["reset_reason"]=(int)reason;
       v["reset_watchdog"]=(reason==ESP_RST_INT_WDT ||
                             reason==ESP_RST_TASK_WDT ||
