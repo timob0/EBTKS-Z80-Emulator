@@ -1,5 +1,9 @@
 # CPM85 v0.03a — HP-85 control of CP/M disk assignments
 
+## 2026-10-22 — Hardware test: CPDIMGS / CPDMK request-validator mismatch fixed in ESP32
+
+HP-85 user reflashed Teensy/ESP32 and loaded CPM85 v0.04a. Both `CPDIMGS` and `CPDMK` printed **`INVALID CP/M REQUEST`**. `GET /api/system/health` confirmed the ESP32 ran `bbd7d079504236e10468872e3e23ba3ca7fe741a`, so not stale firmware. The exact source defect was ESP32 `cpm85_drive_control.h`: `execute()` handled opcodes **5/6**, but `receiveCommand()` still had `if(op<1||op>4||strlen(args)>91)`, discarding both. Corrected to `op>6`, plus host static test automatically checks the dispatch/validator agreement. **Only rebuild/flash ESP32**; existing HP/Teensy image implementation and original commands unchanged. Await physical retest before merging draft PRs to main. This new hardware result does not establish correctness of Teensy SD image creation yet. The simultaneously observed `spi_cache_storage:"dram8"` indicates 8-KiB SPI cache fallback into 8-bit RAM vs previous IRAM32, but is independent of this command-ABI bug; preserve baseline and investigate only separately if necessary.
+
 ## 2026-10-22 — CPDIMGS / CPDMK implementation (CI passed; hardware acceptance pending)
 
 This final drive-control feature adds HP BASIC commands through **CPM85 v0.04a** in the coordinated `feature/cpm85-drive-control` branches:
