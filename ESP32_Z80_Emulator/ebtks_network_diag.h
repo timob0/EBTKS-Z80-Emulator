@@ -1,111 +1,119 @@
 #pragma once
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
 #include <atomic>
+#include <new>
 #include <stdint.h>
 
-// Read-only diagnostics for Wi-Fi instability and CP/M console TCP stalls.
-// No network operations, buffers, polling tasks, logs or policy changes.
-// Counters last until ESP32 reset and may wrap after ~2^32 increments.
+// Passive Wi-Fi and console-stall diagnostics. Counter storage uses spare
+// 32-bit executable/internal heap to avoid the tight TFT static DRAM limit.
+// All accesses are aligned 32-bit atomic operations; no byte-wise IRAM stores.
+// No additional task, socket, polling loop, or changes to network policies.
 namespace EbtksNetDiag {
-static std::atomic<uint32_t> wifiGotIpEvents{0};
-static std::atomic<uint32_t> wifiDisconnectEvents{0};
-static std::atomic<uint32_t> wifiLastGotIpMs{0};
-static std::atomic<uint32_t> wifiLastDisconnectMs{0};
-static std::atomic<uint32_t> wifiLastDisconnectReason{0};
+enum Key : uint8_t {
+  WIFI_GOT_IP, WIFI_DISCONNECT, WIFI_LAST_IP_MS, WIFI_LAST_DISCONNECT_MS,
+  WIFI_DISCONNECT_REASON, WEB_WAIT_EVENTS, WEB_WAIT_TOTAL_MS, WEB_WAIT_MAX_MS,
+  WEB_TIMEOUTS, WEB_WAITING, TELNET_ZERO_WRITES, TELNET_STALL_EVENTS,
+  TELNET_STALL_TOTAL_MS, TELNET_STALL_MAX_MS, TELNET_STALLING, KEY_COUNT
+};
+struct Counters { std::atomic<uint32_t> slot[KEY_COUNT]; };
+// One pointer in scarce static byte-addressable DRAM; no static counter bank.
+static std::atomic<Counters*> counters{nullptr};
 
-static std::atomic<uint32_t> websocketWaitEvents{0};
-static std::atomic<uint32_t> websocketWaitTotalMs{0};
-static std::atomic<uint32_t> websocketWaitMaxMs{0};
-static std::atomic<uint32_t> websocketTimeouts{0};
-static std::atomic<bool> websocketWaiting{false};
-
-static std::atomic<uint32_t> telnetZeroWrites{0};
-static std::atomic<uint32_t> telnetStallEvents{0};
-static std::atomic<uint32_t> telnetStallTotalMs{0};
-static std::atomic<uint32_t> telnetStallMaxMs{0};
-static std::atomic<bool> telnetStalling{false};
-
-inline void maxDuration(std::atomic<uint32_t> &target, uint32_t elapsed) {
+inline uint32_t read(Key k) {
+  Counters *c = counters.load(std::memory_order_acquire);
+  return c ? c->slot[k].load(std::memory_order_relaxed) : 0;
+}
+inline void set(Key k, uint32_t value) {
+  Counters *c = counters.load(std::memory_order_acquire);
+  if (c) c->slot[k].store(value, std::memory_order_relaxed);
+}
+inline void increment(Key k, uint32_t by = 1) {
+  Counters *c = counters.load(std::memory_order_acquire);
+  if (c) c->slot[k].fetch_add(by, std::memory_order_relaxed);
+}
+inline void setMax(Key k, uint32_t value) {
+  Counters *c = counters.load(std::memory_order_acquire);
+  if (!c) return;
+  std::atomic<uint32_t> &target = c->slot[k];
   uint32_t old = target.load(std::memory_order_relaxed);
-  while (old < elapsed &&
-         !target.compare_exchange_weak(old, elapsed, std::memory_order_relaxed)) {}
+  while (old < value &&
+         !target.compare_exchange_weak(old, value, std::memory_order_relaxed)) {}
 }
 
-// Registered before WiFi.mode()/autoConnect(). ESP32 invokes this from its
-// Wi-Fi event task: never call WiFi, allocate, print or block inside callback.
+// Callback executes in framework event task. Never allocate, call WiFi,
+// log, wait or modify reconnect policy inside this observer.
 inline void wifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-    wifiGotIpEvents.fetch_add(1, std::memory_order_relaxed);
-    wifiLastGotIpMs.store(millis(), std::memory_order_relaxed);
+    increment(WIFI_GOT_IP);
+    set(WIFI_LAST_IP_MS, millis());
   } else if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-    wifiDisconnectEvents.fetch_add(1, std::memory_order_relaxed);
-    wifiLastDisconnectMs.store(millis(), std::memory_order_relaxed);
-    wifiLastDisconnectReason.store(info.wifi_sta_disconnected.reason,
-                                   std::memory_order_relaxed);
+    increment(WIFI_DISCONNECT);
+    set(WIFI_LAST_DISCONNECT_MS, millis());
+    set(WIFI_DISCONNECT_REASON, info.wifi_sta_disconnected.reason);
   }
 }
 
 inline void begin() {
-  // Passive observer only. Do not change Wi-Fi credentials, auto-reconnect,
-  // modem settings, network timeouts or Web/Telnet buffer policies.
+  // Allocate only once before Wi-Fi provisioning, outside static DRAM.
+  // ALLOC_CAP_32BIT | EXEC permits spare instruction RAM for 32-bit words.
+  void *mem = heap_caps_malloc(sizeof(Counters),
+      MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT | MALLOC_CAP_EXEC);
+  if (mem) {
+    Counters *fresh = new (mem) Counters;
+    // Do not memset a 32-bit-only allocation.
+    for (unsigned i = 0; i < KEY_COUNT; ++i)
+      fresh->slot[i].store(0, std::memory_order_relaxed);
+    counters.store(fresh, std::memory_order_release);
+  }
+  // Existing Wi-Fi manager and auto-connect configuration are unchanged.
   WiFi.onEvent(wifiEvent);
 }
 
-inline void websocketWaitBegin() {
-  websocketWaitEvents.fetch_add(1, std::memory_order_relaxed);
-  websocketWaiting.store(true, std::memory_order_relaxed);
-}
+inline void websocketWaitBegin() { increment(WEB_WAIT_EVENTS); set(WEB_WAITING, 1); }
 inline void websocketWaitEnd(uint32_t elapsedMs, bool timedOut) {
-  websocketWaitTotalMs.fetch_add(elapsedMs, std::memory_order_relaxed);
-  maxDuration(websocketWaitMaxMs, elapsedMs);
-  if (timedOut) websocketTimeouts.fetch_add(1, std::memory_order_relaxed);
-  websocketWaiting.store(false, std::memory_order_relaxed);
+  increment(WEB_WAIT_TOTAL_MS, elapsedMs);
+  setMax(WEB_WAIT_MAX_MS, elapsedMs);
+  if (timedOut) increment(WEB_TIMEOUTS);
+  set(WEB_WAITING, 0);
 }
-
 inline void telnetWriteZero(bool firstInStall) {
-  telnetZeroWrites.fetch_add(1, std::memory_order_relaxed);
-  if (firstInStall) {
-    telnetStallEvents.fetch_add(1, std::memory_order_relaxed);
-    telnetStalling.store(true, std::memory_order_relaxed);
-  }
+  increment(TELNET_ZERO_WRITES);
+  if (firstInStall) { increment(TELNET_STALL_EVENTS); set(TELNET_STALLING, 1); }
 }
 inline void telnetStallEnd(uint32_t elapsedMs) {
-  telnetStallTotalMs.fetch_add(elapsedMs, std::memory_order_relaxed);
-  maxDuration(telnetStallMaxMs, elapsedMs);
-  telnetStalling.store(false, std::memory_order_relaxed);
+  increment(TELNET_STALL_TOTAL_MS, elapsedMs);
+  setMax(TELNET_STALL_MAX_MS, elapsedMs);
+  set(TELNET_STALLING, 0);
 }
 
 inline void append(JsonDocument &v) {
-  // WiFi.status()/RSSI() are queried only on explicit HTTP health requests.
+  // Only the health API samples RSSI/status: no ongoing Wi-Fi queries.
   const wl_status_t status = WiFi.status();
   const bool connected = status == WL_CONNECTED;
   v["wifi_connected"] = connected;
   v["wifi_status_code"] = (int)status;
   if (connected) v["wifi_rssi_dbm"] = WiFi.RSSI();
   else v["wifi_rssi_dbm"] = nullptr;
-
-  const uint32_t gotIp = wifiGotIpEvents.load(std::memory_order_relaxed);
+  v["network_counters_available"] =
+      counters.load(std::memory_order_acquire) != nullptr;
+  const uint32_t gotIp = read(WIFI_GOT_IP);
   v["wifi_got_ip_events"] = gotIp;
   v["wifi_reconnects"] = gotIp > 1 ? gotIp - 1 : 0;
-  v["wifi_disconnect_events"] = wifiDisconnectEvents.load(std::memory_order_relaxed);
-  v["wifi_last_got_ip_ms"] = wifiLastGotIpMs.load(std::memory_order_relaxed);
-  v["wifi_last_disconnect_ms"] = wifiLastDisconnectMs.load(std::memory_order_relaxed);
-  v["wifi_last_disconnect_reason"] =
-      wifiLastDisconnectReason.load(std::memory_order_relaxed);
-
-  v["websocket_queue_wait_events"] = websocketWaitEvents.load(std::memory_order_relaxed);
-  v["websocket_queue_waiting"] = websocketWaiting.load(std::memory_order_relaxed);
-  v["websocket_queue_wait_total_ms"] =
-      websocketWaitTotalMs.load(std::memory_order_relaxed);
-  v["websocket_queue_wait_max_ms"] =
-      websocketWaitMaxMs.load(std::memory_order_relaxed);
-  v["websocket_timeout_disconnects"] = websocketTimeouts.load(std::memory_order_relaxed);
-
-  v["telnet_write_zero_events"] = telnetZeroWrites.load(std::memory_order_relaxed);
-  v["telnet_write_stall_events"] = telnetStallEvents.load(std::memory_order_relaxed);
-  v["telnet_write_stalling"] = telnetStalling.load(std::memory_order_relaxed);
-  v["telnet_write_stall_total_ms"] = telnetStallTotalMs.load(std::memory_order_relaxed);
-  v["telnet_write_stall_max_ms"] = telnetStallMaxMs.load(std::memory_order_relaxed);
+  v["wifi_disconnect_events"] = read(WIFI_DISCONNECT);
+  v["wifi_last_got_ip_ms"] = read(WIFI_LAST_IP_MS);
+  v["wifi_last_disconnect_ms"] = read(WIFI_LAST_DISCONNECT_MS);
+  v["wifi_last_disconnect_reason"] = read(WIFI_DISCONNECT_REASON);
+  v["websocket_queue_wait_events"] = read(WEB_WAIT_EVENTS);
+  v["websocket_queue_waiting"] = read(WEB_WAITING) != 0;
+  v["websocket_queue_wait_total_ms"] = read(WEB_WAIT_TOTAL_MS);
+  v["websocket_queue_wait_max_ms"] = read(WEB_WAIT_MAX_MS);
+  v["websocket_timeout_disconnects"] = read(WEB_TIMEOUTS);
+  v["telnet_write_zero_events"] = read(TELNET_ZERO_WRITES);
+  v["telnet_write_stall_events"] = read(TELNET_STALL_EVENTS);
+  v["telnet_write_stalling"] = read(TELNET_STALLING) != 0;
+  v["telnet_write_stall_total_ms"] = read(TELNET_STALL_TOTAL_MS);
+  v["telnet_write_stall_max_ms"] = read(TELNET_STALL_MAX_MS);
 }
 } // namespace EbtksNetDiag
