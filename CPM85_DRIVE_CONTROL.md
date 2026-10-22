@@ -1,5 +1,18 @@
 # CPM85 v0.03a — HP-85 control of CP/M disk assignments
 
+## 2026-10-22 — CPDIMGS / CPDMK implementation (CI passed; hardware acceptance pending)
+
+This final drive-control feature adds HP BASIC commands through **CPM85 v0.04a** in the coordinated `feature/cpm85-drive-control` branches:
+
+- `CPDIMGS`: lists `.DSK` files from `/cpm/disks` (not `.LIF` or all SD files), case-insensitively, with KiB sizes. Uses the existing Teensy directory RPC and prints a count and explicit truncation notice if the HP reply's 680-byte payload budget is exceeded. No mount or disk modification.
+- `CPDMK "WORK.DSK"`: creates a new exactly **8,388,608-byte** CP/M native image under `/cpm/disks`. Optional extension `CPDMK "WORK"` appends `.DSK`. Input allows alphanumeric, underscore, hyphen, dot, rejects relative paths/traversal, hidden names and other extensions. Existing file names are never truncated or overwritten (Teensy checks `SD.exists` and opens `O_EXCL|O_CREAT`). Creation writes `0xE5` in all sectors, including empty CP/M directory entries. Teensy writes at most **4096 bytes per ordinary loop iteration** using a static 512-byte sector pattern buffer; the ESP32 only sends begin/status control JSON and polls until completion. An incomplete image is removed on Teensy SD write/sync/size verification failure. The CP/M mount table is not changed; use `CPDMNT "G:","WORK.DSK"` then `CPRESET`.
+- CPDMK's HP-side polling timeout was selectively extended while existing `CPSTATUS/CPDMNT/CPDUMNT/CPRESET` timers and keyboard interrupt logic stay unchanged. The ESP32 caps its wait to 45 seconds; if the job is still running, the reply says to inspect with CPDIMGS. No 8 MiB transfer over JSON/Base64/UART.
+
+**Native/firmware CI successful before documentation update:** HP CAPASM/CAPLIF + keyword ABI: [39846359109](https://github.com/timob0/HP85-Option-Roms/actions/runs/39846359109); Teensy firmware plus full 8 MiB mock creation, no overwrite, and failure cleanup: [39846771145](https://github.com/timob0/ebtks-alt-firmware/actions/runs/39846771145); ESP32 headless and TFT: [39846176138](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39846176138). These tests **do not establish physical HP/SD acceptance**. User must build/flash ALL THREE matching development variants, then test CPVER/CPDIMGS/CPDMK on a harmless new name, verify 8,388,608-byte SD file and CP/M access after mount/reset. Do not merge feature branches into main or promote the recovery/ stable firmware image before physical acceptance. The earlier Wi-Fi diagnostics startup regression remains removed.
+
+**Next branch after merge:** HP management console using PRINTER85 saved KEY LABEL buffers and K4/K8 previous/next pages, with management page 1 media, page 2 file transfer, page 3 device mappings; not implemented in this milestone.
+
+
 ## 2026-10-22 — FULL DRIVE-CONTROL HARDWARE ACCEPTANCE (LATEST)
 
 **USER-VERIFIED SUCCESS:** After reflashing the ESP32 TFT `feature/cpm85-drive-control` image with the small-stack NVS verification correction and retaining HP `CPM85 v0.03f` and matching Teensy firmware, HP BASIC `CPDMNT` now completes normally and sets a disk assignment; `CPRESET` starts the Z80/CP/M with that assignment applied; user then **successfully accessed the newly mounted drive from CP/M**. Returning to HP BASIC, `CPDUMNT` also worked to remove the mount. The previously observed unexpected Z80 reset plus `CPM85 DRIVE TIMEOUT` on mount and unmount has not recurred in this acceptance report.
