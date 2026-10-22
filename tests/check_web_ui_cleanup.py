@@ -145,6 +145,20 @@ assert 'CpmWifiModem::service();' in web
 assert 'xTaskCreatePinnedToCore' not in diag
 assert 'delay(' not in diag and 'vTaskDelay(' not in diag
 assert 'WiFi.begin(' not in diag and 'WiFi.disconnect(' not in diag
+# Firmware identity must describe the compiled binary, not the tip of a
+# development branch or a manually bumped hardcoded version number.
+pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
+revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
+assert "extra_scripts = pre:tools/pio_git_revision.py" in pio
+assert "git\", \"rev-parse" not in revision  # verify real git command below
+assert 'git("rev-parse", "--verify", "HEAD")' in revision
+assert 'git("status", "--porcelain", "--untracked-files=normal")' in revision
+assert "EBTKS_BUILD_GIT_COMMIT" in revision
+assert "EBTKS_BUILD_GIT_DIRTY" in revision
+assert '#include "ebtks_build_revision.h"' in web
+assert 'v["git_commit"]=EBTKS_BUILD_GIT_COMMIT' in web
+assert 'v["git_dirty"]=(bool)EBTKS_BUILD_GIT_DIRTY' in web
+assert (ROOT.parent / "tests/check_build_revision.py").is_file()
 print("PASS: passive Wi-Fi and output-stall health telemetry without policy changes")
 
 print("PASS: Web, modem, heap capability inventory, shared Telnet, IRAM32 SPI cache, SPI safeguards")
