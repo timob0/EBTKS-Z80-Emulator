@@ -5,8 +5,13 @@
 #pragma once
 #include "disk.h"
 #include "z80_bridge.h"
+#include "cpm_service_probe.h"
 
 static Z80Bridge ebtksCpuBridge;
+
+static bool ebtksCcpServiceFetch(void *context,uint16_t pc,const uint8_t *ram) {
+  return static_cast<CpmSafePoint::Gate *>(context)->fetch(pc,ram);
+}
 
 void portOut(uint8_t p, uint8_t v) {
   int i;  
@@ -150,6 +155,11 @@ void CPUTask(void *) {
   // No ESP32-local SD exists in EBTKS: storage belongs to Teensy.
   z80BridgeInit(&ebtksCpuBridge,RAM,ebtksBridgePortIn,
                 ebtksBridgePortOut,nullptr,&RUN);
+  // Passive exact-PC CCP gate. No network registration or heap allocation.
+  // Redcode/Z80 only: legacy CPU builds do not expose service injection.
+  ebtksCpuBridge.service_fetch=ebtksCcpServiceFetch;
+  ebtksCpuBridge.service_context=&cpmSafeGate;
+  ebtksCpuBridge.service_trap_enabled=true;
   cpu_t=true;
   Serial.println("redcode/Z80 CPU task ready (Teensy storage unaffected)");
 
@@ -161,7 +171,13 @@ void CPUTask(void *) {
     // executes exactly one whole instruction, not one T-state.
     Z80BridgeStop reason=z80BridgeRun(&ebtksCpuBridge,SingleStep?1:12000);
     PC=Z80_PC(ebtksCpuBridge.cpu); // shared diagnostics/warm-boot reader
-    if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {
+    if(reason==Z80_BRIDGE_SERVICE) {
+      // This runs ONLY on the Z80 task at the verified CCP D382 opcode,
+      // after a blank Enter. No other task touches Z80 registers or RAM.
+      const bool ok=CpmServiceProbe::execute(&ebtksCpuBridge);
+      cpmSafeGate.complete(ok);
+      PC=Z80_PC(ebtksCpuBridge.cpu);
+    } else if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {
       RUN=false;
     } else if(reason==Z80_BRIDGE_EXTERNAL_STOP) {
       RUN=false;
