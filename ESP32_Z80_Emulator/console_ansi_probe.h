@@ -174,10 +174,14 @@ class Terminal {
             case '7': savedRow_ = row_; savedCol_ = col_; break;
             case '8': row_ = savedRow_; col_ = savedCol_; break;
             case 'c': reset(); vtDialect_ = true; break;
-            case 'D': if (vtDialect_) lineFeed();
-                      else col_ = (uint8_t)clamp(col_ - 1, 0, 79); break;
-            case 'E': if (vtDialect_) { lineFeed(); col_ = 0; }
-                      else reset(); break;
+            case 'D':
+              if (vtDialect_) { lineFeed(); }
+              else { col_ = (uint8_t)clamp(col_ - 1, 0, 79); }
+              break;
+            case 'E':
+              if (vtDialect_) { lineFeed(); col_ = 0; }
+              else { reset(); }
+              break;
             case 'M': reverseIndex(); vtDialect_ = true; break;
             case 'H': case 'h': row_ = col_ = 0; break;
             case '*': reset(); break;
