@@ -1,0 +1,96 @@
+# SIMON85 / EBTKS — durable handoff checkpoint (2026-10-23, Europe/Berlin)
+
+**Read this first if the previous chat was interrupted.** This is the current source of truth for the **CP/M CCP-safe resident service, Stage A**. Earlier entries in `NEXT_CHAT_HANDOFF.md` are chronological history and may refer to older build/test states.
+
+## What is already stable and merged
+
+Three repositories have fully merged, hardware-accepted `main` baselines for CPM85 **v0.04b**, image creation/listing (`CPDMK` / `CPDIMGS`), disk mount/unmount/reset, HP keyboard forwarding, ANSI TFT/Web terminal, and modem:
+
+| Repository | Last coordinated main merge commit | Merged PR |
+| --- | --- | --- |
+| `timob0/EBTKS-Z80-Emulator` (ESP32) | `eca19c576f68ec8a90748356aeaa4b4ac861f092` | #7 |
+| `timob0/ebtks-alt-firmware` (Teensy) | `c8617c07f06c2027ade96570386adb2ec3cc2edb` | #3 |
+| `timob0/HP85-Option-Roms` (HP ROM/LOADBIN) | `691154251a6852767dbec322b19168ec2d4add41` | #1 |
+
+The user physically tested the stable image commands and new-line behavior successfully. **Do not modify, overwrite, or automatically promote the user-maintained `recovery/` working firmware**. There is no need to rebuild or flash Teensy or HP LOADBIN for Stage A.
+
+A fresh `feature/cpm85-management-console` branch exists in all three repositories; the current Stage A development changes are **ESP32-only**. Do not merge this new feature branch into `main` until physical acceptance.
+
+## Precisely where development stopped
+
+Stage A implementation of a safe CCP command-input gate and a harmless emulator-bundled Z80 probe is in the ESP32 repo. It **does not implement `CPFPUT`, `CPFGET`, BDOS file writes, hot-swapping drives, or the HP management UI yet**.
+
+- `ESP32_Z80_Emulator/cpm_safe_point.h`: verifies native CP/M 2.2 CCP signatures, tracks actual CCP prompt execution (`D382`), interactive BDOS line input (`D19C`), BDOS return (`D1A4`) and command execution (`D398`). Rejects attempts while an application is running, refuses concurrent pending operations, uses a generation counter to cancel submission races, cancels after nonempty input and on warm boot.
+- `ESP32_Z80_Emulator/z80_bridge.h`: introduces a second precise pre-instruction service trap while preserving the existing `E603` warm-boot trap.
+- `ESP32_Z80_Emulator/cpm_service_probe.h`: runs a **non-BDOS**, 5-byte machine-code test (`LD A,42h; CP 42h; HALT`) from an overwritten-and-restored temporary TPA region at `C000`. The existing Z80 CPU task alone saves and restores registers, PC/SP, CPU callback state and TPA bytes before CCP resumes. Never injects from a Wi-Fi or HP keyboard worker.
+- `GET /api/cpm/service/status` reports `supported`, `ccp_idle`, `mode`, `probe`, `git_commit`.
+- `POST /api/cpm/service/probe` accepts only if CCP is waiting for interactive input (HTTP 202); while an app runs or the service is unsupported/busy it returns HTTP 409. **The operator must then press an EMPTY Return** to leave the non-reentrant BDOS input call, causing a one-shot, safe D382 trap. Typing a nonempty command cancels the operation; the command itself runs normally.
+- `tests/cpm_safe_point_native.cpp`, `tests/run_z80_core_native.sh`, and the branch-enabled CI workflow test the real redcode/Z80 core, correct refusal of non-CCP execution, cancelled requests, actual service execution and full state restoration.
+
+### Last blocking report and resolution
+
+On the first attempt to build Stage A at **`e2e76c33e1b284ed41d1d5aa5f4b78e37500ad08`**, the **user's Mac** Xtensa linker reported:
+
+```text
+section `.dram0.bss' will not fit in region `dram0_0_seg'
+region `dram0_0_seg' overflowed by 16 bytes
+```
+
+**This was a static internal-DRAM linker allocation issue, not a runtime free-heap issue.** The initial Linux CI had passed, making a local Mac linker check essential.
+
+The ESP32 source was fixed **without disabling functions or changing Wi-Fi, SPI, Teensy, HP ROM, partitions or recovery firmware**:
+
+1. Removed the permanent `static CpmSafePoint::Gate` from scarce `.dram0.bss`.
+2. The existing Z80 CPU worker allocates the small gate **once**, with normal `new (std::nothrow)`, and disables this optional service if allocation fails. No early allocation and no special IRAM/EXEC allocation.
+3. Reuses existing `ebtksCpuBridge.device` for the gate pointer (EBTKS I/O callbacks do not use that field), and uses a nullable `service_fetch` pointer; removed the redundant permanent service context and enable flag.
+4. Added `tests/check_esp32_dram_budget.py`, run **after linking the TFT firmware** in CI; maximum allowed static TFT DRAM is **124,544 bytes** (the previous hardware-accepted main baseline was **124,528 bytes**).
+
+**Verified latest code and docs checkpoint BEFORE this handoff update:** branch source commit `82d1215b919cbbd8f9838de5db0c2ce4d795d267`, GitHub Actions **run 39862436831**, both jobs **SUCCESS**:
+https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39862436831
+
+The full CI log confirms:
+```text
+TFT static DRAM: 124,536 bytes (.data 28,400 + .bss 96,136);
+stable 124,528, guard ceiling 124,544
+PASS: TFT DRAM budget remains below known macOS overflow
+PASS: both ESP32 images contain full Git build ID
+82d1215b919cbbd8f9838de5db0c2ce4d795d267
+```
+
+Thus the adjusted code saves exactly **16 bytes** of permanent TFT DRAM compared with the first failed-on-Mac version (124,552 -> 124,536). **The user has NOT YET confirmed that the corrected version links on macOS or works on hardware.** GitHub CI passing does not prove either. Commits to handoff files after `82d1215b` change Git HEAD and hence the build-embedded SHA, but do not change this tested application source.
+
+## Immediate steps for the next conversation
+
+**First verify local compile before any OTA flashing** in the local ESP32 repository:
+
+```bash
+git fetch origin
+git switch feature/cpm85-management-console
+git pull --ff-only
+git rev-parse HEAD
+pio run -e esp32dev-tft -t clean
+pio run -e esp32dev-tft
+```
+
+If there is a Mac linker error, **do not flash** and inspect its exact `.dram0` overrun. Never work around it by reducing the stable TFT/terminal/keyboard functionality, changing partition layout, or reverting all features without a reason.
+
+If build links, keep the known-working recovery binary on hand, flash the local `.pio/build/esp32dev-tft/firmware.bin` through the established Web UI, and verify `http://<ESP32-IP>/api/system/health` embeds the SHA printed by local `git rev-parse HEAD`. Continue the non-destructive hardware acceptance outlined below:
+
+1. At an empty CP/M `A>` prompt, GET `http://<ESP32-IP>/api/cpm/service/status`. Expect `supported=true`, `ccp_idle=true`, `mode="ccp_input"`.
+2. From the Mac terminal: `curl -i -X POST http://<ESP32-IP>/api/cpm/service/probe`. Expect HTTP 202 and `accepted=true`; status is `waiting_for_empty_return`.
+3. Press **blank Return** on the actual CP/M terminal. Check GET status: `probe="passed"`, and verify CCP still accepts `DIR`.
+4. Arm again and instead type `DIR`: expect `cancelled_nonempty_command`, with `DIR` functioning normally.
+5. Start `MODEM.COM` (or another CP/M foreground application); GET should report `ccp_idle=false`, POST should refuse with HTTP 409. Exit normally (MODEM Ctrl-X) and verify the idle indication returns.
+6. Regress HP K8 keyboard, TFT and Web/Telnet CP/M consoles and ordinary mounted disk access; do not start filesystem-changing Stage B before Stage A succeeds.
+
+**Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
+
+## Related documents
+
+- `NEXT_CHAT_QUICKSTART.md` — condensed historical development guide
+- `NEXT_CHAT_HANDOFF.md` — detailed chronological record (very long)
+- `CPM85_SAFEPOINT_SERVICE.md` — Stage A architecture and hardware tests
+- `ESP32_RECOVERY_USB.md` — recovery when Web updater is unavailable
+- `CPM85_DRIVE_CONTROL.md` — accepted v0.04b image/drive integration
+
+**Important:** All merge/main activity for the previously accepted drive-control feature is complete; Stage A stays on its own `feature/cpm85-management-console` branch. The user is waiting to report the local Mac build result.
