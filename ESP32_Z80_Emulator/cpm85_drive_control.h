@@ -91,6 +91,8 @@ inline void images() {
   for (JsonObjectConst item : files) {
     const char *name = item["name"] | "";
     const char *kind = item["type"] | "";
+    // Exclude hidden/metadata files such as macOS AppleDouble ._WORK.DSK.
+    if (name[0] == '.') continue;
     const char *dot = strrchr(name, '.');
     if (strcmp(kind, "file") || !dot || strcasecmp(dot, ".dsk") != 0) continue;
     ++count;
