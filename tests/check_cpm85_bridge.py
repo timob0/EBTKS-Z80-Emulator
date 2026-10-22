@@ -29,3 +29,52 @@ assert pio.count('-DEBTKS_CPM85_KEYBOARD_ENABLE=1')==2
 assert '[env:esp32dev]' in pio and '[env:esp32dev-tft]' in pio
 assert 'TeensySerial.write(' not in a and 'SPI.transfer(' not in a
 print('PASS: development-only CP/M keyboard bridge, no unsolicited UART/SPI')
+
+# CPDMNT and CPDUMNT execute synchronously in the 3584-byte keyboard task,
+# unlike Web Media Manager (which uses AsyncTCP). Each CpmMountEntry is ~99
+# bytes, so the old two 16-drive stack arrays in cpmStoreSaveDesired took
+# >3 KiB and could overflow the worker, resetting the entire ESP32/Z80.
+store=(root/"ESP32_Z80_Emulator/cpm_mount_store.h").read_text()
+assert 'xTaskCreatePinnedToCore(worker,"CPM85Keys",3584' in a
+save=store.split("inline bool cpmStoreSaveDesired()",1)[1].split("inline bool cpmStoreFetchDiskDirectory(",1)[0]
+verify=store.split("inline bool cpmStoreVerifyDesired()",1)[1].split("inline bool cpmStoreActivateMounts()",1)[0]
+prefs=store.split("inline bool cpmStoreVerifyPrefs(",1)[1].split("inline bool cpmStoreSaveDesired()",1)[0]
+assert "CpmMountEntry expected[CPM_DRIVE_COUNT]" not in save
+assert "CpmMountEntry check[CPM_DRIVE_COUNT]" not in save
+assert "CpmMountEntry check[CPM_DRIVE_COUNT]" not in verify
+assert "cpmStoreWritePrefs(cpmDesiredMounts)" in save
+assert "cpmStoreVerifyPrefs(cpmDesiredMounts)" in save
+assert "cpmStoreVerifyPrefs(cpmDesiredMounts)" in verify
+assert 'prefs.getUInt("magic", 0) == CPM_PREF_MAGIC' in prefs
+assert 'prefs.getString(key, "")' in prefs
+assert '"%s|%s|%s"' in prefs
+assert 'actual.equals(canonical)' in prefs
+assert 'if (!expected[i].mounted)' in prefs
+assert 'for (uint8_t i = 0; i < CPM_DRIVE_COUNT && ok; ++i)' in prefs
+print("PASS: HP drive-control NVS save/reset avoids worker stack overflow")
+
+# New CPDIMGS/CPDMK: bounded HP mailbox, no ESP-side disk-image streaming.
+control=(root/"ESP32_Z80_Emulator/cpm85_drive_control.h").read_text()
+assert "if(op==5){images();return;}" in control
+assert "if(op==6){makeImage(args);return;}" in control
+# Validator must admit every operation that execute() dispatches. A stale
+# opcode ceiling of 4 rejected both commands on physical HP-85 despite green CI.
+import re
+admitted=re.search(r'if\s*\(\s*op\s*<\s*1\s*\|\|\s*op\s*>\s*(\d+)\s*\|\|',control)
+assert admitted, "missing command validator"
+max_op=int(admitted.group(1))
+dispatched=[int(op) for op in re.findall(r'if\s*\(\s*op\s*==\s*(\d+)\s*\)',control)]
+assert dispatched and max_op==max(dispatched)==6, (max_op,dispatched)
+assert 'setResult(false,"INVALID CP/M REQUEST")' in control
+assert 'request["cpm_image"]["op"] = "begin"' in control
+assert 'statusReq["cpm_image"]["op"] = "status"' in control
+assert "CPM_NATIVE_BYTES" in control
+assert 'ebtksStorageExchange(statusReq, statusReply, 3000)' in control
+assert "IMAGE CREATE PENDING; CHECK CPDIMGS" in control
+assert 'strcasecmp(dot, ".dsk")' in control
+assert "LIST TRUNCATED" in control
+# Ignore AppleDouble/hidden dot-files, including "._DISK.DSK".
+assert "if (name[0] == '.') continue;" in control
+assert control.index("if (name[0] == '.') continue;") < control.index("const char *dot = strrchr(name, '.');")
+assert "memset(" not in control
+print("PASS: CPDIMGS/CPDMK image commands use bounded directory/status messages")

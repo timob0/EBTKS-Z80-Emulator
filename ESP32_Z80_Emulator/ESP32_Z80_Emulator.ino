@@ -36,6 +36,7 @@
 #include "basic.h"
 #include "disk.h"
 #include "cpm_mount_store.h"
+#include "cpm85_drive_control.h" // HP-85 management commands
 #include "cpm_geometry_dynamic.h"
 #include "cpm_warmboot.h"
 // Keep last user-tested decoder available for A/B regression builds.

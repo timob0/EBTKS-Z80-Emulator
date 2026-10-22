@@ -1,5 +1,64 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
+**2026-10-22 current post-boot hardware measurements, repaired build:** Running ESP32 `git_commit=bf4b36b84b5cacfe6af5b5aba5ee94d42ae72952` reports `uptime_ms=40781`, `heap_free=67996`, `heap_min_free=62188` (total heap cumulative minimum, not byte-addressable minimum), `largest_free_8bit_block=25588`, `internal_free=67996`, `internal_largest_block=38900`, modem dormant (`cpm_modem_state=0`), `spi_cache_storage=iram32`, `spi_read_failures=0`; flags for watchdog, panic, brownout reset all false. User confirms image operational and SHA correctly exposed. **Idle baseline ONLY**: no post-flash BBS stress and no `min_free_8bit` measurement in this health response. Historical 628-byte 8BIT minimum remains unlocalized; do not conclude Wi-Fi relation or memory stability under modem stress. New active feature source contains **no** failed Wi-Fi/network diagnostic instrumentation.
+
+**2026-10-22 follow-up — remove unsafe Wi-Fi diagnostics:** After hardware recovery, the runtime telemetry experiment is fully removed from ESP32 `feature/cpm85-drive-control`: no extra counters, events, polling, WebSocket/Telnet hooks, IRAM or 8-bit RAM use from the failed experiment. `ebtks_web.h`, `serial.h`, `web_terminal_v2.h` exactly match last physical-good `73a90b4` except for flash-backed build-time `git_commit` metadata at `/api/system/health`. Source branch build and physical acceptance are distinct. The earlier fatal no-boot build was **recovered** by the user using the Teensy programmer. User opted to defer Wi-Fi memory investigation and retain only SHA so future firmware versions can be verified. This does NOT resolve the historic `min_free_8bit=628` observation; keep monitoring with existing pre-diagnostics memory endpoints.
+
+**2026-10-22 — physical recovery succeeded:** Following the severe startup regression from the added Wi-Fi health telemetry and build Git SHA, the user recovered the ESP32 via the already-proven Teensy USB programmer bridge and confirmed it is **back in operation**. The previously good pre-diagnostics firmware source `73a90b4dbecb4d15b31a4143d3efc20ab9de281c` was recommended for flashing; actual running SHA was not read back. **Do not use or reflash the current development-branch diagnostics image**, regardless of green CI. First investigate early startup (`EbtksNetDiag::begin()`, 32-bit-only allocation, Wi-Fi event hook) without touching the user's working firmware. Prior warnings below that recovery had not been confirmed are superseded; the underlying failure mechanism remains unresolved.
+
+**CRITICAL HARDWARE REGRESSION — 2026-10-22:** The first combined Wi-Fi/RSSI/disconnect/stall-counter plus compiled Git SHA diagnostic image successfully built in CI but, after OTA flash, left **both TFT blank and all ESP32 webpages unreachable** after a power cycle. The firmware was never hardware accepted. The most obvious new early-startup code, `EbtksNetDiag::begin()`, allocates an atomic counter bank in INTERNAL|32BIT|EXEC-only memory and hooks Wi-Fi events before `WiFi.mode(WIFI_STA)`; a crash in allocation/IRAM atomic access or callback would occur before TFT setup. **Hypothesis only**, no ESP32 panic/reset reason obtained. The 16-byte static DRAM overflow had been eliminated at link time, but passing linker/host tests is NOT runtime proof. **Do not recommend flashing diagnosis commit `c09a94647b6bf3fd86fce0f2688b487c587c6cba`.** Use physically accepted pre-diagnostics ESP32 `73a90b4dbecb4d15b31a4143d3efc20ab9de281c` and proven Teensy USB serial recovery (`ESP32_RECOVERY_USB.md`) first. No claim user has recovered until they report success.
+
+**2026-10-22 Wi-Fi correlation telemetry, firmware-source provenance:** The ESP32 development branch now augments `/api/system/health` with RSSI (dBm), Wi-Fi status, GOT_IP/disconnect/reconnect event counts, last disconnect reason/timestamps, WebSocket queue-wait counts/current status/max and cumulative milliseconds, Telnet zero-byte TCP write and stall counters, `free_8bit`, `min_free_8bit`, and compiled `git_commit` plus `git_dirty`. *This is instrumentation only*: existing 10-second browser queue timeout and unlimited Telnet write retry remain unchanged. To avoid TFT static DRAM overflow (initial failure exceeded the .dram0 region by 16 bytes), the 15×32-bit atomic counter bank now resides in separately allocated spare 32-bit executable/internal RAM, with just one static pointer and a boolean `network_counters_available` in JSON. Allocation is done once before Wi-Fi provisioning; only aligned 32-bit accesses follow. No new FreeRTOS task. Cumulative counters/low-water reset on ESP32 reboot. Full 40-char SHA is generated into `.pio/build/<env>/ebtks_build_revision.h` from Git HEAD and compiled into the actual firmware, with a CI binary-content check. Await physical weak-Wi-Fi comparison; the historic 628-byte minimum remains unexplained.
+
+**2026-10-22 verification update:** The per-drive NVS verification (replacing two large mount-table stack arrays) is now **hardware-accepted**: HP `CPDMNT`, `CPRESET`, CP/M access to newly mounted disk, and HP `CPDUMNT` all work using the updated ESP32 `feature/cpm85-drive-control` firmware plus CPM85 v0.03f. Earlier crash-specific reset reason was not captured, so diagnosis remains inferred but strongly corroborated. This fix targets **FreeRTOS task-stack pressure**, not the separate **8-bit heap** low watermark. Prior `min_free_8bit=628` B is still a relevant, unlocated peak; no new memory data supplied with acceptance. Do not claim 8-bit heap pressure resolved solely from the successful drive-command tests.
+
+**2026-10-22 stack audit finding:** Two 16-entry `CpmMountEntry` arrays (~3,168 bytes) were allocated on the 3,584-byte `CPM85Keys` worker stack whenever HP mount/unmount saved NVS, a probable stack-canary crash/reset (distinct from heap exhaustion). Streamed per-drive NVS verification replaces these arrays in ESP32 drive-control feature branch; hardware validation pending. See `CPM85_DRIVE_CONTROL.md`.
+
+## 2026-10-21 combined HP/Web/CP/M/BBS hardware acceptance and low-water warning
+
+User ran HP-85 `CPSTATUS` repeatedly, then CP/M F: `MODEM.COM`, dialed a BBS, logged off, and exited MODEM successfully. Web UI pages remained responsive, and Web Media Manager continued to display correct mappings. User unmounted a drive in **Web Media Manager**, and a subsequent HP-85 `CPSTATUS` reflected the change. This verifies that both interfaces see the same *desired* NVS mount table; unmount becomes active only after CP/M virtual reset. Previous blank Media Manager page / HTTP unresponsive incident **did not reproduce** in this combined session. The test demonstrates HP `CPSTATUS` v0.03e correct text, read-only cross-interface state, and successful Web unmount; HP `CPDMNT`, `CPDUMNT` and `CPRESET` still require physical acceptance.
+
+Memory snapshot at `uptime_ms=962093` (~16.0 min) after session:
+
+| Measurement | Bytes / value |
+| --- | ---: |
+| `heap_free` | 58,336 |
+| `free_8bit` | 19,160 |
+| `largest_8bit` | 17,396 |
+| **`min_free_8bit` (historic)** | **628** |
+| `min_heap_free` (historic) | 39,804 |
+| `modem_state` | 2 |
+| `modem_dial_refused_low_heap` | 0 |
+| `telnet_listener_mode` | `shared_web_task` |
+| `cpm_boot_ready` (last capture) | 70,852 INTERNAL / 31,676 8BIT / 27,636 largest |
+| `tcp_closed` checkpoint | 57,476 INTERNAL / 18,300 8BIT / 14,836 largest |
+
+**Interpretation:** The current 8BIT free is >19 KiB, with a 17.4-KiB contiguous block, and no low-memory dial refusal. No persistent leak established, and Web responsiveness held. The extraordinarily low **628-byte cumulative 8BIT minimum** nonetheless means that the system had very little remaining byte-addressable allocation reserve at some point since restart. It does not identify which operation caused the dip, and it is not current free space. **Do not silently mark heap safety as resolved or relax modem guard.** Note that `cpm_boot_ready` is captured inside `ESP32_Z80_Emulator.ino::loop()` after `bootstrap()` and can be overwritten at every Z80 *virtual* reset. It is not necessarily a fixed once-per-ESP32-coldboot checkpoint. Previous snapshot showed 81,464 INTERNAL/42,288 8BIT; difference alone is not proof of leak.
+
+Suggested next work if user wishes to pursue memory margin: correlate minimum with fresh reboot and isolated `/api/cpm/media` refresh vs repeated HP `CPSTATUS` vs MODEM connect/disconnect. Use runtime allocation-failure tracing or targeted per-operation free/min probes, preserving the hardware-accepted firmware. Existing media-status API returned valid full JSON (six mounted drives plus SD media) when tested directly; don't claim NVS/media loss. No code changes or new flashes for this documented acceptance.
+
+## 2026-10-21: hardware modem/Web/TFT retest after clean ESP32 build
+
+User rebuilt and flashed ESP32 `feature/cpm85-drive-control` TFT target (`esp32dev-tft`) after discovering an older running image still had the `/api/system/memory/pools` HTTP prefix-shadowing bug. **Physical endpoints now behave correctly:** `/api/system/memory` includes `min_free_8bit`, and `/api/system/memory/pools` independently returns the seven overlapping capability classes. The Web-TFT terminal once again matches the 16-color ANSI/CP437 TFT visually.
+
+**Real MODEM retest succeeded:** From Web Terminal, on CP/M F: drive, MODEM.COM connected successfully and the Web UI remained responsive throughout. Earlier dial-refused/frozen-Web behavior was not reproduced. Final snapshot at uptime 282,763 ms:
+
+| Metric | Value |
+| --- | ---: |
+| `heap_free` / INTERNAL current | 57,548 bytes |
+| `free_8bit` current | 18,372 bytes |
+| `largest_8bit` current | 15,348 bytes |
+| `min_heap_free` historic | 42,064 bytes |
+| **`min_free_8bit` historic** | **2,888 bytes** |
+| `modem_state` | 2 (worker running) |
+| `modem_dial_refused_low_heap` | 0 |
+| `telnet_listener_mode` | `shared_web_task` |
+
+The last successful `after_tcp_connect` stage showed 60,744 free INTERNAL bytes, 21,568 free 8BIT and largest 8BIT 15,348. `modem_task` stage recorded 58,924 / 19,748 / 15,348. The historical `min_free_8bit=2,888` **is very low**, despite normal current reserve and responsive Web UI, so mark extreme-stress/allocation margins as **not fully proven**. ESP-IDF allocator low-water marks and current snapshots are not interchangeable or necessarily simultaneous, particularly across overlapping region capabilities. Do not relax dial guard or claim general OOM immunity. Further work, only if necessary, should trace when the 8BIT minimum drops and whether an allocation fails; consider separate memory reservation tests without perturbing this hardware-proven build. **No firmware changes in this documentation update.**
+
+The CP/M drive-control branch is still in development. HP LOADBIN `CPM85 v0.03e` compilation/tests passed but **physical `CPSTATUS` newline acceptance remains unconfirmed**, and `CPDMNT`, `CPDUMNT`, `CPRESET` hardware tests are outstanding. Keep the accepted terminal/modem regression separate from those unfinished disk-management features.
+
+
 **Accepted result:** Real hardware confirmed `cache_storage="iram32"` for the 8,192-byte SPI read-ahead cache, zero SPI failures, and reliable HTTP alongside real Synchronet BBS modem operation. Browser terminal ANSI-16/CP437 and modem Ctrl+X exit were subsequently hardware-validated; the entire ESP32 integration merged into `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6), post-merge CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). **No Z80 RAM repartition is needed** for the demonstrated workload. Consult [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) for final current status; earlier experiment plans below are historical.
 
 **SIMON85 / EBTKS classic ESP32, developed on `feature/cpm-wifi-modem` and merged into stable `main` via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) on 21 October 2026.**

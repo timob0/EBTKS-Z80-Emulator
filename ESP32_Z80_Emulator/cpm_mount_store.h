@@ -115,19 +115,47 @@ inline bool cpmStoreWritePrefs(const CpmMountEntry *entries)
   return ok;
 }
 
+// Verify the persisted table one drive at a time, without materializing
+// another 16-element CpmMountEntry array on the caller's stack. HP-85
+// CPDMNT/CPDUMNT execute in the 3584-byte CPM85 keyboard worker. The
+// previous save path allocated TWO ~1.6-KiB arrays here (plus NVS call
+// frames), which could overflow that worker and reboot the whole ESP32.
+// Compare the exact canonical NVS serialization produced by WritePrefs.
+inline bool cpmStoreVerifyPrefs(const CpmMountEntry *expected)
+{
+  if (!expected) return false;
+  Preferences prefs;
+  if (!prefs.begin(CPM_PREF_NAMESPACE, true)) return false;
+  bool ok = prefs.getUInt("magic", 0) == CPM_PREF_MAGIC;
+  for (uint8_t i = 0; i < CPM_DRIVE_COUNT && ok; ++i) {
+    char key[4];
+    snprintf(key, sizeof(key), "d%c", 'A' + i);
+    String actual = prefs.getString(key, "");
+    if (!expected[i].mounted) {
+      ok = actual.length() == 0;
+      continue;
+    }
+    char canonical[CPM_MEDIA_PATH_MAX + 32];
+    int n = snprintf(canonical, sizeof(canonical), "%s|%s|%s",
+                     cpmProfileToken(expected[i].profile),
+                     expected[i].readOnly ? "ro" : "rw",
+                     expected[i].path);
+    ok = n > 0 && (size_t)n < sizeof(canonical) &&
+         actual.equals(canonical);
+  }
+  prefs.end();
+  return ok;
+}
+
 inline bool cpmStoreSaveDesired()
 {
-  CpmMountEntry expected[CPM_DRIVE_COUNT];
-  memcpy(expected, cpmDesiredMounts, sizeof(expected));
-
-  if (!cpmStoreWritePrefs(expected)) {
+  // The in-RAM desired table is already authoritative; no 16-drive
+  // snapshot or read-back array is required to persist and verify it.
+  if (!cpmStoreWritePrefs(cpmDesiredMounts)) {
     Serial.println("CP/M media: NVS mount-table write failed");
     return false;
   }
-
-  CpmMountEntry check[CPM_DRIVE_COUNT];
-  bool found = false;
-  if (!cpmStoreReadPrefs(check, found) || !found || !cpmMountArrayEqual(expected, check)) {
+  if (!cpmStoreVerifyPrefs(cpmDesiredMounts)) {
     Serial.println("CP/M media: NVS mount-table verification failed");
     return false;
   }
@@ -270,10 +298,8 @@ inline bool cpmStoreUnmountDesired(uint8_t drive)
 inline bool cpmStoreVerifyDesired()
 {
   if (!cpmStoreLoaded && !cpmStoreLoadDesired()) return false;
-  CpmMountEntry check[CPM_DRIVE_COUNT];
-  bool found = false;
-  return cpmStoreReadPrefs(check, found) && found &&
-         cpmMountArrayEqual(cpmDesiredMounts, check);
+  // CPRESET also executes in the same small HP keyboard worker.
+  return cpmStoreVerifyPrefs(cpmDesiredMounts);
 }
 
 inline bool cpmStoreActivateMounts()

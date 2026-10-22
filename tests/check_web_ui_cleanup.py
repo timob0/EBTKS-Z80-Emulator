@@ -109,4 +109,37 @@ word_cache = (ROOT / "spi_cache_words.h").read_text(encoding="utf-8")
 assert "words[i]=value" in word_cache
 assert "const uint32_t value=words[i]" in word_cache
 assert "memcpy" not in word_cache.replace("memcpy/memset", "")
+# The failed Wi-Fi health instrumentation is completely removed.
+# Only the build-generated commit SHA is permitted in the health API.
+console = (ROOT / "serial.h").read_text(encoding="utf-8")
+web_terminal = (ROOT / "web_terminal_v2.h").read_text(encoding="utf-8")
+assert not (ROOT / "ebtks_network_diag.h").exists()
+for src in (web, console, web_terminal, ino):
+    assert "EbtksNetDiag" not in src
+    assert "ebtks_network_diag.h" not in src
+    assert "WiFi.onEvent(" not in src
+assert 'WiFi.mode(WIFI_STA);' in web
+assert 'pdMS_TO_TICKS(10000)' in web_terminal
+assert 'z80WebSocket.closeAll();' in web_terminal
+assert 'serverClient.write(chunk + sent, n - sent)' in console
+assert 'vTaskDelay(1);' in console
+assert 'CpmWifiModem::service();' in web
+assert "network_counters_available" not in web
+assert 'v["wifi_rssi_dbm"]' not in web
+assert 'v["websocket_queue_wait_events"]' not in web
+assert 'v["telnet_write_stall_events"]' not in web
+
+# Firmware identity is the exact compiled SHA. No startup hooks/heap needed.
+pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
+revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
+assert "extra_scripts = pre:tools/pio_git_revision.py" in pio
+assert 'git("rev-parse", "--verify", "HEAD")' in revision
+assert "EBTKS_BUILD_GIT_COMMIT" in revision
+assert "EBTKS_BUILD_GIT_DIRTY" not in revision
+assert '#include "ebtks_build_revision.h"' in web
+assert 'v["git_commit"]=EBTKS_BUILD_GIT_COMMIT' in web
+assert 'v["git_dirty"]' not in web
+assert (ROOT.parent / "tests/check_build_revision.py").is_file()
+print("PASS: known-good boot/network paths; only compile-time Git SHA added")
+
 print("PASS: Web, modem, heap capability inventory, shared Telnet, IRAM32 SPI cache, SPI safeguards")
