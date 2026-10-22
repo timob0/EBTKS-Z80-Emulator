@@ -29,6 +29,7 @@ struct Fixture {
     memcpy(mem+0xD1A1,bdosCall,sizeof(bdosCall));
     memcpy(mem+0xD1A4,returnToCcp,sizeof(returnToCcp));
     z80BridgeInit(&cpu,mem,nullptr,nullptr,nullptr,&run);
+    z80BridgeColdReset(&cpu);
     cpu.service_trap_enabled=true;
     cpu.service_fetch=fetchGate;
     cpu.service_context=&gate;
