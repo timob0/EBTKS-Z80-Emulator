@@ -54,6 +54,8 @@ jobs:
         run: pio run -e esp32dev
       - name: Build ST7796 CP/M ANSI/VT100/CP437 terminal
         run: pio run -e esp32dev-tft
+      - name: Reject macOS-incompatible TFT static DRAM growth
+        run: python3 tests/check_esp32_dram_budget.py
       - name: Verify exact Git commit encoded in both firmware images
         run: python3 tests/check_build_revision.py
       - name: Report headless and TFT static ELF RAM
