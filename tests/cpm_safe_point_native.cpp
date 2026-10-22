@@ -30,9 +30,8 @@ struct Fixture {
     memcpy(mem+0xD1A4,returnToCcp,sizeof(returnToCcp));
     z80BridgeInit(&cpu,mem,nullptr,nullptr,nullptr,&run);
     z80BridgeColdReset(&cpu);
-    cpu.service_trap_enabled=true;
     cpu.service_fetch=fetchGate;
-    cpu.service_context=&gate;
+    cpu.device=&gate;
     gate.reset(mem,true);
     assert(gate.compatible.load());
   }
@@ -110,7 +109,8 @@ static void testRealZ80TrapExecuteAndRestore() {
   assert(Z80_BC(f.cpu.cpu)==oldBC && Z80_A(f.cpu.cpu)==0xA5);
   assert(memcmp(original,f.mem+addr,sizeof(original))==0);
   assert(f.cpu.trap_enabled && f.cpu.trap_address==0xE603);
-  assert(f.cpu.service_trap_enabled);
+  assert(f.cpu.service_fetch==fetchGate);
+  assert(f.cpu.device==&f.gate);
   assert(!f.gate.request()); // CCP must reach next input before rearming
   f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
   assert(f.gate.request());
