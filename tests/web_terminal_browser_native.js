@@ -133,6 +133,18 @@ ctx.setMode('raw');
 feedBytes(0xda,0xc4,0xbf);
 assert.equal(element('term').textContent,'┌─┐');
 
+// DA/DSR replies are now owned by ESP32's shared console router.
+reset();
+evalTerm('ws.sent.length=0');
+feedString(CSI+'c'+CSI+'5n'+CSI+'6n'+ESC+'Z');
+assert.equal(evalTerm('ws.sent.length'),0,
+  'browser must not duplicate hardware console DA/DSR responses');
+// Interactive Web keyboard input is still sent as before.
+handlers.get('term:keydown')({key:'x',ctrlKey:false,altKey:false,
+  preventDefault(){}});
+assert.equal(evalTerm('ws.sent.length'),1);
+assert.equal(evalTerm('ws.sent[0][0]'),120);
+
 // Browser-only change: preserve binary WebSocket input and status.
 assert(src.includes('AsyncWebSocket z80WebSocket("/z80ws")'));
 assert(src.includes('z80WebSocket.binaryAll(data, len)'));
