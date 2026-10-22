@@ -109,4 +109,42 @@ word_cache = (ROOT / "spi_cache_words.h").read_text(encoding="utf-8")
 assert "words[i]=value" in word_cache
 assert "const uint32_t value=words[i]" in word_cache
 assert "memcpy" not in word_cache.replace("memcpy/memset", "")
+# Wi-Fi / weak-signal forensics are passive read-only health telemetry.
+diag = (ROOT / "ebtks_network_diag.h").read_text(encoding="utf-8")
+console = (ROOT / "serial.h").read_text(encoding="utf-8")
+web_terminal = (ROOT / "web_terminal_v2.h").read_text(encoding="utf-8")
+assert '#include "ebtks_network_diag.h"' in web
+assert 'EbtksNetDiag::begin();' in web
+assert web.index('EbtksNetDiag::begin();') < web.index('WiFi.mode(WIFI_STA);')
+assert 'WiFi.onEvent(wifiEvent);' in diag
+assert "ARDUINO_EVENT_WIFI_STA_GOT_IP" in diag
+assert "ARDUINO_EVENT_WIFI_STA_DISCONNECTED" in diag
+assert 'info.wifi_sta_disconnected.reason' in diag
+assert 'WiFi.RSSI()' in diag
+assert 'WiFi.status()' in diag
+assert 'EbtksNetDiag::append(v);' in web
+for key in ["wifi_connected", "wifi_rssi_dbm", "wifi_reconnects",
+            "wifi_disconnect_events", "wifi_last_disconnect_reason",
+            "websocket_queue_wait_events", "websocket_queue_waiting",
+            "websocket_queue_wait_total_ms", "websocket_queue_wait_max_ms",
+            "websocket_timeout_disconnects", "telnet_write_zero_events",
+            "telnet_write_stall_events", "telnet_write_stalling",
+            "telnet_write_stall_total_ms", "telnet_write_stall_max_ms"]:
+    assert f'v["{key}"]' in diag, key
+for key in ("free_8bit", "min_free_8bit", "largest_free_8bit_block"):
+    assert f'v["{key}"]' in web, key
+assert 'EbtksNetDiag::websocketWaitBegin();' in web_terminal
+assert 'EbtksNetDiag::websocketWaitEnd(' in web_terminal
+assert 'pdMS_TO_TICKS(10000)' in web_terminal
+assert 'z80WebSocket.closeAll();' in web_terminal
+assert 'EbtksNetDiag::telnetWriteZero(!writeStalled);' in console
+assert 'EbtksNetDiag::telnetStallEnd(millis() - stallStartMs);' in console
+assert 'serverClient.write(chunk + sent, n - sent)' in console
+assert 'vTaskDelay(1);' in console
+assert 'CpmWifiModem::service();' in web
+assert 'xTaskCreatePinnedToCore' not in diag
+assert 'delay(' not in diag and 'vTaskDelay(' not in diag
+assert 'WiFi.begin(' not in diag and 'WiFi.disconnect(' not in diag
+print("PASS: passive Wi-Fi and output-stall health telemetry without policy changes")
+
 print("PASS: Web, modem, heap capability inventory, shared Telnet, IRAM32 SPI cache, SPI safeguards")
