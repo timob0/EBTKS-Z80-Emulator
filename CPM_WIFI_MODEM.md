@@ -1,3 +1,7 @@
+## 2026-10-22 — physical TFT BBS ANSI colors acceptance: PASS
+
+**Hardware confirmed.** After flashing the ESP32 `feature/cpm85-drive-control` TFT build with shared ANSI capability detection, the user reported that the previous monochrome-only BBS output on the TFT **now displays colors correctly**. The native console-router replies to DA/DSR/DECID probes solved the issue without modifying the modem's Telnet negotiation, TFT renderer, Teensy, or HP CPM85 firmware. Automated native/Web regression tests and ESP32 headless/TFT builds had already passed (GitHub Actions run 39831102066). Earlier section below describing this as **hardware unverified is now superseded**. Preserve these changes on the development branch pending an explicit merge request.
+
 
 ## 2026-10-22 physical TFT ANSI detection fix (unverified on hardware)
 
