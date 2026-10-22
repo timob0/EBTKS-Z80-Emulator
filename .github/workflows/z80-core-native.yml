@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [main, feature/cpm-wifi-modem, feature/cpm85-drive-control]
+    branches: [main, feature/cpm-wifi-modem, feature/cpm85-drive-control, feature/cpm85-management-console]
   workflow_dispatch:
 jobs:
   native:
