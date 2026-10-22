@@ -52,3 +52,17 @@ assert 'actual.equals(canonical)' in prefs
 assert 'if (!expected[i].mounted)' in prefs
 assert 'for (uint8_t i = 0; i < CPM_DRIVE_COUNT && ok; ++i)' in prefs
 print("PASS: HP drive-control NVS save/reset avoids worker stack overflow")
+
+# New CPDIMGS/CPDMK: bounded HP mailbox, no ESP-side disk-image streaming.
+control=(root/"ESP32_Z80_Emulator/cpm85_drive_control.h").read_text()
+assert "if(op==5){images();return;}" in control
+assert "if(op==6){makeImage(args);return;}" in control
+assert 'request["cpm_image"]["op"] = "begin"' in control
+assert 'statusReq["cpm_image"]["op"] = "status"' in control
+assert "CPM_NATIVE_BYTES" in control
+assert 'ebtksStorageExchange(statusReq, statusReply, 3000)' in control
+assert "IMAGE CREATE PENDING; CHECK CPDIMGS" in control
+assert 'strcasecmp(dot, ".dsk")' in control
+assert '"LIST TRUNCATED"' in control
+assert "memset(" not in control
+print("PASS: CPDIMGS/CPDMK image commands use bounded directory/status messages")
