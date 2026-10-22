@@ -226,7 +226,8 @@ inline void receiveCommand(JsonVariantConst command) {
     lastSequence=(uint16_t)seq;
     haveLast=true;
     const char *args=command["args"] | "";
-    if(op<1||op>4||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
+    // Match Teensy mailbox opcodes 1..6 (5=CPDIMGS, 6=CPDMK).
+    if(op<1||op>6||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
     else execute((uint8_t)op,args);
   }
   pendingAck=true;
