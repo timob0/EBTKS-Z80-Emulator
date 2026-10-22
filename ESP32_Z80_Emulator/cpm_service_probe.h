@@ -18,14 +18,14 @@ inline bool execute(Z80Bridge *bridge) {
   const Z80 savedCpu=bridge->cpu;
   const bool trapBefore=bridge->trap_enabled;
   const bool bypassBefore=bridge->trap_bypass_once;
-  const bool serviceBefore=bridge->service_trap_enabled;
+  const auto serviceBefore=bridge->service_fetch;
   const Z80BridgeStop priorStop=bridge->stop_reason;
   const uint16_t priorStoppedAt=bridge->stopped_at;
   // No BDOS use or data allocation. CPU worker exclusively owns this state.
   memcpy(bridge->memory+kAddress,kProgram,sizeof(kProgram));
   bridge->trap_enabled=false;
   bridge->trap_bypass_once=false;
-  bridge->service_trap_enabled=false;
+  bridge->service_fetch=nullptr;
   Z80_PC(bridge->cpu)=kAddress;
   const Z80BridgeStop stop=z80BridgeRun(bridge,200);
   const bool passed=(stop==Z80_BRIDGE_HALT &&
@@ -35,7 +35,7 @@ inline bool execute(Z80Bridge *bridge) {
   bridge->cpu=savedCpu;
   bridge->trap_enabled=trapBefore;
   bridge->trap_bypass_once=bypassBefore;
-  bridge->service_trap_enabled=serviceBefore;
+  bridge->service_fetch=serviceBefore;
   bridge->stop_reason=priorStop;
   bridge->stopped_at=priorStoppedAt;
   return passed;
