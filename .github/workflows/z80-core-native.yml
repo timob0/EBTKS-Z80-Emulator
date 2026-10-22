@@ -54,6 +54,8 @@ jobs:
         run: pio run -e esp32dev
       - name: Build ST7796 CP/M ANSI/VT100/CP437 terminal
         run: pio run -e esp32dev-tft
+      - name: Verify exact Git commit encoded in both firmware images
+        run: python3 tests/check_build_revision.py
       - name: Report headless and TFT static ELF RAM
         run: |
           python3 tools/report_esp32_memory.py .pio/build/esp32dev/firmware.elf > esp32dev-memory.txt
