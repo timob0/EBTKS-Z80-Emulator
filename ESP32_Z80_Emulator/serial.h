@@ -1,5 +1,6 @@
 #include "globals.h"
 #include "console_ansi_probe.h"
+#include "ebtks_network_diag.h"
 #pragma once
 
 void serialTask(void *parameter) {
@@ -52,14 +53,27 @@ void serialTask(void *parameter) {
         // WiFiClient::write() may accept less than the requested length.
         // Do not discard the tail of a CP/M output burst if that happens.
         size_t sent = 0;
+        bool writeStalled = false;
+        uint32_t stallStartMs = 0;
         while (sent < n && serverClient.connected()) {
           size_t wrote = serverClient.write(chunk + sent, n - sent);
           if (wrote == 0) {
+            EbtksNetDiag::telnetWriteZero(!writeStalled);
+            if (!writeStalled) {
+              stallStartMs = millis();
+              writeStalled = true;
+            }
             vTaskDelay(1);
             continue;
           }
+          if (writeStalled) {
+            EbtksNetDiag::telnetStallEnd(millis() - stallStartMs);
+            writeStalled = false;
+          }
           sent += wrote;
         }
+        if (writeStalled)
+          EbtksNetDiag::telnetStallEnd(millis() - stallStartMs);
       }
       // Mirror the same CP/M UART bytes as WebSocket/Telnet without doing
       // any TFT SPI I/O on this latency-sensitive console router task.
