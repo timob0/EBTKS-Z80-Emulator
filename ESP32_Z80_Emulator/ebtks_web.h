@@ -182,6 +182,45 @@ inline bool ebtksWebBegin()
     else request->send(404, "text/plain", "Not found");
   });
 
+  // Read-only CCP safety-state probe, no SD, UART or Z80 register reads
+  // from AsyncWebServer callbacks. No device mappings or filesystem writes.
+  ebtksServer.on("/api/cpm/service/status",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      JsonDocument v;
+      const bool supported=cpmSafeGate.compatible.load(std::memory_order_acquire);
+      const uint8_t mode=cpmSafeGate.mode.load(std::memory_order_acquire);
+      const uint8_t result=cpmSafeGate.result.load(std::memory_order_acquire);
+      v["supported"]=supported;
+      v["ccp_idle"]=supported && mode==CpmSafePoint::CCP_INPUT && (bool)RUN;
+      v["mode"]=CpmSafePoint::modeText(mode);
+      v["probe"]=CpmSafePoint::resultText(result);
+      v["git_commit"]=EBTKS_BUILD_GIT_COMMIT;
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+  // Phase A only: arm a harmless three-instruction Z80 probe while the CCP
+  // is in interactive console input. It will execute ONLY if the user presses
+  // a BLANK Return, upon re-entry to the D382 CCP prompt before next BDOS.
+  // Any nonempty command cancels; running applications are refused. This
+  // deliberately DOES NOT inject an Enter or queue work behind a program.
+  ebtksServer.on("/api/cpm/service/probe",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      const bool supported=cpmSafeGate.compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported && cpmSafeGate.request();
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["supported"]=supported;
+      v["mode"]=CpmSafePoint::modeText(
+          cpmSafeGate.mode.load(std::memory_order_acquire));
+      v["probe"]=CpmSafePoint::resultText(
+          cpmSafeGate.result.load(std::memory_order_acquire));
+      v["instruction"]=accepted?
+          "Press blank RETURN at the CP/M prompt; nonempty command cancels":
+          "CP/M busy, unsupported, or probe already pending";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+
   // RAM-only liveness and reset forensics, no SPI/UART/SD work.
   // Read BEFORE and AFTER enabling 4MHz read-ahead from Media Manager.
   // If the ESP resets, its next boot retains the hardware reset reason.
