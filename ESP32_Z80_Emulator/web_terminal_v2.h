@@ -2,7 +2,6 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include "z80_debug.h"
-#include "ebtks_network_diag.h"
 #include "crt_display_page.h"
 #include "cpm_media_page.h"
 
@@ -134,32 +133,21 @@ inline void webTerminalWrite(const uint8_t *data, size_t len) {
   // The CPU's UART output ring now blocks when full, completing end-to-end
   // flow control even with no Telnet client attached.
   const TickType_t start = xTaskGetTickCount();
-  bool waited = false;
   while (z80WebSocket.count()) {
     if (z80WebSocket.availableForWriteAll()) {
-      if (waited) EbtksNetDiag::websocketWaitEnd(
-          pdTICKS_TO_MS(xTaskGetTickCount() - start), false);
       z80WebSocket.binaryAll(data, len);
       return;
     }
 
-    if (!waited) {
-      EbtksNetDiag::websocketWaitBegin();
-      waited = true;
-    }
     // A dead browser must not freeze CP/M forever. TCP will normally drain
     // the queue quickly; only abandon the client after a prolonged stall.
     if ((TickType_t)(xTaskGetTickCount() - start) >= pdMS_TO_TICKS(10000)) {
-      EbtksNetDiag::websocketWaitEnd(
-          pdTICKS_TO_MS(xTaskGetTickCount() - start), true);
       z80DebugLog("Z80 web terminal stalled for 10 s; disconnecting slow client\n");
       z80WebSocket.closeAll();
       return;
     }
     vTaskDelay(1);
   }
-  if (waited) EbtksNetDiag::websocketWaitEnd(
-      pdTICKS_TO_MS(xTaskGetTickCount() - start), false);
 }
 inline void webTerminalRegister(AsyncWebServer &server){
   z80WebSocket.onEvent([](AsyncWebSocket*,AsyncWebSocketClient*,AwsEventType type,void *arg,uint8_t *data,size_t len){
