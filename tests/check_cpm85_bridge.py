@@ -57,6 +57,15 @@ print("PASS: HP drive-control NVS save/reset avoids worker stack overflow")
 control=(root/"ESP32_Z80_Emulator/cpm85_drive_control.h").read_text()
 assert "if(op==5){images();return;}" in control
 assert "if(op==6){makeImage(args);return;}" in control
+# Validator must admit every operation that execute() dispatches. A stale
+# opcode ceiling of 4 rejected both commands on physical HP-85 despite green CI.
+import re
+admitted=re.search(r'if\s*\(\s*op\s*<\s*1\s*\|\|\s*op\s*>\s*(\d+)\s*\|\|',control)
+assert admitted, "missing command validator"
+max_op=int(admitted.group(1))
+dispatched=[int(op) for op in re.findall(r'if\s*\(\s*op\s*==\s*(\d+)\s*\)',control)]
+assert dispatched and max_op==max(dispatched)==6, (max_op,dispatched)
+assert 'setResult(false,"INVALID CP/M REQUEST")' in control
 assert 'request["cpm_image"]["op"] = "begin"' in control
 assert 'statusReq["cpm_image"]["op"] = "status"' in control
 assert "CPM_NATIVE_BYTES" in control
