@@ -73,5 +73,8 @@ assert 'ebtksStorageExchange(statusReq, statusReply, 3000)' in control
 assert "IMAGE CREATE PENDING; CHECK CPDIMGS" in control
 assert 'strcasecmp(dot, ".dsk")' in control
 assert "LIST TRUNCATED" in control
+# Ignore AppleDouble/hidden dot-files, including "._DISK.DSK".
+assert "if (name[0] == '.') continue;" in control
+assert control.index("if (name[0] == '.') continue;") < control.index("const char *dot = strrchr(name, '.');")
 assert "memset(" not in control
 print("PASS: CPDIMGS/CPDMK image commands use bounded directory/status messages")
