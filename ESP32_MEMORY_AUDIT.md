@@ -1,5 +1,7 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
+**2026-10-22 verification update:** The per-drive NVS verification (replacing two large mount-table stack arrays) is now **hardware-accepted**: HP `CPDMNT`, `CPRESET`, CP/M access to newly mounted disk, and HP `CPDUMNT` all work using the updated ESP32 `feature/cpm85-drive-control` firmware plus CPM85 v0.03f. Earlier crash-specific reset reason was not captured, so diagnosis remains inferred but strongly corroborated. This fix targets **FreeRTOS task-stack pressure**, not the separate **8-bit heap** low watermark. Prior `min_free_8bit=628` B is still a relevant, unlocated peak; no new memory data supplied with acceptance. Do not claim 8-bit heap pressure resolved solely from the successful drive-command tests.
+
 **2026-10-22 stack audit finding:** Two 16-entry `CpmMountEntry` arrays (~3,168 bytes) were allocated on the 3,584-byte `CPM85Keys` worker stack whenever HP mount/unmount saved NVS, a probable stack-canary crash/reset (distinct from heap exhaustion). Streamed per-drive NVS verification replaces these arrays in ESP32 drive-control feature branch; hardware validation pending. See `CPM85_DRIVE_CONTROL.md`.
 
 ## 2026-10-21 combined HP/Web/CP/M/BBS hardware acceptance and low-water warning
