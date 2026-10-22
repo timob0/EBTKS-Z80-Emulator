@@ -1,4 +1,5 @@
 #include "globals.h"
+#include "console_ansi_probe.h"
 #pragma once
 
 void serialTask(void *parameter) {
@@ -6,6 +7,21 @@ void serialTask(void *parameter) {
   serial_t = true;
   // Fewer, larger WebSocket frames reduce queue pressure during screen redraws.
   uint8_t chunk[256];
+  // One allocation-free virtual terminal probe shared by TFT and Web.
+  // Process bytes in console order, even across 256-byte output chunks.
+  EbtksAnsiProbe::Terminal ansiProbe;
+  auto replyToGuest = [](const char *reply, size_t len) {
+    // An external Telnet terminal normally supplies its own DA/DSR replies.
+    // Do not inject a competing answer when one is connected.
+    if (serverClient.connected()) return;
+    // The 1024-byte input ring is shared with real keyboard input.
+    // Never inject a partial ANSI response when the ring is full.
+    const size_t cap = sizeof(rxBuf);
+    const size_t freeSlots = (rxOutPtr + cap - rxInPtr - 1) % cap;
+    if (len > freeSlots) return;
+    for (size_t i = 0; i < len; ++i)
+      consoleRxEnqueue((uint8_t)reply[i]);
+  };
 
   // Minimal Telnet input parser.  Telnet option negotiation arrives on the
   // same TCP stream as terminal characters; those IAC command bytes must not
@@ -48,6 +64,11 @@ void serialTask(void *parameter) {
       // Mirror the same CP/M UART bytes as WebSocket/Telnet without doing
       // any TFT SPI I/O on this latency-sensitive console router task.
       EbtksTft::mirrorFeed(chunk, n);
+      // The BBS can probe ANSI support while the physical TFT is the ONLY
+      // active terminal. Replies enter CP/M CON: (so MODEM.COM sends them
+      // onward through the emulated 8250), not the BBS TCP socket directly.
+      // Browser JavaScript no longer sends duplicate responses.
+      ansiProbe.feed(chunk, n, replyToGuest);
       webTerminalWrite(chunk, n);
     }
 
