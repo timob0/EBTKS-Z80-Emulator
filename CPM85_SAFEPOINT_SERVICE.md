@@ -1,5 +1,7 @@
 # CPM85 management service — Stage A: CCP-safe injection probe
 
+**macOS TFT linker fix, 2026-10-22:** The first Stage A build `e2e76c33` passed CI but overflowed `dram0_0_seg` by **16 bytes** on the user's Mac. The new gate no longer resides in `.dram0.bss`: it is allocated once on the normal heap in the existing Z80 CPU task, with the pointer stored in the already present bridge.device field, and the bridge's redundant extra service flag/context removed. Null allocation disables service safely. Linux CI TFT static `.dram0.data+.dram0.bss` decreased 124,552 to 124,536 bytes (stable main 124,528). CI now runs `tests/check_esp32_dram_budget.py` against a conservative 124,544-byte ceiling to prevent regression. **Still verify the local Mac link before attempting OTA**; no actual hardware acceptance has occurred. This affects ESP32 only; prior recovery image remains untouched.
+
 **Date:** 2026-10-22  
 **Branch:** `feature/cpm85-management-console`  
 **Status:** Source/native CI implementation. Awaiting physical HP-85/TFT/Web acceptance.
