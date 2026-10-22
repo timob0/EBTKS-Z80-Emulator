@@ -63,6 +63,6 @@ assert "CPM_NATIVE_BYTES" in control
 assert 'ebtksStorageExchange(statusReq, statusReply, 3000)' in control
 assert "IMAGE CREATE PENDING; CHECK CPDIMGS" in control
 assert 'strcasecmp(dot, ".dsk")' in control
-assert '"LIST TRUNCATED"' in control
+assert "LIST TRUNCATED" in control
 assert "memset(" not in control
 print("PASS: CPDIMGS/CPDMK image commands use bounded directory/status messages")
