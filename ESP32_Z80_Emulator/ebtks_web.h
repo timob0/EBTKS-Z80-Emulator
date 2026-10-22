@@ -187,9 +187,10 @@ inline bool ebtksWebBegin()
   ebtksServer.on("/api/cpm/service/status",HTTP_GET,
     [](AsyncWebServerRequest *r) {
       JsonDocument v;
-      const bool supported=cpmSafeGate.compatible.load(std::memory_order_acquire);
-      const uint8_t mode=cpmSafeGate.mode.load(std::memory_order_acquire);
-      const uint8_t result=cpmSafeGate.result.load(std::memory_order_acquire);
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const uint8_t mode=gate?gate->mode.load(std::memory_order_acquire):CpmSafePoint::UNKNOWN;
+      const uint8_t result=gate?gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER;
       v["supported"]=supported;
       v["ccp_idle"]=supported && mode==CpmSafePoint::CCP_INPUT && (bool)RUN;
       v["mode"]=CpmSafePoint::modeText(mode);
@@ -205,15 +206,16 @@ inline bool ebtksWebBegin()
   // deliberately DOES NOT inject an Enter or queue work behind a program.
   ebtksServer.on("/api/cpm/service/probe",HTTP_POST,
     [](AsyncWebServerRequest *r) {
-      const bool supported=cpmSafeGate.compatible.load(std::memory_order_acquire);
-      const bool accepted=(bool)RUN && supported && cpmSafeGate.request();
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported && gate->request();
       JsonDocument v;
       v["accepted"]=accepted;
       v["supported"]=supported;
       v["mode"]=CpmSafePoint::modeText(
-          cpmSafeGate.mode.load(std::memory_order_acquire));
+          gate?gate->mode.load(std::memory_order_acquire):CpmSafePoint::UNKNOWN);
       v["probe"]=CpmSafePoint::resultText(
-          cpmSafeGate.result.load(std::memory_order_acquire));
+          gate?gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
       v["instruction"]=accepted?
           "Press blank RETURN at the CP/M prompt; nonempty command cancels":
           "CP/M busy, unsupported, or probe already pending";
