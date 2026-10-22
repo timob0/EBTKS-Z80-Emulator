@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Guard the ESP32 TFT static DRAM budget across toolchain/build differences.
+
+This classic ESP32 build is unusually near dram0_0_seg's linker limit.  The
+macOS Xtensa linker failed with a 16-byte overflow when the same TFT firmware
+linked under GitHub CI.  PlatformIO's 327,680-byte "RAM" total includes areas
+that cannot all hold static .dram0 data; it is NOT a safe static-BSS budget.
+
+Baseline on last physically verified main ESP32 source eca19c576f68:
+  .dram0.data = 28,400 bytes
+  .dram0.bss  = 96,128 bytes  (total = 124,528)
+Stage A first (failed on Mac despite CI success): total = 124,552.
+Repaired Stage A (Gate allocated once on normal heap, reduced bridge state):
+  total = 124,536.
+
+Require no more than 16 bytes added over stable main, leaving a small buffer
+below the Mac-failing size. For future development, reduce static allocation
+or explicitly review and revise this baseline; never delete this check just
+to force a feature through.
+"""
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+ELF = ROOT / ".pio/build/esp32dev-tft/firmware.elf"
+STABLE_STATIC_DRAM_BYTES = 124_528
+MAX_NEW_STATIC_DRAM_BYTES = 16
+LIMIT = STABLE_STATIC_DRAM_BYTES + MAX_NEW_STATIC_DRAM_BYTES
+
+if not ELF.is_file():
+    raise SystemExit(f"Missing TFT ELF: {ELF}")
+size = Path.home() / ".platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-size"
+if not size.is_file():
+    raise SystemExit(f"Missing pinned Xtensa size tool: {size}")
+report = subprocess.check_output([str(size), "-A", str(ELF)], text=True)
+sections = {}
+for line in report.splitlines():
+    m = re.match(r"^\s*(\.dram0\.(?:data|bss))\s+(\d+)\s+", line)
+    if m:
+        sections[m.group(1)] = int(m.group(2))
+if set(sections) != {".dram0.data", ".dram0.bss"}:
+    raise SystemExit(f"Can't read TFT dram0 sections: {sections!r}")
+actual = sum(sections.values())
+print(
+    f"TFT static DRAM: {actual:,} bytes "
+    f"(.data {sections['.dram0.data']:,} + .bss {sections['.dram0.bss']:,}); "
+    f"stable {STABLE_STATIC_DRAM_BYTES:,}, guard ceiling {LIMIT:,}"
+)
+if actual > LIMIT:
+    print(
+        "FAIL: TFT static DRAM above Mac-link guard. "
+        "Remove static BSS; do not rely on Linux-only link success.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+print("PASS: TFT DRAM budget remains below known macOS overflow")
