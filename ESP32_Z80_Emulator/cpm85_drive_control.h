@@ -84,7 +84,7 @@ inline void images() {
     setResult(false, "CP/M IMAGE DIRECTORY UNAVAILABLE"); return;
   }
   size_t used = 0;
-  int n = snprintf(lastText, kTextMax, "CP/M DISK IMAGES (.DSK)\\n");
+  int n = snprintf(lastText, kTextMax, "CP/M DISK IMAGES (.DSK)\n");
   if (n < 0 || (size_t)n >= kTextMax) {setResult(false, "LIST ERROR"); return;}
   used = (size_t)n;
   unsigned count = 0, shown = 0;
@@ -98,14 +98,14 @@ inline void images() {
     // Keep room for the mandatory count/truncation footer.
     if (used + 57 >= kTextMax) continue;
     n = snprintf(lastText + used, kTextMax - used,
-                 "%.32s %luK\\n", name, (unsigned long)(bytes / 1024UL));
+                 "%.32s %luK\n", name, (unsigned long)(bytes / 1024UL));
     if (n > 0 && (size_t)n < kTextMax - used) {
       used += (size_t)n;
       ++shown;
     }
   }
   snprintf(lastText + used, kTextMax - used,
-           "%u IMAGE(S)%s\\n", count, shown < count ? " (LIST TRUNCATED)" : "");
+           "%u IMAGE(S)%s\n", count, shown < count ? " (LIST TRUNCATED)" : "");
   lastOk = true;
 }
 
@@ -154,7 +154,7 @@ inline void makeImage(const char *name) {
         setResult(false, "IMAGE SIZE VERIFICATION FAILED"); return;
       }
       char msg[112];
-      snprintf(msg, sizeof(msg), "CREATED %.70s\\n8 MB CP/M DISK READY", canonical);
+      snprintf(msg, sizeof(msg), "CREATED %.70s\n8 MB CP/M DISK READY", canonical);
       setResult(true, msg); return;
     }
     if (!strcmp(now, "error")) {
