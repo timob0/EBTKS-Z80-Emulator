@@ -7,7 +7,8 @@
 #include "vendor/redcode_z80/Z80.h"
 
 enum Z80BridgeStop { Z80_BRIDGE_CONTINUE=0, Z80_BRIDGE_TRAP=1,
-                     Z80_BRIDGE_HALT=2, Z80_BRIDGE_EXTERNAL_STOP=3 };
+                     Z80_BRIDGE_HALT=2, Z80_BRIDGE_EXTERNAL_STOP=3,
+                     Z80_BRIDGE_SERVICE=4 };
 struct Z80Bridge {
   Z80 cpu;
   uint8_t *memory;
@@ -20,6 +21,10 @@ struct Z80Bridge {
   uint16_t trap_address;
   uint16_t stopped_at;
   Z80BridgeStop stop_reason;
+  // Optional exact-PC service hook. No network/SD/file access in opcode fetch.
+  bool service_trap_enabled;
+  bool (*service_fetch)(void *,uint16_t,const uint8_t *);
+  void *service_context;
 };
 static uint8_t z80BridgeRead(void *ctx,uint16_t address) {
   return static_cast<Z80Bridge*>(ctx)->memory[address];
@@ -34,6 +39,15 @@ static uint8_t z80BridgeOpcode(void *ctx,uint16_t address) {
     b->stopped_at=address;
     z80_break(&b->cpu);
     return Z80_NOP; // no side effect; rewind PC after the current step
+  }
+  if (b->service_trap_enabled && b->service_fetch &&
+      (address==0xD19C || address==0xD1A4 ||
+       address==0xD382 || address==0xD398) &&
+      b->service_fetch(b->service_context,address,b->memory)) {
+    b->stop_reason=Z80_BRIDGE_SERVICE;
+    b->stopped_at=address;
+    z80_break(&b->cpu);
+    return Z80_NOP;
   }
   if (b->trap_enabled && address==b->trap_address) {
     if (b->trap_bypass_once) b->trap_bypass_once=false;
@@ -94,7 +108,8 @@ static Z80BridgeStop z80BridgeRun(Z80Bridge *b,size_t cycleBudget) {
   b->stop_reason=Z80_BRIDGE_CONTINUE;
   (void)z80_run(&b->cpu,cycleBudget);
   if (b->stop_reason==Z80_BRIDGE_TRAP ||
-      b->stop_reason==Z80_BRIDGE_EXTERNAL_STOP) {
+      b->stop_reason==Z80_BRIDGE_EXTERNAL_STOP ||
+      b->stop_reason==Z80_BRIDGE_SERVICE) {
     Z80_PC(b->cpu)=b->stopped_at;
   }
   return b->stop_reason;
