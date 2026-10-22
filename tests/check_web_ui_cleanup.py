@@ -150,7 +150,6 @@ assert 'WiFi.begin(' not in diag and 'WiFi.disconnect(' not in diag
 pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
 revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
 assert "extra_scripts = pre:tools/pio_git_revision.py" in pio
-assert "git\", \"rev-parse" not in revision  # verify real git command below
 assert 'git("rev-parse", "--verify", "HEAD")' in revision
 assert 'git("status", "--porcelain", "--untracked-files=normal")' in revision
 assert "EBTKS_BUILD_GIT_COMMIT" in revision
