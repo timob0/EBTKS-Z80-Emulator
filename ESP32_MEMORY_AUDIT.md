@@ -1,5 +1,7 @@
 # ESP32 SRAM inventory and Z80 32-bit IRAM feasibility
 
+**2026-10-22 stack audit finding:** Two 16-entry `CpmMountEntry` arrays (~3,168 bytes) were allocated on the 3,584-byte `CPM85Keys` worker stack whenever HP mount/unmount saved NVS, a probable stack-canary crash/reset (distinct from heap exhaustion). Streamed per-drive NVS verification replaces these arrays in ESP32 drive-control feature branch; hardware validation pending. See `CPM85_DRIVE_CONTROL.md`.
+
 ## 2026-10-21 combined HP/Web/CP/M/BBS hardware acceptance and low-water warning
 
 User ran HP-85 `CPSTATUS` repeatedly, then CP/M F: `MODEM.COM`, dialed a BBS, logged off, and exited MODEM successfully. Web UI pages remained responsive, and Web Media Manager continued to display correct mappings. User unmounted a drive in **Web Media Manager**, and a subsequent HP-85 `CPSTATUS` reflected the change. This verifies that both interfaces see the same *desired* NVS mount table; unmount becomes active only after CP/M virtual reset. Previous blank Media Manager page / HTTP unresponsive incident **did not reproduce** in this combined session. The test demonstrates HP `CPSTATUS` v0.03e correct text, read-only cross-interface state, and successful Web unmount; HP `CPDMNT`, `CPDUMNT` and `CPRESET` still require physical acceptance.
