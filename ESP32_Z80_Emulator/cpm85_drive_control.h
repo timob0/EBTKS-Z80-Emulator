@@ -74,10 +74,106 @@ inline void status() {
   lastOk=true;
 }
 
+// HP's CRT has a 768-byte mailbox bound, so enumerate with a hard
+// truncation notice rather than sending the unbounded SD directory listing.
+inline void images() {
+  if (!lastText) return;
+  JsonDocument listing;
+  JsonArray files;
+  if (!cpmStoreFetchDiskDirectory(listing, files)) {
+    setResult(false, "CP/M IMAGE DIRECTORY UNAVAILABLE"); return;
+  }
+  size_t used = 0;
+  int n = snprintf(lastText, kTextMax, "CP/M DISK IMAGES (.DSK)\\n");
+  if (n < 0 || (size_t)n >= kTextMax) {setResult(false, "LIST ERROR"); return;}
+  used = (size_t)n;
+  unsigned count = 0, shown = 0;
+  for (JsonObjectConst item : files) {
+    const char *name = item["name"] | "";
+    const char *kind = item["type"] | "";
+    const char *dot = strrchr(name, '.');
+    if (strcmp(kind, "file") || !dot || strcasecmp(dot, ".dsk") != 0) continue;
+    ++count;
+    const uint32_t bytes = item["size"] | 0UL;
+    // Keep room for the mandatory count/truncation footer.
+    if (used + 57 >= kTextMax) continue;
+    n = snprintf(lastText + used, kTextMax - used,
+                 "%.32s %luK\\n", name, (unsigned long)(bytes / 1024UL));
+    if (n > 0 && (size_t)n < kTextMax - used) {
+      used += (size_t)n;
+      ++shown;
+    }
+  }
+  snprintf(lastText + used, kTextMax - used,
+           "%u IMAGE(S)%s\\n", count, shown < count ? " (LIST TRUNCATED)" : "");
+  lastOk = true;
+}
+
+// Kick off a Teensy-owned job and poll completion. The Teensy writes no more
+// than 4096 bytes each pass through its ordinary main loop. No 8 MB buffers,
+// no UART file payloads, and no changes to active CP/M mount assignments.
+inline void makeImage(const char *name) {
+  if (!safeBasename(name)) {setResult(false, "INVALID DISK IMAGE NAME"); return;}
+  const char *dot = strrchr(name, '.');
+  if (dot && strcasecmp(dot, ".dsk") != 0) {
+    setResult(false, "IMAGE MUST END IN .DSK"); return;
+  }
+  JsonDocument request;
+  request["cpm_image"]["op"] = "begin";
+  request["cpm_image"]["name"] = name;
+  JsonDocument reply;
+  if (!ebtksStorageExchange(request, reply, 3000)) {
+    setResult(false, "IMAGE CREATE: NO TEENSY REPLY"); return;
+  }
+  const char *state = reply["cpm_image"]["state"] | "";
+  if (strcmp(state, "running") != 0) {
+    const char *reason = reply["cpm_image"]["error"] | "image_create_failed";
+    char msg[112];
+    snprintf(msg, sizeof(msg), "CPDMK FAILED: %.70s", reason);
+    setResult(false, msg); return;
+  }
+  const char *expected = reply["cpm_image"]["name"] | "";
+  char canonical[76] = {};
+  strlcpy(canonical, name, sizeof(canonical));
+  if (!dot) strlcat(canonical, ".DSK", sizeof(canonical));
+  if (strcasecmp(expected, canonical) != 0) {
+    setResult(false, "CREATE BUSY: ANOTHER IMAGE"); return;
+  }
+
+  const uint32_t start = millis();
+  while ((uint32_t)(millis() - start) < 45000UL) {
+    vTaskDelay(pdMS_TO_TICKS(25));
+    JsonDocument statusReq;
+    statusReq["cpm_image"]["op"] = "status";
+    JsonDocument statusReply;
+    if (!ebtksStorageExchange(statusReq, statusReply, 3000)) continue;
+    const char *now = statusReply["cpm_image"]["state"] | "";
+    if (!strcmp(now, "done")) {
+      const uint32_t bytes = statusReply["cpm_image"]["written"] | 0UL;
+      if (bytes != CPM_NATIVE_BYTES) {
+        setResult(false, "IMAGE SIZE VERIFICATION FAILED"); return;
+      }
+      char msg[112];
+      snprintf(msg, sizeof(msg), "CREATED %.70s\\n8 MB CP/M DISK READY", canonical);
+      setResult(true, msg); return;
+    }
+    if (!strcmp(now, "error")) {
+      const char *reason = statusReply["cpm_image"]["error"] | "sd_error";
+      char msg[112];
+      snprintf(msg, sizeof(msg), "CPDMK FAILED: %.70s", reason);
+      setResult(false, msg); return;
+    }
+  }
+  // Teensy may still be finishing the job; never undo/overwrite a file here.
+  setResult(false, "IMAGE CREATE PENDING; CHECK CPDIMGS");
+}
+
 inline void execute(uint8_t op,const char *args) {
   char msg[112]={};
   uint8_t drive=0;
   if(op==1){status();return;}
+  if(op==5){images();return;}
+  if(op==6){makeImage(args);return;}
   if(op==4) {
     // The same persistent-state verification and Z80-only reset as the
     // Media Manager Apply endpoint. Caller must ensure CP/M is at a prompt.
