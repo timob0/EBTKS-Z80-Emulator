@@ -77,8 +77,10 @@ public:
     }
     if(pc==kCcpCommand) {
       mode.store(BUSY,std::memory_order_release);
-      // A command is underway, not a verified empty-line safe point.
-      blankInputReturned=false;
+      // Even an empty line passes CMMND2 before its CCP prompt re-entry.
+      // Retain the one-shot marker ONLY for a verified blank input.
+      if(result.load(std::memory_order_acquire)!=WAIT_EMPTY_LINE)
+        blankInputReturned=false;
       return false;
     }
     if(pc==kCcpPrompt) {
