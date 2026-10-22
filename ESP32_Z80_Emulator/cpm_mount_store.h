@@ -132,7 +132,7 @@ inline bool cpmStoreVerifyPrefs(const CpmMountEntry *expected)
     snprintf(key, sizeof(key), "d%c", 'A' + i);
     String actual = prefs.getString(key, "");
     if (!expected[i].mounted) {
-      ok = actual.isEmpty();
+      ok = actual.length() == 0;
       continue;
     }
     char canonical[CPM_MEDIA_PATH_MAX + 32];
