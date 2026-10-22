@@ -30,10 +30,11 @@
 #include "ebtks_storage.h"
 #include "ebtks_cpm85_keyboard.h" // must precede Web RAM profile and disk.h
 #include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
-// Pure, allocation-free CCP command-input safety gate, initialized only
-// after the native CP/M image has been verified during bootstrap.
+// Pure CCP command-input safety gate. Allocate its tiny state once,
+// after the existing Wi-Fi stack is up and from the existing CPU worker.
+// No new permanent DRAM/BSS is consumed on the constrained ST7796 build.
 #include "cpm_safe_point.h"
-static CpmSafePoint::Gate cpmSafeGate;
+CpmSafePoint::Gate *cpmSafeGatePtr();
 #include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
 #include "ebtks_web.h"
 #include "init8250.h"
@@ -46,8 +47,12 @@ static CpmSafePoint::Gate cpmSafeGate;
 // Keep last user-tested decoder available for A/B regression builds.
 #ifdef EBTKS_Z80_LEGACY_CPU
 #include "cpu.h"
+inline CpmSafePoint::Gate *cpmSafeGatePtr() { return nullptr; }
 #else
 #include "cpu_redcode.h"
+inline CpmSafePoint::Gate *cpmSafeGatePtr() {
+  return static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device);
+}
 #endif
 #include "serial.h"
 
@@ -157,12 +162,9 @@ void loop() {
   // reload it. The helper keeps page zero standard (0005 -> D806) and patches
   // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
-#ifdef EBTKS_Z80_LEGACY_CPU
-  // The legacy engine has no safe instruction-fetch service trap.
-  cpmSafeGate.reset(RAM,false);
-#else
-  cpmSafeGate.reset(RAM,cpmResidentShadowValid);
-#endif
+  // The legacy CPU returns nullptr; safe-point service is disabled.
+  if (CpmSafePoint::Gate *gate=cpmSafeGatePtr())
+    gate->reset(RAM,cpmResidentShadowValid);
   // Includes boot-time CP/M shadow and potentially SPI DMA/worker allocations.
   EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY);
 
@@ -184,7 +186,8 @@ void loop() {
     while(RUN) vTaskDelay(100);
 
     if (cpmWarmBootHandleTrap()) {
-      cpmSafeGate.onWarmBoot();
+      if (CpmSafePoint::Gate *gate=cpmSafeGatePtr())
+        gate->onWarmBoot();
       RUN = true;
       continue;
     }
