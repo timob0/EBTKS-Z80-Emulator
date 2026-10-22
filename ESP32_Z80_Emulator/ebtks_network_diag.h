@@ -1,5 +1,6 @@
 #pragma once
 #include <WiFi.h>
+#include <ArduinoJson.h>
 #include <atomic>
 #include <stdint.h>
 
