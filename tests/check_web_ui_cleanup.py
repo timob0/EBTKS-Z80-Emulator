@@ -123,6 +123,14 @@ assert 'pdMS_TO_TICKS(10000)' in web_terminal
 assert 'z80WebSocket.closeAll();' in web_terminal
 assert 'serverClient.write(chunk + sent, n - sent)' in console
 assert 'vTaskDelay(1);' in console
+# No unbounded connected-but-not-writable Telnet loop: forward progress of
+# CP/M console/TFT/keyboard must not depend on a remote TCP client's ACKs.
+assert 'const TickType_t telnetStart = xTaskGetTickCount();' in console
+assert 'xTaskGetTickCount() - telnetStart' in console
+assert 'pdMS_TO_TICKS(2000)' in console
+assert console.index('pdMS_TO_TICKS(2000)') < console.index('serverClient.write(chunk + sent, n - sent)')
+assert 'serverClient.stop();' in console
+assert 'Telnet TX stalled for 2 s' in console
 assert 'CpmWifiModem::service();' in web
 assert "network_counters_available" not in web
 assert 'v["wifi_rssi_dbm"]' not in web
