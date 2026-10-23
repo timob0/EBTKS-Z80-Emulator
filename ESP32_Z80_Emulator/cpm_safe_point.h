@@ -127,6 +127,13 @@ public:
     if(mode.load(std::memory_order_acquire)!=CCP_INPUT)return;
     ccpLineEmpty.store(count==0,std::memory_order_release);
     ccpLineKnown.store(true,std::memory_order_release);
+    // Never leave an automatic directory request queued behind a typed line.
+    // A pending request is cancelled as soon as BDOS observes characters.
+    if(count!=0 && operation.load(std::memory_order_acquire)==DIRECTORY) {
+      uint8_t expected=WAIT_EMPTY_LINE;
+      result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
+                                     std::memory_order_acq_rel);
+    }
   }
 
   // Called ONLY from the Z80 CPU UART status read, after checking physical
@@ -238,6 +245,15 @@ public:
     }
     requestBusy.clear(std::memory_order_release);
     return false;
+  }
+
+  // Safe for the HP mailbox timeout handler: a request which has NOT
+  // entered BDOS may be cancelled, but an actively running BDOS call is
+  // never interrupted. Also stops any later blank line from triggering it.
+  bool cancelPending() {
+    uint8_t expected=WAIT_EMPTY_LINE;
+    return result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
+                                          std::memory_order_acq_rel);
   }
 
   void complete(bool passed) {
