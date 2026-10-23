@@ -66,7 +66,7 @@ admitted=re.search(r'if\s*\(\s*op\s*<\s*1\s*\|\|\s*op\s*>\s*(\d+)\s*\|\|',contro
 assert admitted, "missing command validator"
 max_op=int(admitted.group(1))
 dispatched=[int(op) for op in re.findall(r'if\s*\(\s*op\s*==\s*(\d+)\s*\)',control)]
-assert dispatched and max_op==max(dispatched)==6, (max_op,dispatched)
+assert dispatched and max_op==max(dispatched)==7, (max_op,dispatched)
 assert 'setResult(false,"INVALID CP/M REQUEST")' in control
 assert 'request["cpm_image"]["op"] = "begin"' in control
 assert 'statusReq["cpm_image"]["op"] = "status"' in control
@@ -80,3 +80,34 @@ assert "if (name[0] == '.') continue;" in control
 assert control.index("if (name[0] == '.') continue;") < control.index("const char *dot = strrchr(name, '.');")
 assert "memset(" not in control
 print("PASS: CPDIMGS/CPDMK image commands use bounded directory/status messages")
+
+# Opcode 7 returns read-only CP/M directory extents through the safe-point.
+assert 'if(op==7){catalog(args);return;}' in control
+assert 'gate->request(CpmSafePoint::DIRECTORY,drive+1)' in control
+assert 'CPDCAT: CP/M BUSY OR COMMAND LINE NOT EMPTY' in control
+assert 'snapshot.truncated' in control
+assert '#include "cpm_catalog_format.h"' in control
+assert 'for(uint8_t i=0;formatted && i<snapshot.count;i+=2)' in control
+assert 'CpmCatalogFormat::formatRow(' in control
+assert 'CpmCatalogFormat::kMaxRowBytes+51>=kTextMax' in control
+assert 'EX%u' not in control.split('inline void catalog(',1)[1].split('inline void execute(',1)[0]
+# 2026-10-24 hardware regression: the original catalog formatter compiled
+# cleanly but emitted the two printable ASCII characters '\\' and 'n'
+# instead of an actual ASCII LF. The HP CPM85 ROM translates LF to an HP
+# native line break, so validate the DECODED C/C++ string literal, not just
+# the presence of a backslash before 'n' in the source.
+import ast
+catalog=control.split("inline void catalog(",1)[1].split("inline void execute(",1)[0]
+cpp_strings=re.findall(r'"(?:\\.|[^"\\])*"', catalog)
+expected_lines=(
+    "CP/M %c: DIRECTORY",
+    "%u EXTENTS%s", "%u BAD NAME(S) SKIPPED",
+)
+for prefix in expected_lines:
+    matched=[ast.literal_eval(x) for x in cpp_strings if prefix in x]
+    assert len(matched)==1, (prefix,matched)
+    assert matched[0].endswith(chr(10)), (
+        "CPDCAT catalog line must end with a REAL LF, not literal \\\\n",prefix,matched
+    )
+    assert (chr(92)+"n") not in matched[0], (prefix,matched)
+print("PASS: HP CPDCAT sends real ASCII LF in header, entries and footers")

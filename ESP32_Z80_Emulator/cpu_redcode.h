@@ -6,12 +6,17 @@
 #include "disk.h"
 #include "z80_bridge.h"
 #include "cpm_service_probe.h"
+#include "cpm_directory_service.h"
 #include <new>  // tiny standard-heap allocation, not 32-bit/EXEC IRAM
 
 static Z80Bridge ebtksCpuBridge;
 
 static bool ebtksCcpServiceFetch(void *context,uint16_t pc,const uint8_t *ram) {
-  return static_cast<CpmSafePoint::Gate *>(context)->fetch(pc,ram);
+  auto *gate=static_cast<CpmSafePoint::Gate *>(context);
+  gate->observeFetchedOpcode(pc);
+  if(pc==CpmSafePoint::kBdosLineLoop)
+    gate->observeLineCount(Z80_B(ebtksCpuBridge.cpu));
+  return gate->fetch(pc,ram);
 }
 
 void portOut(uint8_t p, uint8_t v) {
@@ -115,9 +120,19 @@ uint8_t portIn(uint8_t p) {
       bitWrite(pIn[UART_LSR], 0, 0);  //clear bit to say char has been read
       break;
 
-    case UART_LSR:    //Check for received char
-      //Nothing to do here as this is handled by the serial task
+    case UART_LSR: {   // Check for received char
+      // For a directory request ONLY, supply a single virtual CR after
+      // native BDOS confirms the CCP command line is empty. It completes
+      // BDOS 10 normally; directory BDOS 17/18 still run at D382 later.
+      // No injection if any actual keyboard input is already queued.
+      auto *gate=static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device);
+      if(gate && !(pIn[UART_LSR]&1) && rxInPtr==rxOutPtr &&
+         Cpm85Input::queueEmpty() && gate->takeAutomaticReturn()) {
+        pIn[UART_PORT]=13;
+        bitWrite(pIn[UART_LSR],0,1);
+      }
       break;
+    }
       
     case DCMD:
       break;
@@ -180,10 +195,31 @@ void CPUTask(void *) {
     if(reason==Z80_BRIDGE_SERVICE) {
       // This runs ONLY on the Z80 task at the verified CCP D382 opcode,
       // after a blank Enter. No other task touches Z80 registers or RAM.
-      const bool ok=CpmServiceProbe::execute(&ebtksCpuBridge);
-      if (auto *gate=static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device))
-        gate->complete(ok);
+      auto *gate=static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device);
+      bool ok=false;
+      bool resetNeeded=false;
+      if(gate && gate->operation.load(std::memory_order_acquire)==CpmSafePoint::DIRECTORY) {
+        // All BDOS calls run on this pinned CPU task, never an HTTP worker.
+        // Give other system tasks a chance to run between bounded CPU slices.
+        CpmSafePoint::Directory snapshot;
+        ok=CpmDirectoryService::execute(&ebtksCpuBridge,snapshot,resetNeeded,
+                                         gate->requestedDrive.load(std::memory_order_acquire),
+                                         [](){taskYIELD();});
+        gate->directoryError.store(snapshot.error,std::memory_order_release);
+        gate->publishDirectory(snapshot);
+      } else {
+        ok=CpmServiceProbe::execute(&ebtksCpuBridge);
+      }
+      if(gate)gate->complete(ok);
       PC=Z80_PC(ebtksCpuBridge.cpu);
+      if(resetNeeded) {
+        // The outer loop will rebootstrap the Z80 and Gate::reset() will
+        // clear the live outcome. Preserve a sticky, read-only postmortem.
+        if(gate)gate->lastDirectoryReset.store(true,std::memory_order_release);
+        // Never resume the CCP after an interrupted BDOS call.
+        Serial.println("CP/M directory service failed after BDOS entry; requesting Z80 reset");
+        RUN=false;
+      }
     } else if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {
       RUN=false;
     } else if(reason==Z80_BRIDGE_EXTERNAL_STOP) {

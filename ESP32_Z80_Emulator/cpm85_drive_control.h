@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include "cpm_catalog_format.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -170,9 +171,112 @@ inline void makeImage(const char *name) {
   setResult(false, "IMAGE CREATE PENDING; CHECK CPDIMGS");
 }
 
+// CPDCAT A: runs native BDOS directory search only after a verified empty
+// CCP line is auto-terminated on the Z80 CPU thread. Called on the existing
+// Teensy-poll worker (never HP I/O ISR); timeout is bounded. No file writes.
+inline void catalog(const char *arg) {
+  uint8_t drive=0;
+  if(!driveIndex(arg,drive)) {
+    setResult(false,"CPDCAT: INVALID DRIVE A:..P:");return;
+  }
+  if(!RUN || !cpmActiveMounts[drive].mounted) {
+    setResult(false,"CPDCAT: CP/M DRIVE NOT ACTIVE");return;
+  }
+  CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+  if(!gate || !gate->compatible.load(std::memory_order_acquire) ||
+     !gate->request(CpmSafePoint::DIRECTORY,drive+1)) {
+    setResult(false,"CPDCAT: CP/M BUSY OR COMMAND LINE NOT EMPTY");return;
+  }
+  const uint32_t started=millis();
+  uint8_t state=CpmSafePoint::WAIT_EMPTY_LINE;
+  while((uint32_t)(millis()-started)<12000UL) {
+    state=gate->result.load(std::memory_order_acquire);
+    if(state!=CpmSafePoint::WAIT_EMPTY_LINE && state!=CpmSafePoint::RUNNING)break;
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+  if(state!=CpmSafePoint::PASSED) {
+    if(state==CpmSafePoint::WAIT_EMPTY_LINE || state==CpmSafePoint::RUNNING) {
+      // Cancel only PENDING requests; never interrupt BDOS once running.
+      // An eventual blank Return must NOT revive a timed-out HP command.
+      if(state==CpmSafePoint::WAIT_EMPTY_LINE)gate->cancelPending();
+      setResult(false,"CPDCAT: TIMEOUT; CHECK CP/M SERVICE STATUS");
+    } else if(state==CpmSafePoint::INPUT_NOT_EMPTY) {
+      setResult(false,"CPDCAT: CP/M INPUT NOT EMPTY");
+    } else if(state==CpmSafePoint::INVALIDATED) {
+      setResult(false,"CPDCAT: CP/M WARM BOOT CANCELLED");
+    } else if(state==CpmSafePoint::FAILED) {
+      char err[108];
+      snprintf(err,sizeof(err),"CPDCAT: BDOS %s",
+               CpmSafePoint::directoryErrorText(
+                   gate->directoryError.load(std::memory_order_acquire)));
+      setResult(false,err);
+    } else {
+      setResult(false,"CPDCAT: UNEXPECTED SERVICE STATE");
+    }
+    return;
+  }
+  // The Teensy-poll worker has only a 3584-byte stack. Do NOT copy the
+  // 32-entry snapshot onto it: render from the gate's heap-owned snapshot
+  // under a short nonblocking lock, avoiding old large-array stack resets.
+  if(gate->directoryBusy.test_and_set(std::memory_order_acquire)) {
+    setResult(false,"CPDCAT: DIRECTORY RESULT BUSY");return;
+  }
+  const CpmSafePoint::Directory &snapshot=gate->directory;
+  bool formatted=snapshot.drive==char('A'+drive);
+  size_t used=0;
+  bool outputTruncated=false;
+  if(formatted) {
+    // HP CRT is 32 columns wide. Use actual line feeds, not a literal
+    // backslash+n sequence. Keep room for all mandatory warning footers.
+    const int n=snprintf(lastText,kTextMax,
+                         "CP/M %c: DIRECTORY\n",char('A'+drive));
+    formatted=n>0 && size_t(n)<kTextMax;
+    if(formatted)used=size_t(n);
+  }
+  // Two 12-character 8.3 fields with six spaces between them = 30
+  // printable CRT columns. Read adjacent entries left-to-right. The
+  // final odd entry is printed on the left without a blank right field.
+  // Bounded by the 32-entry snapshot; no heap or large stack buffers.
+  for(uint8_t i=0;formatted && i<snapshot.count;i+=2) {
+    // Reserve 51 bytes for footer and malformed-name warning. With 32
+    // entries the two-column output fits comfortably in kTextMax=680.
+    if(used+CpmCatalogFormat::kMaxRowBytes+51>=kTextMax) {
+      outputTruncated=true;
+      break;
+    }
+    const char *left=snapshot.entries[i].name;
+    const char *right=(i+1<snapshot.count)?snapshot.entries[i+1].name:nullptr;
+    const int n=CpmCatalogFormat::formatRow(
+        lastText+used,kTextMax-used,left,right);
+    formatted=n>0 && size_t(n)<kTextMax-used;
+    if(formatted)used+=size_t(n);
+  }
+  if(formatted) {
+    const int n=snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\n",
+                         (unsigned)snapshot.count,
+                         (snapshot.truncated||outputTruncated)?
+                           " (MORE NOT SHOWN)":"");
+    formatted=n>0 && size_t(n)<kTextMax-used;
+    if(formatted)used+=size_t(n);
+  }
+  if(formatted && snapshot.skipped) {
+    // Malformed on-disk entries were skipped, not invented or rewritten.
+    const int n=snprintf(lastText+used,kTextMax-used,
+                         "%u BAD NAME(S) SKIPPED\n",
+                         (unsigned)snapshot.skipped);
+    formatted=n>0 && size_t(n)<kTextMax-used;
+  }
+  gate->directoryBusy.clear(std::memory_order_release);
+  if(!formatted) {
+    setResult(false,"CPDCAT: DIRECTORY RESULT UNAVAILABLE");return;
+  }
+  lastOk=true;
+}
+
 inline void execute(uint8_t op,const char *args) {
   char msg[112]={};
   uint8_t drive=0;
+  if(op==7){catalog(args);return;}
   if(op==1){status();return;}
   if(op==5){images();return;}
   if(op==6){makeImage(args);return;}
@@ -228,8 +332,8 @@ inline void receiveCommand(JsonVariantConst command) {
     lastSequence=(uint16_t)seq;
     haveLast=true;
     const char *args=command["args"] | "";
-    // Match Teensy mailbox opcodes 1..6 (5=CPDIMGS, 6=CPDMK).
-    if(op<1||op>6||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
+    // Teensy opcode 7 is the bounded read-only CPDCAT directory service.
+    if(op<1||op>7||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
     else execute((uint8_t)op,args);
   }
   pendingAck=true;

@@ -8,5 +8,9 @@ g++ -std=c++17 -O2 -Wall -Wextra tests/z80_core_native.cpp "$BUILD_DIR/z80_redco
 g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
   tests/cpm_safe_point_native.cpp "$BUILD_DIR/z80_redcode.o" \
   -o "$BUILD_DIR/cpm_safe_point_test"
+g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
+  tests/cpm_directory_native.cpp "$BUILD_DIR/z80_redcode.o" \
+  -o "$BUILD_DIR/cpm_directory_test"
 "$BUILD_DIR/cpm_safe_point_test"
+"$BUILD_DIR/cpm_directory_test"
 "$BUILD_DIR/z80_test"

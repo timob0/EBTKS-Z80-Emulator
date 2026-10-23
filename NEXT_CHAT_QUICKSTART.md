@@ -1,5 +1,154 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**FINAL CPDCAT HARDWARE REGRESSIONS PASSED (2026-10-24):**
+After user approved the HP-85 two-column catalog layout, user confirmed
+"Multiplan and Media Manager work as expected." CP/M DIR, busy guard,
+native BDOS directory, correct HP CRT formatting and forced-reset
+safety are already passed. Two malformed files are known damage on
+test A: disk. 32-entry truncation remains documented.
+All requested CPDCAT acceptance gates have passed. ESP32 main has a
+separate recovery/firmware.bin-only update (feature is behind main one
+commit); preserve it when merging later. Feature branches currently
+unmerged; wait for explicit merge approval. Refer to CPDCAT_STAGE_B1.md.
+
+**CPDCAT HARDWARE DISPLAY ACCEPTED (2026-10-24):**
+Physical HP-85 retest of the two-column 8.3-aligned formatter succeeded:
+user says "This works nicely, the directory formatting is good."
+Proper CRT lines, two columns and name alignment are accepted. CP/M
+`DIR` already passed, BDOS catalog succeeded and did not force a Z80
+reset; two malformed A: entries were previously confirmed disk damage.
+Only final Multiplan and Media Manager regressions remain before merging
+ESP32 feature branch to `main`. Maintain `main`/recovery and HP/Teensy
+firmware unchanged until acceptance.
+
+**CPDCAT TWO-COLUMN HP CRT FORMAT (2026-10-24; HARDWARE TEST PENDING):**
+At user request, the ESP32 feature branch formats 8.3 names in aligned
+12-character fields (8 base + dot + 3 extension), two per row with
+six spaces between: 30 of the HP-85's 32 CRT columns. Preserves final
+odd entry, extents/partial/malformed warning footer, 32-entry limit,
+680-byte mailbox, real LF. Omits raw EX# annotations to make space.
+New `cpm_catalog_format.h` is heap-free; native
+`cpm_catalog_format_native.cpp` test included in CI and static
+checks enforce use. No HP/Teensy changes. Verify CI + local Mac TFT
+link, then flash ESP32 feature branch and test HP `CPDCAT "A:"`,
+CP/M `DIR`, Multiplan/Media Manager; do not merge yet.
+
+**CPDCAT CRT NEWLINE BUG FIX (2026-10-24, HW RETEST PENDING):**
+User confirmed CP/M `DIR` remains fully operational; the two malformed
+filenames really are prior A: disk corruption from testing. HP `CPDCAT`
+list printed *literal* backslash-n glyphs because four formatter
+literals in `cpm85_drive_control.h` used doubly escaped newlines.
+Corrected all four to C++ LF escape; HP `CPREAD` already handles ASCII
+LF natively. Added static regression testing decoded C++ strings.
+First regex for regression was incorrectly over-escaped and failed CI;
+fixed regex. No HP/Teensy changes. Only reflash ESP32 after CI + local
+Mac TFT build. Repeat HP CPDCAT with clean line breaks, then CP/M DIR.
+See CPDCAT_STAGE_B1.md for details.
+
+**CPDCAT ROOT CAUSE / ESP32 FIX (2026-10-24; hardware test pending):**
+User's last physical `CPDCAT "A:"` under SHA `cc574613a870...`
+produced `last_directory_state:"failed"`,
+`last_directory_error:"invalid_directory_filename"`,
+`last_directory_forced_z80_reset:true`. Exact invalid byte not yet known.
+Source bug: host filename parser rejection erroneously forced a Z80 restart
+despite completed native BDOS. ESP32 feature branch now skips malformed
+8.3 directory entries, records first bad index/offset/byte and skip
+count in web directory GET, returns success-with-warning, and restarts
+only on unsafe BDOS interruption or DMA change. HP catalog output now
+uses real newline escapes and warning footer. Native regression covers
+safe bad-name and unsafe interrupted-BDOS cases. Require branch-tip CI
+and Mac TFT linker before ESP32-only flash, then verify CPDCAT, Web
+GET and CP/M DIR; regression Multiplan/Media Manager. No merge or
+HP/Teensy change. Full details in [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md).
+
+**CPDCAT POST-ERROR WEB FORENSICS:** The user read
+`/api/cpm/service/status` and `/api/cpm/service/directory` on running
+ESP SHA `74bb45f3a655...`. CCP idle=true but service state/probe=never
+while operation=directory. This points to a Z80 rebootstrap clearing the
+Gate's live outcome, potentially after failed BDOS directory execution.
+ESP32 feature branch now preserves sticky `last_directory_*` fields
+and a forced-Z80-reset flag across Gate::reset, exposed by both GET
+endpoints, with regression. Reflash only after CI + Mac TFT local build
+pass, then inspect these fields immediately after failed CPDCAT before
+a new request. The exact cause of underlying BDOS failure is UNKNOWN.
+See [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md).
+
+**CPDCAT SECOND HARDWARE RESULT (2026-10-23; NOT RESOLVED):**
+The user reported `CPDCAT: CANCELLED OR DIRECTORY READ FAILED` at an
+apparently idle CP/M prompt after the auto-Return bridge fix. Unlike
+the previous timeout, the service reached a terminal error/cancellation
+state. The HP text conflated multiple internal states: root cause must
+be established from `GET /api/cpm/service/status` and GET
+`/api/cpm/service/directory` before any new request. ESP32 feature
+branch now records `checkpoint` and `directory_error` read-only
+diagnostics, displays separate HP failure labels, and adds native
+tests. The HP/Teensy feature branch and `main`/`recovery` remain
+untouched. Details in [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md).
+Await fresh branch-tip CI and local Mac TFT linker before ESP32 flash.
+
+**CPDCAT HW TIMEOUT DIAGNOSIS AND FIX (2026-10-23; NOT YET RETESTED):**
+HP `CPDCAT` reached the ESP32 service request but timed out. Verified source
+bug: bridge `service_fetch` only forwarded the old four CCP PCs and never
+called the new BDOS line count (D9EF) or BIOS CONIN polling (E826/E831)
+observers. ESP32 feature branch fixed `z80_bridge.h` exact-PC filter and
+added a real redcode opcode-fetch regression. Native CI passes for the fix;
+both ESP32 variant/link and local macOS TFT validation are required before
+refashing. No Teensy or HP source changes were needed. Documented in
+[CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md). Preserve all baseline/recovery
+firmware; do not merge until repeat hardware verification.
+
+**LATEST EXPERIMENT: HP BASIC CPDCAT + automatic empty CCP Return (2026-10-23).**
+The directory B1 hardware test and normal DIR/Multiplan/Media Manager regression
+all passed. On three *isolated* feature branches only, CPDCAT has now been
+implemented (NOT hardware-accepted): ESP32
+`feature/cpm85-file-transfer-hpib-ui`, Teensy
+`feature/cpm85-catalog`, HP LOADBIN
+`feature/cpm85-catalog` (CPM85 0.04c). Mailbox opcode 7 requests
+`CPDCAT "A:"`, which enumerates up to 32 CP/M directory extents.
+Automatic Return is injected on the Z80 CPU task **ONLY** when the real
+native CCP input line is proven empty, no queued real keys exist, and the
+exact BIOS console-input status opcode is executing. The existing D382
+post-BDOS safe point remains authoritative. Explicit FCB drive does not
+change default drive. Browser directory POST now auto-completes also.
+The non-BDOS `/api/cpm/service/probe` stays manual.
+**Read [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md) for build order and tests.**
+The three GitHub CI builds, macOS TFT link, exact flashed SHA, and physical
+HP/CPM regression must all pass before merge. `main` / `recovery/`
+are untouched.
+
+
+**NEW STAGE B1 DEVELOPMENT (2026-10-23; FIRST BDOS DIRECTORY HARDWARE PROBE PASS, REGRESSION PENDING):**
+On ESP32-only branch `feature/cpm85-file-transfer-hpib-ui`, a bounded, read-only
+BDOS directory search was added behind the hardware-proven CCP safe-point gate.
+`POST /api/cpm/service/directory` arms it; a blank CP/M Return executes BDOS
+17/18 on the CPU worker, and `GET` on that endpoint retrieves up to 12
+directory *extents* for the current drive/user. It verifies native BDOS vector
+and default DMA, preserves CPU/TPA/DMA, and forces a Z80-only reset on an
+interrupted BDOS operation. Old non-BDOS probe is retained. New native
+`tests/cpm_directory_native.cpp` and both ESP32 CI builds are enabled on this
+branch; check the latest CI and local Mac TFT link before any flash.
+**No Teensy/HP changes, no writes, no transfer or management UI yet.**
+The full cautious procedure is in [CPM85_STAGE_B1_DIRECTORY.md](CPM85_STAGE_B1_DIRECTORY.md).
+`main`, `recovery/` and the previously hardware-tested baseline were not
+modified. The follow-on main commit `7b75be7` updates only user-maintained
+`recovery/firmware.bin` and is intentionally not brought onto this branch.
+
+**2026-10-23 Stage B1 first hardware result (user-reported):** The operator sent
+`POST /api/cpm/service/directory` and received HTTP **202**, with
+`accepted=true`, `supported=true`, `state=waiting_for_empty_return`.
+After blank Return, GET returned `state=passed`, `count=12`,
+`truncated=true`, `scope=current_drive_current_user`, and 12 plausible
+native BDOS directory extents including `DOWNLOAD.COM`, `STAT.COM`,
+`PIP.COM`, `ASM.COM` and `MBASIC.COM` (extent=1), all user 0.
+The 12-entry limit is intentional; this is not file aggregation.
+The latest GitHub CI run for source SHA `55a7c0803ba4b66106e5637317af8f90c0057078`
+passed: https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/40024339445 .
+**Not yet evidenced:** post-service `DIR`, Multiplan, HP/TFT/Web/Media
+Manager regression, nonempty cancellation, MODEM busy rejection, alternate
+current-drive/empty-directory testing, and exact running SHA (no health
+reading furnished). No merge, no Teensy/HP firmware changes.
+
+
 **CURRENT HANDOFF — 23 October 2026, memory-optimized firmware now MERGED:** ESP32 `feature/cpm85-management-console` was merged into `main` through [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8), merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`, after the user completed local macOS builds, flash and a successful quick hardware test of the final consolidated TFT target. Full functionality was physically verified earlier: two MODEM/BBS cycles, correct Web Terminal ANSI/CP437, modem worker cleanup on return to CP/M, Media Manager recovering after both cycles, CP/M `DIR`/Multiplan, gzip pages and Home Page link. Final post-second-cycle hardware reading `modem_state=0`, `free_8bit=29452`, `largest_8bit=27636`, no modem task. Supported PlatformIO variants are ONLY `esp32dev` (full headless bundle) and `esp32dev-tft` (same plus ST7796), both with Telnet disabled by default; `-DEBTKS_TELNET_ENABLE=1` is an advanced compile-time option. Both use early IRAM32-only SPI read cache. See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md). **Next work:** start a separate new ESP32 feature branch from current `main` for CP/M file transfer, HPIB output and the management UI; design and coordinate any necessary Teensy/HP changes separately, and never overwrite user-maintained `recovery`. Earlier October 22 text below is chronological history, not current release status.
 
 **2026-10-22 Stage A local ESP32 TFT linker fix:** macOS ld failed on first safe-point build `e2e76c33`: `.dram0.bss region dram0_0_seg overflowed by 16 bytes` though GitHub CI had succeeded. New branch source has moved tiny CCP Gate out of static DRAM into normal heap allocated once by existing Z80 task, reused bridge.device instead of allocating redundant service context/state fields (no new Wi-Fi hooks or special EXEC allocators). CI confirms exactly 16-byte reduction in .dram0.bss / linked static DRAM: 124,552 -> 124,536, stable main reference 124,528. A new CI post-link check `tests/check_esp32_dram_budget.py` enforces <=124,544 static TFT DRAM. Re-pull and rebuild `pio run -e esp32dev-tft -t clean; pio run -e esp32dev-tft`; user must confirm Mac linker success before OTA. Stage A `GET /api/cpm/service/status`, `POST /api/cpm/service/probe` remains hardware-UNTESTED. No Teensy/HP changes, no merge, recovery unchanged.
