@@ -85,6 +85,20 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23: Media Manager physically verified after MODEM/BBS teardown
+
+User confirms **CP/M Media Manager now works after the MODEM/BBS session**
+and after returning to CP/M with `modem_state=0` and reclaimed
+worker memory. This resolves the previously reported Media Manager
+`ESP32 memory low` refusal for this completed-session workflow.
+Media Manager guard remained unchanged. User is currently proceeding
+to the critical **second MODEM startup, BBS session and CCP teardown**
+regression test; do not mark repeated reinitialization as passed yet.
+Pending evidence: `AT`/`ATI` response and BBS dial/logoff on second
+MODEM start, Ctrl-X returning to CCP, `modem_state=0` again
+and Media Manager remaining available.
+
+---
 ## 2026-10-23: Physical MODEM/BBS -> CCP resource teardown VERIFIED
 
 User pulled and flashed CCP-triggered modem worker reclamation on
