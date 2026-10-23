@@ -68,6 +68,57 @@ cannot distinguish which variant the user intended.
 The Git SHA embedded in every firmware can be checked via
 `/api/system/health`; run `git rev-parse HEAD` locally and compare.
 
+## Early IRAM-only SPI cache experiment (fourth target only)
+
+The `esp32dev-tft-no-telnet` environment additionally defines
+`EBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1`. This reserves the 8,192-byte
+SPI read-ahead word cache **after Teensy UART initialization but
+before Wi-Fi/Web service startup**, using the same existing
+`MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL` request.
+Boot debug `/z80debug` now logs
+`CP/M SPI early IRAM32 reserve: iram32` or `unavailable`,
+with the free-8bit and exact intersection of executable/32-bit
+allocator free/largest values before and after allocation.
+
+If an IRAM allocation fails or would reduce ordinary 8-bit RAM,
+this variant leaves its SPI read-ahead **off for that boot** and
+uses the original Teensy UART disk reads. It does **not** fall back
+to allocating an 8 KiB cache from normal DRAM, even if the Web UI
+asks to re-enable SPI. UART disk **writes are unchanged**.
+Other three PlatformIO environments retain their current SPI
+cache behavior. No Teensy firmware or HP LOADBIN changes.
+
+### First hardware gate: no MODEM/BBS until boot is verified
+
+After flashing, cold boot and request `GET /api/cpm/spireads`
+and `GET /api/system/memory`. Confirm:
+
+- preferred outcome: `cache_storage="iram32"`,
+  `early_iram_only=true`, `enabled=true`, and no significant
+  8KiB reduction of free_8bit across the SPI cache stage
+  (Web start now occurs **after** early reservation).
+- alternate safe outcome: `cache_storage="none"`,
+  `early_iram_only=true`, `boot_disabled=true`, `enabled=false`,
+  and UART fallback reads work; report the boot diagnostic log
+  before further changes.
+- **never acceptable for the experiment**:
+  `cache_storage="dram8"`.
+
+**Critical independent gate:** prior full-minus-Telnet hardware
+boot printed two `EBTKS UART transaction timeout` messages and
+`FAILED` for `/cpm/cbios.rom`. Carefully examine `/z80debug` on
+the new boot. If CBIOS loading reports `FAILED`, **do not
+start a BBS stress test**; first provide debug output so the
+Teensy UART/CPM loader issue can be isolated. A working `DIR`
+or Multiplan does not negate a ROM-load failure.
+
+If boot, CP/M and IRAM cache are healthy, capture cold-boot
+`/api/system/memory`, then start MODEM using TFT/HP keyboard
+without opening `/z80` or a Telnet client. Capture after MODEM
+and **do not dial** until free8/largest8 margins look healthy;
+compare with prior no-Telnet TFT-only configuration.
+
+---
 ## Physical regression and measurement
 
 For the new **full-minus-Telnet** variant, start with a cold boot
