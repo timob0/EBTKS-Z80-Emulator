@@ -152,9 +152,14 @@ public:
       requestBusy.clear(std::memory_order_release);
       return false;
     }
+    // Never overwrite the operation belonging to a pending request.
+    uint8_t previous=result.load(std::memory_order_acquire);
+    if(previous==WAIT_EMPTY_LINE || previous==RUNNING) {
+      requestBusy.clear(std::memory_order_release);
+      return false;
+    }
     operation.store(requested,std::memory_order_release);
     // Only one request can be pending. A completed one may be re-armed.
-    uint8_t previous=result.load(std::memory_order_acquire);
     while(previous!=WAIT_EMPTY_LINE && previous!=RUNNING) {
       if(result.compare_exchange_weak(previous,WAIT_EMPTY_LINE,
                                       std::memory_order_acq_rel)) {
