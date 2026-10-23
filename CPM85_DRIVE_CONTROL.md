@@ -1,5 +1,9 @@
 # CPM85 v0.03a — HP-85 control of CP/M disk assignments
 
+## 2026-10-22 — Final physical acceptance / merge to main
+
+CPM85 v0.04b has **passed hardware acceptance** per user: CPDMK and CPDIMGS function on physical HP-85 with the ESP32/Teensy bridge, `CPDIMGS` correctly filters hidden AppleDouble files, CPDMK displays creation start, all printable command outputs finish on fresh BASIC lines without ENDLINE ERROR 92. PRs #7 (ESP32), #3 (Teensy), #1 (HP ROM) merged to main: respective main SHAs `eca19c576f68`, `c8617c07f06c`, `691154251a68`. New `feature/cpm85-management-console` branches were created from these heads. Existing `recovery/` binary and flash scripts remain unchanged; do not refresh recovery automatically on a new Git HEAD, as physical release verification is required. Supersedes historic warnings in older sections that CPDIMGS/CPDMK remain untested or PRs are pending.
+
 ## 2026-10-22 — user acceptance and final display refinements
 
 The user tested the corrected v0.04a commands on physical HP-85 and confirms `CPDIMGS` and `CPDMK` **work**. Additional UX requests: omit macOS dot files/AppleDouble `._...` metadata from `CPDIMGS`, print `CREATING <imgname>...` as soon as `CPDMK` starts, and ensure **every printable CPM85 statement returns HP BASIC on a fresh input line**. ESP32 image enumeration now skips dot-prefixed filenames, retaining existing .DSK case-insensitive classification, size report and count. HP CPM85 v0.04b displays banner with native `OUTSTR`; a common reply path uses native HP CRT newline only when no final LF has been rendered. Explicit command-path audit covers CPM, CPOFF, CPVER, CPSTATUS, CPDMNT, CPDUMNT, CPRESET, CPDIMGS, CPDMK; numeric CPCOUNT and CPLAST do not print. CAPASM `BSZ 96D` is mandatory (decimal) for 96-byte banner; initial `BSZ 96` failed (octal syntax). The existing Teensy image implementation stays untouched. These refinements need physical HP testing and are NOT YET merged to main; see draft PRs.

@@ -1,20 +1,35 @@
 # EBTKS Z80 / CP/M integration — current project links
 
+**Development branch configuration (23 October 2026):** The hardware-tested
+TFT full bundle has been consolidated into **two build targets**, both with
+the complete browser/CP/M/Media Manager/MODEM feature set and the early IRAM
+SPI cache. Inbound Telnet is **off by default**, optionally re-enabled with
+`-DEBTKS_TELNET_ENABLE=1`. This two-target consolidation remains on
+`feature/cpm85-management-console`, not merged to `main`, and still requires
+local build/boot confirmation for the renamed target. Read
+[FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) and
+[NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md) first.
+
 **Current mainline status — 21 October 2026:** Hardware-validated CP/M/Z80, TFT, 16-color/CP437 Web terminal, HP keyboard integration, IRAM SPI disk cache, inbound Telnet and CP/M Hayes Wi-Fi modem are merged in the ESP32 **`main`** branch via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) (commit `b3d02b43`). The post-merge native/firmware CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). For the definitive current state and next-chat instructions see **[NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md)**; [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the full historical chronology, including superseded experimental status statements. The matching Teensy and HP Option-ROM firmware remain separately tested and **were not merged by PR #6**.
 
 ## ESP32 build configurations
 
-There are exactly **two supported PlatformIO build targets**:
+The development branch builds exactly **two full bundles**, with no
+Telnet listener by default:
 
 | Environment | Display | Console access | Command |
 | --- | --- | --- | --- |
-| `esp32dev` (default) | No external TFT or LovyanGFX dependency | CP/M over Web UI and Telnet | `pio run -e esp32dev` |
-| `esp32dev-tft` | External 320×480 ST7796 SPI, 80×24 ANSI/VT100/CP437 terminal | CP/M over TFT **and** Web UI/Telnet | `pio run -e esp32dev-tft` |
+| `esp32dev` | No external TFT / LovyanGFX | CP/M in browser via `/z80` | `pio run -e esp32dev` |
+| `esp32dev-tft` | ST7796 TFT, 80×24 ANSI/VT100/CP437 | Same browser CP/M plus physical TFT | `pio run -e esp32dev-tft` |
 
-Upload the selected `.pio/build/<environment>/firmware.bin` through the existing ESP32 browser firmware updater. Both targets include the same Z80 CPU, SD service, Wi-Fi and SPI disk read-ahead. The TFT option uses a separate VSPI master (4 MHz) and draws on a bounded low-priority task without a full framebuffer. Only use the TFT build with correctly verified display wiring and supply; do not infer physical CN3 pin numbering from the published drawing.
-
-The previous experimental `esp32dev-tft-ansi`, `esp32dev-tft-terminal` and color-bar `esp32dev-tft` builds are historical configurations of the TFT feature branch, **not additional supported build environments**. The current `esp32dev-tft` produces the fully featured ANSI/CP437 terminal, equivalent to the former `esp32dev-tft-ansi`. The old revisions remain in Git history for diagnosis and rollback.
-
+Both include the original `/ws`, `/crt`, `/cpmmedia`, Web Terminal,
+MODEM, gzip pages, OTA and early IRAM SPI disk read-ahead. Advanced users
+can opt into inbound Telnet by adding
+`-DEBTKS_TELNET_ENABLE=1` to the chosen build flags. No separate
+Telnet build flavor is maintained. See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md)
+for flags, memory caveats, local build and test instructions. Upload the
+matching `.pio/build/<environment>/firmware.bin` through the ESP32 browser
+updater.
 
 **New user?** Follow the [Getting started guide](GETTING_STARTED.md) for the Teensy/ESP32 flashing sequence, SD-card layout, 8 MiB disk and HP 82900 LIF images, and a web UI walkthrough.
 

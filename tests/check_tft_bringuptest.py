@@ -12,6 +12,12 @@ cfg = (root / "platformio.ini").read_text()
 envs = re.findall(r"^\[env:([^]]+)\]", cfg, re.M)
 assert envs == ["esp32dev", "esp32dev-tft"], envs
 headless, display = cfg.split("[env:esp32dev-tft]")
+options = (root / "ESP32_Z80_Emulator/ebtks_firmware_options.h").read_text()
+assert "#define EBTKS_TELNET_ENABLE 0" in options
+assert "-DEBTKS_WEB_TERMINAL_ENABLE=1" in headless
+assert "-DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1" in headless
+assert "${env:esp32dev.build_flags}" in display  # inheriting shared services
+assert "-DEBTKS_TELNET_ENABLE=0" not in cfg  # compiler switch may opt in
 assert "lovyan03/LovyanGFX" not in headless
 assert "EBTKS_TFT_ENABLE=1" not in headless
 assert "lovyan03/LovyanGFX @ 1.2.7" in display
@@ -37,4 +43,4 @@ assert "EbtksTft::startTerminalMirror();" in ino
 assert "EbtksTft::mirrorFeed" in (root / "ESP32_Z80_Emulator/serial.h").read_text()
 assert "tft.cp437(true);" in terminal and "lgfx::utf8_switch" in terminal
 assert not any(x in src for x in ["createSprite(", "malloc(", "new uint8_t[", "xTaskCreate"])
-print("PASS: exactly 2 ESP32 targets; TFT optional, VSPI isolated and ANSI/CP437 enabled")
+print("PASS: exactly 2 full ESP32 targets; optional TFT, default Telnet off, early IRAM cache")

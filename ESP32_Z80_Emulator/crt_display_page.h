@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ESPAsyncWebServer.h>
+#include "ebtks_static_pages.h"
 
 // Browser front end for the original EBTKS /ws CRT service. /ws is the JSON
 // transport endpoint; /crt is the human-facing HP-80 display.
@@ -290,17 +291,9 @@ connect();
 
 inline void ebtksServeCrtDisplay(AsyncWebServerRequest *request)
 {
-  // Always transmit large static pages directly from flash. Building an
-  // AsyncBasicResponse first copies the entire page to a heap String and
-  // repeatedly fragments it on ACK, unsafe once SPI caching uses heap.
-  AsyncWebServerResponse *response=request->beginResponse(
-      200,"text/html; charset=utf-8",
+  ebtksServeStaticHtml(request,
       reinterpret_cast<const uint8_t *>(EBTKS_CRT_DISPLAY_PAGE),
-      sizeof(EBTKS_CRT_DISPLAY_PAGE)-1U);
-  if(!response) {
-    request->send(503,"text/plain","CRT page response allocation failed");
-    return;
-  }
-  response->addHeader("Cache-Control","no-store");
-  request->send(response);
+      sizeof(EBTKS_CRT_DISPLAY_PAGE)-1U,
+      EBTKS_CRT_DISPLAY_PAGE_GZIP,sizeof(EBTKS_CRT_DISPLAY_PAGE_GZIP),
+      "CRT page response allocation failed");
 }

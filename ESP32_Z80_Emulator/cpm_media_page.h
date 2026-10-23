@@ -2,7 +2,11 @@
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
+#include <esp_heap_caps.h>
+#include <atomic>
+#include <new>
 #include "cpm_mount_store.h"
+#include "ebtks_static_pages.h"
 
 static const char CPM_MEDIA_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
@@ -56,7 +60,24 @@ function render(){
 }
 async function refreshAll(){
  const msg=document.getElementById('message');msg.textContent='Refreshing...';
- try{const r=await fetch('/api/cpm/media',{cache:'no-store'});if(!r.ok)throw new Error(await r.text());state=await r.json();render();msg.textContent=''}catch(e){msg.innerHTML='<span class="bad">'+esc(e.message||e)+'</span>'}
+ try{
+  for(let attempt=0;attempt<24;++attempt){
+   const r=await fetch('/api/cpm/media',{cache:'no-store'});
+   if(r.status===202){
+    msg.textContent='Reading SD-card media (CP/M keeps running)...';
+    await new Promise(resolve=>setTimeout(resolve,750));
+    continue;
+   }
+   if(!r.ok){
+    const body=await r.text();
+    let detail=body;
+    try{detail=JSON.parse(body).error||body}catch(_){}
+    throw new Error(detail||('HTTP '+r.status));
+   }
+   state=await r.json();render();msg.textContent='';return;
+  }
+  throw new Error('Media query timed out; press Refresh to retry.');
+ }catch(e){msg.innerHTML='<span class="bad">'+esc(e.message||e)+'</span>'}
 }
 async function mountDrive(d){
  const path=document.getElementById('sel-'+d).value;if(!path){document.getElementById('message').textContent='Choose an image first.';return}
@@ -73,6 +94,61 @@ async function applyReset(){
 refreshAll();
 </script></body></html>)HTML";
 
+// The network request callback runs on AsyncTCP's event task. Never block
+// that task on Teensy UART/directory access (up to 8 seconds). Reuse the
+// existing EBTKSWebTask; allocate the tiny job state at runtime.
+namespace CpmMediaAsync {
+  // 0 idle, 1 queued, 2 worker busy, 3 ready, 4 failed, 5 claimed.
+  struct Job {
+    std::atomic<uint8_t> phase{0};
+    std::atomic<AsyncResponseStream*> response{nullptr};
+    uint32_t readyAt=0; // only accessed by the EBTKS web worker
+  };
+  static Job* job=nullptr; // 4 bytes static; TFT linker DRAM is near full.
+
+  inline bool sufficientMemory() {
+    // Idle CP/M free8 ~27 KiB, modem + Telnet ~16 KiB.
+    // Keep allocation reserve for TCP instead of producing large JSON.
+    return ESP.getFreeHeap() >= 56U*1024U &&
+           heap_caps_get_free_size(MALLOC_CAP_8BIT) >= 24U*1024U &&
+           heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= 16U*1024U;
+  }
+  inline void init() {
+    if(!job)job=new (std::nothrow) Job();
+  }
+  inline void service() {
+    if(!job)return;
+    uint8_t queued=1;
+    if(job->phase.compare_exchange_strong(queued,2,std::memory_order_acq_rel)) {
+      // Allocations may have changed since the browser request arrived.
+      if(!sufficientMemory()) {
+        job->phase.store(4,std::memory_order_release);
+        return;
+      }
+      AsyncResponseStream* response=
+          new (std::nothrow) AsyncResponseStream("application/json",512);
+      if(!response || !cpmStoreBuildMediaStatusJson(*response)) {
+        delete response;
+        job->phase.store(4,std::memory_order_release);
+        return;
+      }
+      response->addHeader("Cache-Control","no-store");
+      job->response.store(response,std::memory_order_release);
+      job->readyAt=millis();
+      job->phase.store(3,std::memory_order_release);
+    }
+    // Reclaim ~5 KiB if browser closed while directory was fetched.
+    if(job->phase.load(std::memory_order_acquire)==3 &&
+       (uint32_t)(millis()-job->readyAt)>15000U) {
+      uint8_t ready=3;
+      if(job->phase.compare_exchange_strong(ready,5,std::memory_order_acq_rel)) {
+        delete job->response.exchange(nullptr,std::memory_order_acq_rel);
+        job->phase.store(0,std::memory_order_release);
+      }
+    }
+  }
+}
+
 inline int cpmParseDriveParam(AsyncWebServerRequest *request)
 {
   if (!request->hasParam("drive")) return -1;
@@ -86,26 +162,48 @@ inline int cpmParseDriveParam(AsyncWebServerRequest *request)
 inline void cpmMediaRegister(AsyncWebServer &server)
 {
   server.on("/cpmmedia", HTTP_GET, [](AsyncWebServerRequest *request) {
-    // Serve flash-backed HTML without copying the entire page to heap.
-    AsyncWebServerResponse *response=request->beginResponse(
-      200,"text/html; charset=utf-8",
-      reinterpret_cast<const uint8_t *>(CPM_MEDIA_PAGE),
-      sizeof(CPM_MEDIA_PAGE)-1U);
-    if(!response) {
-      request->send(503,"text/plain","Media Manager response unavailable");
-      return;
-    }
-    response->addHeader("Cache-Control","no-store");
-    request->send(response);
+    ebtksServeStaticHtml(request,
+        reinterpret_cast<const uint8_t *>(CPM_MEDIA_PAGE),
+        sizeof(CPM_MEDIA_PAGE)-1U,
+        CPM_MEDIA_PAGE_GZIP,sizeof(CPM_MEDIA_PAGE_GZIP),
+        "Media Manager response unavailable");
   });
 
+  CpmMediaAsync::init();
   server.on("/api/cpm/media", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String reply;
-    if (!cpmStoreBuildMediaStatusJson(reply)) {
-      request->send(500, "application/json", "{\"ok\":false,\"error\":\"Unable to read CP/M media state\"}");
+    // AsyncTCP callback: no Teensy UART wait, no big JSON allocations.
+    CpmMediaAsync::Job* job=CpmMediaAsync::job;
+    if(!job) {
+      request->send(503,"application/json",
+                    "{\"ok\":false,\"error\":\"Media job unavailable\"}");
       return;
     }
-    request->send(200, "application/json", reply);
+    uint8_t ready=3;
+    if(job->phase.compare_exchange_strong(ready,5,std::memory_order_acq_rel)) {
+      AsyncResponseStream* response=
+          job->response.exchange(nullptr,std::memory_order_acq_rel);
+      job->phase.store(0,std::memory_order_release);
+      if(response) {request->send(response);return;}
+      request->send(503,"application/json",
+                    "{\"ok\":false,\"error\":\"Media result unavailable\"}");
+      return;
+    }
+    uint8_t failed=4;
+    if(job->phase.compare_exchange_strong(failed,0,std::memory_order_acq_rel)) {
+      request->send(503,"application/json",
+                    "{\"ok\":false,\"error\":\"Media query failed or ran out of memory; retry after network activity\"}");
+      return;
+    }
+    uint8_t idle=0;
+    if(job->phase.load(std::memory_order_acquire)==0 &&
+       !CpmMediaAsync::sufficientMemory()) {
+      request->send(503,"application/json",
+                    "{\"ok\":false,\"error\":\"Media Manager unavailable: ESP32 memory low; close terminal or modem connection and retry\"}");
+      return;
+    }
+    job->phase.compare_exchange_strong(idle,1,std::memory_order_acq_rel);
+    request->send(202,"application/json",
+                  "{\"ok\":true,\"pending\":true,\"retry_ms\":750}");
   });
 
   server.on("/api/cpm/mount", HTTP_POST, [](AsyncWebServerRequest *request) {

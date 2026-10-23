@@ -5,8 +5,14 @@
 #pragma once
 #include "disk.h"
 #include "z80_bridge.h"
+#include "cpm_service_probe.h"
+#include <new>  // tiny standard-heap allocation, not 32-bit/EXEC IRAM
 
 static Z80Bridge ebtksCpuBridge;
+
+static bool ebtksCcpServiceFetch(void *context,uint16_t pc,const uint8_t *ram) {
+  return static_cast<CpmSafePoint::Gate *>(context)->fetch(pc,ram);
+}
 
 void portOut(uint8_t p, uint8_t v) {
   int i;  
@@ -150,6 +156,16 @@ void CPUTask(void *) {
   // No ESP32-local SD exists in EBTKS: storage belongs to Teensy.
   z80BridgeInit(&ebtksCpuBridge,RAM,ebtksBridgePortIn,
                 ebtksBridgePortOut,nullptr,&RUN);
+  // One tiny Gate on the ordinary heap, allocated ONCE in the existing CPU
+  // task (after Wi-Fi starts). Bridge.device is free: both EBTKS port I/O
+  // callbacks ignore it. No new TFT BSS, early startup hook, or IRAM allocator.
+  auto *gate=new (std::nothrow) CpmSafePoint::Gate();
+  if(gate) {
+    ebtksCpuBridge.device=gate;
+    ebtksCpuBridge.service_fetch=ebtksCcpServiceFetch;
+  } else {
+    Serial.println("CP/M safe-point probe disabled: gate allocation failed");
+  }
   cpu_t=true;
   Serial.println("redcode/Z80 CPU task ready (Teensy storage unaffected)");
 
@@ -161,7 +177,14 @@ void CPUTask(void *) {
     // executes exactly one whole instruction, not one T-state.
     Z80BridgeStop reason=z80BridgeRun(&ebtksCpuBridge,SingleStep?1:12000);
     PC=Z80_PC(ebtksCpuBridge.cpu); // shared diagnostics/warm-boot reader
-    if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {
+    if(reason==Z80_BRIDGE_SERVICE) {
+      // This runs ONLY on the Z80 task at the verified CCP D382 opcode,
+      // after a blank Enter. No other task touches Z80 registers or RAM.
+      const bool ok=CpmServiceProbe::execute(&ebtksCpuBridge);
+      if (auto *gate=static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device))
+        gate->complete(ok);
+      PC=Z80_PC(ebtksCpuBridge.cpu);
+    } else if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {
       RUN=false;
     } else if(reason==Z80_BRIDGE_EXTERNAL_STOP) {
       RUN=false;

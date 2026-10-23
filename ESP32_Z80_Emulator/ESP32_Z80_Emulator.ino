@@ -30,6 +30,11 @@
 #include "ebtks_storage.h"
 #include "ebtks_cpm85_keyboard.h" // must precede Web RAM profile and disk.h
 #include "ebtks_modem.h" // lightweight I/O; worker started lazily by web task
+// Pure CCP command-input safety gate. Allocate its tiny state once,
+// after the existing Wi-Fi stack is up and from the existing CPU worker.
+// No new permanent DRAM/BSS is consumed on the constrained ST7796 build.
+#include "cpm_safe_point.h"
+CpmSafePoint::Gate *cpmSafeGatePtr();
 #include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
 #include "ebtks_web.h"
 #include "init8250.h"
@@ -42,8 +47,12 @@
 // Keep last user-tested decoder available for A/B regression builds.
 #ifdef EBTKS_Z80_LEGACY_CPU
 #include "cpu.h"
+inline CpmSafePoint::Gate *cpmSafeGatePtr() { return nullptr; }
 #else
 #include "cpu_redcode.h"
+inline CpmSafePoint::Gate *cpmSafeGatePtr() {
+  return static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device);
+}
 #endif
 #include "serial.h"
 
@@ -53,6 +62,12 @@ void setup() {
   // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
   // exclusively by TeensySerial for the framed ESP32 <-> Teensy protocol.
   ebtksLinkBegin();
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY && EBTKS_SPI_READAHEAD_DEFAULT_ON
+  // Fourth-target memory experiment: reserve 8192B IRAM before Wi-Fi,
+  // AsyncTCP/Web, HP console tasks and CP/M disk startup. Never use
+  // ordinary DRAM as an implicit fallback in this configuration.
+  spiDiskReserveCacheEarly();
+#endif
   delay(100);
 
   Serial.println("\nEBTKS Z80 Emulator - Milestone 2");
@@ -80,7 +95,7 @@ void setup() {
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
 
-#if !EBTKS_TELNET_SHARED_WORKER
+#if EBTKS_TELNET_ENABLE && !EBTKS_TELNET_SHARED_WORKER
   // Optional legacy A/B path: a separate 3072-byte acceptor task.
   xTaskCreatePinnedToCore(TelnetTask,"TelnetTask",3072,NULL,2,&Task3,0);
   while(!telnet_t) vTaskDelay(10);
@@ -153,6 +168,9 @@ void loop() {
   // reload it. The helper keeps page zero standard (0005 -> D806) and patches
   // only the BDOS entry itself to recognize function 0 safely.
   cpmWarmBootCapture();
+  // The legacy CPU returns nullptr; safe-point service is disabled.
+  if (CpmSafePoint::Gate *gate=cpmSafeGatePtr())
+    gate->reset(RAM,cpmResidentShadowValid);
   // Includes boot-time CP/M shadow and potentially SPI DMA/worker allocations.
   EbtksMemory::capture(EbtksMemory::CPM_BOOT_READY);
 
@@ -174,6 +192,8 @@ void loop() {
     while(RUN) vTaskDelay(100);
 
     if (cpmWarmBootHandleTrap()) {
+      if (CpmSafePoint::Gate *gate=cpmSafeGatePtr())
+        gate->onWarmBoot();
       RUN = true;
       continue;
     }

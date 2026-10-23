@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [main, feature/cpm-wifi-modem, feature/cpm85-drive-control]
+    branches: [main, feature/cpm-wifi-modem, feature/cpm85-drive-control, feature/cpm85-management-console]
   workflow_dispatch:
 jobs:
   native:
@@ -13,6 +13,7 @@ jobs:
         run: |
           bash tests/run_z80_core_native.sh
           python3 tests/check_web_ui_cleanup.py
+          python3 tests/check_html_gzip.py
           node tests/web_terminal_browser_native.js
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/console_ansi_probe_native.cpp -o /tmp/console_ansi_probe_test
           /tmp/console_ansi_probe_test
@@ -32,7 +33,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_vt100_native.cpp -o /tmp/tft_vt100_test
           /tmp/tft_vt100_test
   firmware:
-    name: ESP32 headless + ST7796 ANSI terminal builds
+    name: Two ESP32 CP/M terminal firmware builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,9 +55,13 @@ jobs:
         run: pio run -e esp32dev
       - name: Build ST7796 CP/M ANSI/VT100/CP437 terminal
         run: pio run -e esp32dev-tft
-      - name: Verify exact Git commit encoded in both firmware images
+      - name: Reject macOS-incompatible TFT static DRAM growth
+        run: python3 tests/check_esp32_dram_budget.py
+      - name: Verify exact Git commit encoded in all firmware images
         run: python3 tests/check_build_revision.py
-      - name: Report headless and TFT static ELF RAM
+      - name: Check two full bundles and default Telnet exclusion
+        run: python3 tests/check_firmware_variants.py
+      - name: Report both static ELF RAM profiles
         run: |
           python3 tools/report_esp32_memory.py .pio/build/esp32dev/firmware.elf > esp32dev-memory.txt
           python3 tools/report_esp32_memory.py .pio/build/esp32dev-tft/firmware.elf > esp32dev-tft-memory.txt
@@ -71,3 +76,14 @@ jobs:
           retention-days: 30
       - name: Regression - headless CP/M (SPI read-ahead default OFF)
         run: PLATFORMIO_BUILD_FLAGS=-DEBTKS_SPI_READAHEAD_DEFAULT_ON=0 pio run -e esp32dev
+      # Compile-time Telnet is a switch, not a third firmware flavor.
+      # Override all needed flags explicitly for the opt-in smoke builds,
+      # so PLATFORMIO_BUILD_FLAGS cannot unintentionally drop shared defaults.
+      - name: Optional Telnet compile switch smoke build (both targets)
+        run: |
+          PLATFORMIO_BUILD_FLAGS="-DEBTKS_CPM85_KEYBOARD_ENABLE=1 -DEBTKS_WEB_TERMINAL_ENABLE=1 -DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1 -DEBTKS_TELNET_ENABLE=1" pio run -e esp32dev
+          python3 tests/check_telnet_optin.py esp32dev
+          PLATFORMIO_BUILD_FLAGS="-DEBTKS_CPM85_KEYBOARD_ENABLE=1 -DEBTKS_WEB_TERMINAL_ENABLE=1 -DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1 -DEBTKS_TELNET_ENABLE=1 -DEBTKS_TFT_ENABLE=1 -DEBTKS_TFT_TERMINAL_MIRROR=1 -DEBTKS_TFT_VT100=1" pio run -e esp32dev-tft
+          python3 tests/check_telnet_optin.py esp32dev-tft
+          python3 tests/check_esp32_dram_budget.py
+

@@ -1,4 +1,5 @@
 #pragma once
+#include "ebtks_firmware_options.h"
 
 #define EBTKS
 
@@ -16,8 +17,10 @@ const String banner[] = {
   "                                                "
 };
 
+#if EBTKS_TELNET_ENABLE
 WiFiServer telnetServer(23);
 WiFiClient serverClient;
+#endif
 const char *hostName = "ebtks-z80";
 
 // The upstream CPU initialisation still calls sdSPI.begin()/SD.begin().
@@ -80,6 +83,9 @@ bool sdfound = false;  // Milestone 2: true means Teensy-backed storage is reach
 
 TaskHandle_t Task1, Task2, Task3, Task4, Task5, Task6;
 SemaphoreHandle_t baton;
-bool ota_t=false, cpu_t=false, serial_t=false, telnet_t=false;
+bool ota_t=false, cpu_t=false, serial_t=false;
+#if EBTKS_TELNET_ENABLE
+bool telnet_t=false;
+#endif
 uint32_t POP[256] = {};
 uint32_t POPcb[256] = {};

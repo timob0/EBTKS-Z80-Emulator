@@ -1,25 +1,39 @@
 #pragma once
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <esp_heap_caps.h>
 #include "z80_debug.h"
 #include "crt_display_page.h"
 #include "cpm_media_page.h"
+#include "ebtks_firmware_options.h"
+#include "ebtks_static_pages.h"
 
 // Z80 browser terminal.  Telnet remains a raw byte stream; browser terminal
 // emulation is deliberately client-side so CP/M and BIOS console behaviour are
 // unchanged.
+#if EBTKS_WEB_TERMINAL_ENABLE
 AsyncWebSocket z80WebSocket("/z80ws");
+
+// Reserve contiguous 8-bit RAM for AsyncTCP/Wi-Fi and existing clients.
+// The modem already guards TCP dial; protect the reverse startup order too,
+// BEFORE the WebSocket handshake allocates its new client.
+// Observed: Telnet connected has 63 KiB free / 16 KiB largest8;
+// modem started first has 55 KiB free / 11 KiB largest8.
+inline bool webTerminalHasMemoryReserve() {
+  return ESP.getFreeHeap() >= 56U * 1024U &&
+         heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= 14U * 1024U;
+}
 
 static const char EBTKS_TERM_PAGE[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>EBTKS Z80 Terminal</title><style>
 body{background:#202124;color:#e8eaed;font-family:monospace;margin:0;padding:1rem}.toolbar{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin-bottom:.65rem}button,select{font:inherit}.spacer{flex:1}.hint{color:#9aa0a6;font-size:.9em}#term{background:#000;color:#a5ff31;padding:12px;min-height:24em;white-space:pre;overflow:auto;outline:none;line-height:1.16;letter-spacing:0;font-family:"DejaVu Sans Mono","Noto Sans Mono","Liberation Mono",monospace}#term .rv{background:#a5ff31;color:#000}#term .ul{text-decoration:underline}#term .bd{font-weight:bold}#term .cursor{outline:1px solid currentColor;animation:blink 1.1s step-end infinite}@keyframes blink{50%{outline-color:transparent}}#diag{background:#111;color:#ddd;padding:12px;min-height:10em;max-height:20em;overflow:auto;white-space:pre-wrap;display:none}#diagControls{display:none;margin:.5rem 0}#status2{color:#fbbc04}
 </style></head><body>
-<div class="toolbar"><b>EBTKS Z80 / CP/M terminal</b><label>Mode <select id="termMode"><option value="raw">Raw</option><option value="vt100">VT100</option><option value="hp86">HP-86 / 82900</option></select></label><button onclick="clearTerm()">Clear</button><button onclick="resetZ80()">Reset Z80</button><button onclick="toggleDiag()">Diagnostics</button><button onclick="location.href='/cpmmedia'">CP/M Media</button><button onclick="location.href='/crt'">HP-85 CRT</button><button onclick="location.href='/'">EBTKS Home</button><span class="spacer"></span><span id="state">connecting...</span></div>
+<div class="toolbar"><b>EBTKS Z80 / CP/M terminal</b><label>Mode <select id="termMode"><option value="raw">Raw</option><option value="vt100">VT100</option><option value="hp86">HP-86 / 82900</option></select></label><button onclick="clearTerm()">Clear</button><button onclick="resetZ80()">Reset Z80</button><button onclick="toggleDiag()">Diagnostics</button><button onclick="retryTerminalConnection()">Reconnect</button><button onclick="location.href='/cpmmedia'">CP/M Media</button><button onclick="location.href='/crt'">HP-85 CRT</button><button onclick="location.href='/'">EBTKS Home</button><span class="spacer"></span><span id="state">connecting...</span></div>
 <div class="hint">The ESP32 console answers VT100 DA/DSR probes for both TFT and Web (external Telnet clients answer for themselves). VT100 supports the ST7796 TFT's 16 ANSI colors, CP437 characters and DEC line graphics at 80x24. HP-86 retains original HP CP/M keys and Soroc/HP controls. Telnet remains raw.</div>
 <pre id="term" tabindex="0"></pre><div id="status2"></div><div id="diagControls"><button onclick="refreshDiag()">Refresh diagnostics</button><button onclick="clearDiag()">Clear diagnostics</button></div><pre id="diag"></pre><script>
 const term=document.getElementById('term'),state=document.getElementById('state'),diag=document.getElementById('diag'),diagControls=document.getElementById('diagControls'),modeSel=document.getElementById('termMode'),status2=document.getElementById('status2');
-let ws,diagTimer=null,mode=localStorage.getItem('ebtksTermMode')||'vt100';const W=80,H=24,ESC=27;
+let ws,diagTimer=null,wsFailures=0,retryTimer=null,mode=localStorage.getItem('ebtksTermMode')||'vt100';const W=80,H=24,ESC=27;
 let scr,row,col,savedRow,savedCol,savedAttr,scrollTop,scrollBottom,attr,insertMode,cursorVisible,autoWrap,originMode,g0,g1,gl,parserState,seq,charTarget,hpSeq,hpAddr,hpDialect,rawText='',unsupported=new Set();
 // RGB equivalents of the physical TFT's RGB565 16-color palette.
 // Index 16 means TFT default foreground #a5ff31 or black background.
@@ -117,12 +131,16 @@ function hpEscByte(b){const ch=String.fromCharCode(b);if(hpSeq){hpSeq+=ch;if(hpS
 function processHP(b){if(parserState==='normal'){if(b===ESC){parserState='hpesc';hpSeq='';return}if(ctl(b,true))return;if(b>=32&&b!==127)putChar(cp437(b));return}if(parserState==='hpaddr1'){hpAddr=[b];parserState='hpaddr2';return}if(parserState==='hpaddr2'){hpAddr.push(b);row=Math.max(0,Math.min(H-1,hpAddr[0]-32));col=Math.max(0,Math.min(W-1,hpAddr[1]-32));parserState='normal';return}if(parserState==='hpesc')hpEscByte(b)}
 function putRaw(b){if(b===13)return;if(b===10)rawText+='\n';else if(b===8||b===127)rawText=rawText.slice(0,-1);else if(b===12||b===26)rawText='';else if(b>=32||b===9)rawText+=cp437(b);if(rawText.length>60000)rawText=rawText.slice(-40000)}let renderPending=false;function scheduleRender(){if(renderPending)return;renderPending=true;requestAnimationFrame(()=>{renderPending=false;render()})}function feed(data){for(const b of data){if(mode==='raw')putRaw(b);else if(mode==='vt100')processVT(b);else processHP(b)}scheduleRender()}function setMode(m){mode=m;localStorage.setItem('ebtksTermMode',mode);modeSel.value=mode;rawText='';resetModel(true);unsupported.clear();status2.textContent='';render();term.focus()}modeSel.addEventListener('change',()=>setMode(modeSel.value));
 async function resetZ80(){state.textContent='resetting...';try{const r=await fetch('/z80/reset',{method:'POST'});if(!r.ok)throw new Error();clearTerm();state.textContent='reset requested';setTimeout(()=>term.focus(),250)}catch(e){state.textContent='reset error'}}async function refreshDiag(){try{const r=await fetch('/z80debug',{cache:'no-store'});diag.textContent=await r.text();diag.scrollTop=diag.scrollHeight}catch(e){diag.textContent='diagnostic fetch failed'}}async function clearDiag(){try{await fetch('/z80debug-clear',{method:'POST'});await refreshDiag()}catch(e){diag.textContent='diagnostic clear failed'}}function toggleDiag(){const show=diag.style.display==='none';diag.style.display=show?'block':'none';diagControls.style.display=show?'block':'none';if(show){refreshDiag();diagTimer=setInterval(refreshDiag,1000)}else{if(diagTimer){clearInterval(diagTimer);diagTimer=null}term.focus()}}
-function sendBytes(a){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(new Uint8Array(a))}function sendText(s){sendBytes(Array.from(s,x=>x.charCodeAt(0)&255))}function connect(){ws=new WebSocket(`ws://${location.host}/z80ws`);ws.binaryType='arraybuffer';ws.onopen=()=>{state.textContent='connected';term.focus()};ws.onclose=()=>{state.textContent='disconnected';setTimeout(connect,1000)};ws.onerror=()=>state.textContent='error';ws.onmessage=e=>{if(typeof e.data==='string')feed(Uint8Array.from(e.data,x=>x.charCodeAt(0)&255));else feed(new Uint8Array(e.data))}}
+function sendBytes(a){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(new Uint8Array(a))}function sendText(s){sendBytes(Array.from(s,x=>x.charCodeAt(0)&255))}function retryTerminalConnection(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null}if(ws&&(ws.readyState===WebSocket.OPEN||ws.readyState===WebSocket.CONNECTING))return;wsFailures=0;connect()}
+function connect(){retryTimer=null;ws=new WebSocket(`ws://${location.host}/z80ws`);ws.binaryType='arraybuffer';ws.onopen=()=>{wsFailures=0;state.textContent='connected';term.focus()};ws.onclose=()=>{if(++wsFailures<3){state.textContent='disconnected; retrying...';retryTimer=setTimeout(connect,5000*wsFailures)}else state.textContent='Terminal unavailable (possibly low ESP32 memory). Close unused sessions and click Reconnect.'};ws.onerror=()=>state.textContent='connection error';ws.onmessage=e=>{if(typeof e.data==='string')feed(Uint8Array.from(e.data,x=>x.charCodeAt(0)&255));else feed(new Uint8Array(e.data))}}
 const hpKey={ArrowLeft:0x9F,ArrowRight:0xAA,ArrowUp:0xA3,ArrowDown:0xA4,Delete:0x88,Insert:0x9E,PageUp:0x91,PageDown:0xA9,F1:0x80,F2:0x81,F3:0x82,F4:0x83,F5:0xA1,F6:0xA2,F7:0x9C,F8:0x84,F9:0x85,F10:0x86,F11:0x87,F12:0xA5,F13:0xAC,F14:0x93};
 term.addEventListener('keydown',e=>{if(!ws||ws.readyState!==WebSocket.OPEN)return;let s=null,a=null;if(e.key==='Enter')a=[13];else if(e.key==='Backspace')a=[8];else if(e.key==='Tab')a=[9];else if(e.key==='Escape')a=[27];else if(mode==='hp86'&&hpKey[e.key]!==undefined)a=[hpKey[e.key]];else if(mode!=='hp86'&&e.key==='ArrowUp')s='\x1b[A';else if(mode!=='hp86'&&e.key==='ArrowDown')s='\x1b[B';else if(mode!=='hp86'&&e.key==='ArrowRight')s='\x1b[C';else if(mode!=='hp86'&&e.key==='ArrowLeft')s='\x1b[D';else if(mode!=='hp86'&&e.key==='Home')s='\x1b[H';else if(mode!=='hp86'&&e.key==='Delete')s='\x1b[3~';else if(e.ctrlKey&&!e.altKey&&e.key.length===1){const c=e.key.toUpperCase().charCodeAt(0);if(c>=64&&c<=95)a=[c&31]}else if(e.key.length===1)a=[e.key.charCodeAt(0)&255];if(s!==null){sendText(s);e.preventDefault()}else if(a){sendBytes(a);e.preventDefault()}});document.addEventListener('click',e=>{if(e.target===term)term.focus()});modeSel.value=mode;resetModel(true);render();connect();
 </script></body></html>)HTML";
 
+#endif // EBTKS_WEB_TERMINAL_ENABLE: discard browser HTML and websocket
+
 inline void consoleRxEnqueue(uint8_t c){uint16_t next=rxInPtr+1;if(next>=sizeof(rxBuf))next=0;if(next==rxOutPtr)return;rxBuf[rxInPtr]=c;rxInPtr=next;}
+#if EBTKS_WEB_TERMINAL_ENABLE
 inline void webTerminalWrite(const uint8_t *data, size_t len) {
   if (!len) return;
 
@@ -149,30 +167,52 @@ inline void webTerminalWrite(const uint8_t *data, size_t len) {
     vTaskDelay(1);
   }
 }
+#else
+inline void webTerminalWrite(const uint8_t*,size_t) {}
+#endif
+
+inline void webTerminalCleanupClients(){
+#if EBTKS_WEB_TERMINAL_ENABLE
+  z80WebSocket.cleanupClients();
+#endif
+}
+
 inline void webTerminalRegister(AsyncWebServer &server){
+#if EBTKS_WEB_TERMINAL_ENABLE
+  // ESPAsyncWebServer 3.6.0 checks this before allocating a socket client.
+  // Its API returns HTTP 401 for a rejected upgrade (no new WebSocket).
+  z80WebSocket.handleHandshake([](AsyncWebServerRequest*) {
+    return webTerminalHasMemoryReserve();
+  });
   z80WebSocket.onEvent([](AsyncWebSocket*,AsyncWebSocketClient*,AwsEventType type,void *arg,uint8_t *data,size_t len){
     if(type!=WS_EVT_DATA)return;AwsFrameInfo *info=static_cast<AwsFrameInfo*>(arg);if(!info||info->index!=0||info->len!=len||!info->final)return;
     if(info->opcode==WS_TEXT){if(len>=10&&len<=220&&!memcmp(data,"TERMTRACE ",10)){char msg[232];memcpy(msg,data,len);msg[len]=0;z80DebugLog("Web terminal %s\n",msg+10);}return;}
     if(info->opcode!=WS_BINARY)return;for(size_t i=0;i<len;++i){uint8_t c=data[i];if(c==127)c=8;consoleRxEnqueue(c);}
   });
   server.on("/z80",HTTP_GET,[](AsyncWebServerRequest *r){
-    // This page is ~17 KiB. Never materialize it as a heap String, which
-    // becomes fragile when live SPI read-ahead retains its cache and worker.
-    AsyncWebServerResponse *response=r->beginResponse(
-      200,"text/html; charset=utf-8",
-      reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE),
-      sizeof(EBTKS_TERM_PAGE)-1U);
-    if(!response) {
-      r->send(503,"text/plain","Terminal page response allocation failed");
+    if (!webTerminalHasMemoryReserve()) {
+      r->send(503,"text/plain",
+              "Web Terminal unavailable: ESP32 8-bit RAM is low. "
+              "Exit MODEM or close other sessions, then reload.");
       return;
     }
-    response->addHeader("Cache-Control","no-store");
-    r->send(response);
+    // Gzip is generated at build time from the editable HTML in this
+    // header; use flash-backed identity only for clients without gzip.
+    ebtksServeStaticHtml(r,
+        reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE),
+        sizeof(EBTKS_TERM_PAGE)-1U,
+        EBTKS_TERM_PAGE_GZIP,sizeof(EBTKS_TERM_PAGE_GZIP),
+        "Terminal page response allocation failed");
   });
+#endif // EBTKS_WEB_TERMINAL_ENABLE
+  // HP CRT, Media Manager, Z80 control and diagnostics are always present.
   server.on("/crt",HTTP_GET,ebtksServeCrtDisplay);
   server.on("/z80/reset",HTTP_POST,[](AsyncWebServerRequest *r){RUN=false;r->send(200,"application/json","{\"ok\":true}");});
   server.on("/z80debug",HTTP_GET,[](AsyncWebServerRequest *r){r->send(200,"text/plain",z80DebugSnapshot());});
   server.on("/z80debug-clear",HTTP_POST,[](AsyncWebServerRequest *r){z80DebugClear();r->send(200,"application/json","{\"ok\":true}");});
   server.on("/z80/status",HTTP_GET,[](AsyncWebServerRequest *r){String s="{\"target\":\"ESP32-D0WD-V3\",\"milestone\":2,\"z80_running\":";s+=RUN?"true":"false";s+=",\"teensy_storage\":";s+=sdfound?"true":"false";s+="}";r->send(200,"application/json",s);});
-  cpmMediaRegister(server);server.addHandler(&z80WebSocket);
+  cpmMediaRegister(server);
+#if EBTKS_WEB_TERMINAL_ENABLE
+  server.addHandler(&z80WebSocket);
+#endif
 }
