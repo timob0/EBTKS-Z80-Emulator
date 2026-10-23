@@ -7,6 +7,56 @@ Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
 
+## HW root cause isolated: invalid directory filename, Z80 reset policy corrected (2026-10-24)
+
+After running `CPDCAT "A:"` under diagnostic ESP32 firmware
+`cc574613a87049c36e17216b8eec50fd3c078d24`, the operator read:
+
+```json
+{
+  "supported":true,"ccp_idle":true,"mode":"ccp_input",
+  "probe":"never","operation":"directory","checkpoint":"idle",
+  "directory_error":"none","last_directory_state":"failed",
+  "last_directory_error":"invalid_directory_filename",
+  "last_directory_checkpoint":"bdos_search_failed",
+  "last_directory_forced_z80_reset":true
+}
+```
+
+This proves native BDOS returned a result which the ESP32 8.3 filename
+decoder rejected; it does **not** prove why the raw byte is noncanonical.
+The old host `execute()` treated EVERY failure, including host-side
+filename validation AFTER a completed BDOS call, as a reason to force a
+Z80 reboot. This is overly broad and explains the reset.
+
+### Corrective ESP32-only changes
+
+- Decode each name without inventing a filename. If a byte is invalid
+  (after stripping CP/M 8.3 attribute bits), **skip that entry**, continue
+  bounded BDOS Search Next, return `passed` with a visible warning.
+- Record `skipped_malformed_entries`, `first_bad_search_index`,
+  `first_bad_name_offset`, and `first_bad_name_byte` in the directory
+  GET response. Anomalous entries are not silently presented as files.
+- `last_directory_error:"invalid_directory_filename"` is retained as a
+  **warning** even when `last_directory_state:"passed"`. A warning is
+  not a BDOS execution failure.
+- Only interrupted BDOS execution or unexpected mutation of the CP/M
+  DMA pointer requests a Z80-only restart. Other metadata failures may
+  fail the catalog but do not reboot the guest.
+- HP `CPDCAT` renders actual line feeds (previously source string
+  literals contained doubled backslashes), bounded 32-entry listing,
+  extent count/truncation notice, and `N BAD NAME(S) SKIPPED`.
+- Native regression checks a deliberately malformed directory name,
+  byte-level warning, exact CPU and TPA restoration, no reset; separately
+  checks interrupted BDOS still requests a reset.
+
+**Pending hardware acceptance:** latest ESP32 TFT firmware CI and
+local Mac TFT link must pass before flashing. Keep HP v0.04c and Teensy
+`feature/cpm85-catalog` unchanged. After CPDCAT at A> prompt, inspect
+`GET /api/cpm/service/directory` for `state:"passed"`, `skipped...`
+and first bad byte. Compare with CP/M `DIR`; test Multiplan and Media
+Manager. No merges and no disk filesystem writes are introduced.
+
 ## Post-error hardware evidence, running ESP32 SHA 74bb45f3 (2026-10-23)
 
 User read both endpoints after the HP error (without rearming the request):
