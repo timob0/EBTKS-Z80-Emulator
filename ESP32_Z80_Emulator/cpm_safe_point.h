@@ -73,6 +73,12 @@ struct Directory {
   uint8_t count=0;
   bool truncated=false;
   uint8_t error=DIR_OK;
+  // Invalid on-disk 8.3 names are not a BDOS execution failure.
+  // Skip malformed entries, keep a small diagnostic from the first one.
+  uint8_t skipped=0;
+  uint8_t firstBadIndex=0xFF;
+  uint8_t firstBadOffset=0xFF; // offset within a 32-byte directory entry
+  uint8_t firstBadByte=0;
   char drive='?';
   DirectoryEntry entries[kDirectoryMax]{};
 };
