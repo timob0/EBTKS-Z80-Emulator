@@ -85,6 +85,65 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23: Post-MODEM Media Manager guard & proposed CCP lifecycle release
+
+User tested MODEM successfully through active **browser Web Terminal**
+on new gzip/no-Telnet/early-IRAM firmware. Afterwards CP/M
+Media Manager HTML renders but its async GET `/api/cpm/media`
+shows **`Media Manager unavailable: ESP32 memory low; close terminal
+or modem connection and retry`**, with empty drive/media tables.
+This is expected from explicit `CpmMediaAsync::sufficientMemory()`
+guard in `cpm_media_page.h`: free total>=56KiB,
+**free 8-bit>=24KiB**, **largest 8bit>=16KiB**; not a
+failure of gzip HTML or Teensy disk access. Previous hardware
+MODEM resident snapshot free8~21KiB, below 24KiB guard.
+
+Source review confirms `ebtks_modem.h` originally lazily
+created a modem task (`xTaskCreatePinnedToCore` stack 5120B),
+heap Uart8250 (RX/TX 512B each), 512B netTx, 256B response,
+WiFiClient and Hayes parser. BBS logout/ATH stops only socket;
+`startState=2` and worker+buffers still persist, allowing
+the SAME MODEM program to redial. Never unconditionally
+release these resources on ATH or remote NO CARRIER.
+
+User asked whether full modem resources can be released.
+Implemented a **verified CP/M CCP-input-only lifecycle** in
+the ESP32 feature branch (not main/recovery), no Teensy/HP
+change. Uses already-tested Stage A `CpmSafePoint::Gate`:
+only `compatible && mode==CCP_INPUT` triggers cleanup,
+via `ebtksWebBackgroundTask`. The Z80 CPU task never
+performs networking, deletion or memory allocation.
+New `startState` 6=requested-release, 7=worker-suspended.
+The modem's own worker closes TCP and frees UART/client/
+Hayes/network buffers (safely shielding UART pointer with
+`uartMux`), then suspends itself. Existing web worker polls
+`eTaskGetState(handle)==eSuspended` before `vTaskDelete(handle)`,
+reclaims stack/TCB, resets modem to state0 dormant. Subsequent
+MODEM execution is supposed to lazily reallocate modem worker
+and FIFOs on first Z80 port access, preserving UART functionality.
+New startup resets indices and Hayes negotiation flags.
+No extra background tasks, static bss buffers, or inactivity
+timeouts; verified CCP ensures BBS redial within MODEM is
+untouched. Existing Modem/Hayes & CP/M native tests and
+new static lifecycle invariants covered by CI.
+
+**At time of note: CODE NOT HARDWARE TESTED**. CI is in
+progress. Critical physical test once latest full CI green:
+at coldboot note `modem_state=0`, start MODEM on web terminal
+(`modem_state=2`), dial BBS and log off (`modem_state` stays 2),
+exit MODEM with Ctrl-X to return to real CP/M CCP prompt
+(`modem_state` should become 0 within ~one web task loop),
+confirm `/api/system/memory` free8 jumps by several KiB and
+modem stack disappears from task listing, then open Media
+Manager and check listing. Crucial: run MODEM **a second time**
+to verify fresh initialization, `AT`, dial/hangup; return
+again to CP/M and ensure second release works. Validate
+DIR/Multiplan still function. This change targets memory
+after **exiting MODEM**, not concurrent MODEM+Media Manager
+or MODEM+active browser terminal which remain under existing
+guards. Do not merge until physical acceptance.
+
+---
 ## 2026-10-23 gzip/Web UI browser acceptance
 
 User confirmed on physical firmware that the **Home Page Z80 Terminal button is fixed** and **Web UI pages work as expected** after introducing gzip assets. The separate gzip Media Manager low-water-memory test is **deferred**, not yet performed. Keep it as an optional next hardware measurement. No new ESP32 firmware change, no merge to main or recovery.
