@@ -27,8 +27,10 @@ QueueHandle_t ebtksBrowserRequestQueue = nullptr;
 
 #if EBTKS_WEB_TERMINAL_ENABLE
 #define EBTKS_HOME_Z80_LINK "<button onclick=\"location.href='/z80'\">Z80 / CP/M Terminal</button>"
-#else
+#elif EBTKS_TELNET_ENABLE
 #define EBTKS_HOME_Z80_LINK "<p class=\"small\">CP/M console: physical TFT or Telnet port 23</p>"
+#else
+#define EBTKS_HOME_Z80_LINK "<p class=\"small\">CP/M console: physical TFT</p>"
 #endif
 
 static const char EBTKS_HOME_FALLBACK[] PROGMEM = R"HTML(
@@ -115,7 +117,7 @@ inline void ebtksWebBackgroundTask(void *parameter)
   EBTKSBrowserRequest request;
 
   for (;;) {
-#if EBTKS_TELNET_SHARED_WORKER
+#if EBTKS_TELNET_ENABLE && EBTKS_TELNET_SHARED_WORKER
     // Accept connection only; an active Telnet session is still handled by
     // ConsoleTask. No permanently idle TelnetTask or its 3 KiB stack.
     telnetPoll();
@@ -299,8 +301,14 @@ inline bool ebtksWebBegin()
       doc["heap_free"]=(uint32_t)ESP.getFreeHeap();
       doc["free_8bit"]=(uint32_t)heap_caps_get_free_size(MALLOC_CAP_8BIT);
       doc["largest_8bit"]=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
+      doc["telnet_enabled"]=(bool)EBTKS_TELNET_ENABLE;
+#if EBTKS_TELNET_ENABLE
       doc["telnet_listener_mode"]=EBTKS_TELNET_SHARED_WORKER?"shared_web_task":"dedicated_task";
       doc["telnet_connected"]=serverClient.connected();
+#else
+      doc["telnet_listener_mode"]="disabled";
+      doc["telnet_connected"]=false;
+#endif
       doc["web_terminal_enabled"]=(bool)EBTKS_WEB_TERMINAL_ENABLE;
       doc["tft_terminal_enabled"]=(bool)EBTKS_TFT_TERMINAL_MIRROR;
       doc["min_heap_free"]=(uint32_t)ESP.getMinFreeHeap();
@@ -366,7 +374,7 @@ inline bool ebtksWebBegin()
 
   ebtksServer.begin();
 
-#if EBTKS_TELNET_SHARED_WORKER
+#if EBTKS_TELNET_ENABLE && EBTKS_TELNET_SHARED_WORKER
   // Listener stays available for inbound TCP connections, while the
   // already-existing Web worker polls it without a second idle thread.
   telnetBegin();
@@ -384,7 +392,9 @@ inline bool ebtksWebBegin()
   Serial.println("EBTKS web services started");
   Serial.print("Home: http://"); Serial.println(WiFi.localIP());
   Serial.print("HP-80 remote display: http://"); Serial.print(WiFi.localIP()); Serial.println("/crt");
+  #if EBTKS_WEB_TERMINAL_ENABLE
   Serial.print("Z80 terminal: http://"); Serial.print(WiFi.localIP()); Serial.println("/z80");
+  #endif
   Serial.print("CP/M media manager: http://"); Serial.print(WiFi.localIP()); Serial.println("/cpmmedia");
   Serial.print("Firmware updater: http://"); Serial.print(WiFi.localIP()); Serial.println("/updater");
 
