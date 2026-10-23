@@ -85,6 +85,27 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 post-Telnet-drop recovery: TFT/HP continues, HTTP responsive
+
+At uptime **438102 ms** (after Telnet session dropped and BBS TCP
+already closed), physical TFT console + HP-85 keyboard continued
+functioning and user observed improved Web UI responsiveness.
+Memory: heap_free **58308**, free_8bit **19132**,
+largest_8bit **13300**, min_free_8bit **644** (historical low water,
+not current), telnet_connected **0**, modem_state **2** (worker retained).
+Console stack unused 1132 B; modem 3312, Web 2320, TFT 2984.
+Compared with immediately after Telnet loss (59104/19928/13300),
+current total and free8 are each 796 B lower; no evidence from these
+two samples of a continuing major leak. Compared with BBS login,
+free8 recovered 10236 B. Modem still allocated after TCP close.
+
+Network resource pressure and disconnect reason remain unresolved:
+**obtain `/z80debug` NOW** before its 2KiB log rolls; look for new
+`Telnet TX ... dropping client (queued=..., free8=..., largest8=...)`.
+Do not perform further BBS stress without diagnosis; do not merge.
+No firmware source changes from this observation.
+
+---
 ## 2026-10-23 TFT-only nonblocking Telnet: live BBS/Telnet load FAIL
 
 User's actual TFT-only branch firmware with new nonblocking Telnet TX reached
