@@ -41,9 +41,15 @@ static uint8_t z80BridgeOpcode(void *ctx,uint16_t address) {
     z80_break(&b->cpu);
     return Z80_NOP; // no side effect; rewind PC after the current step
   }
+  // The four original CCP addresses establish the safe-point boundary.
+  // Directory auto-Return additionally needs to observe the native BDOS
+  // function-10 input count and the two BIOS CONIN status-poll opcodes.
+  // Keep the filter exact-PC: never inspect arbitrary guest instructions or
+  // mistake console OUTPUT polling for input. No hook does UART/SD I/O here.
   if (b->service_fetch &&
       (address==0xD19C || address==0xD1A4 ||
-       address==0xD382 || address==0xD398) &&
+       address==0xD382 || address==0xD398 ||
+       address==0xD9EF || address==0xE826 || address==0xE831) &&
       b->service_fetch(b->device,address,b->memory)) {
     b->stop_reason=Z80_BRIDGE_SERVICE;
     b->stopped_at=address;
