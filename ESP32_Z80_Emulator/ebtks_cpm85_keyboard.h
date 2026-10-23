@@ -114,6 +114,7 @@ inline void start() {
   BaseType_t result=xTaskCreatePinnedToCore(worker,"CPM85Keys",3584,nullptr,1,&taskHandle,0);
   if(result!=pdPASS){taskHandle=nullptr;Serial.println("CPM85: worker startup failed");}
 }
+inline bool queueEmpty() {return !keyQueue || uxQueueMessagesWaiting(keyQueue)==0;}
 inline void drain() {
   if(!keyQueue)return;
   uint8_t c;
@@ -130,6 +131,7 @@ inline void drain() {
   }
 }
 #else
+inline bool queueEmpty(){return true;}
 inline void start(){}
 inline void drain(){}
 inline void observeConsoleOutput(const uint8_t*,size_t){}
