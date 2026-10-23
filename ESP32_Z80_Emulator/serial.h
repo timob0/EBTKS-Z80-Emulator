@@ -129,9 +129,8 @@ void serialTask(void *parameter) {
           }
         }
       }
+      #endif // EBTKS_TELNET_ENABLE
     }
-
-    #endif // EBTKS_TELNET_ENABLE
 
     #if EBTKS_TELNET_ENABLE
     // At most one nonblocking socket send per console iteration, even if the
