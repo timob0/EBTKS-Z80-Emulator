@@ -222,6 +222,16 @@ inline bool ebtksWebBegin()
           gate?gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
       v["directory_error"]=CpmSafePoint::directoryErrorText(
           gate?gate->directoryError.load(std::memory_order_acquire):CpmSafePoint::DIR_OK);
+      // Z80-only cold restart clears the live 'state' to 'never'; the last
+      // completed operation remains visible in the same heap-owned Gate.
+      v["last_directory_state"]=CpmSafePoint::resultText(
+          gate?gate->lastDirectoryResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_directory_error"]=CpmSafePoint::directoryErrorText(
+          gate?gate->lastDirectoryError.load(std::memory_order_acquire):CpmSafePoint::DIR_OK);
+      v["last_directory_checkpoint"]=CpmSafePoint::checkpointText(
+          gate?gate->lastDirectoryCheckpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["last_directory_forced_z80_reset"]=gate &&
+          gate->lastDirectoryReset.load(std::memory_order_acquire);
       v["git_commit"]=EBTKS_BUILD_GIT_COMMIT;
       v["web_terminal_enabled"]=(bool)EBTKS_WEB_TERMINAL_ENABLE;
       v["tft_terminal_enabled"]=(bool)EBTKS_TFT_TERMINAL_MIRROR;
@@ -287,6 +297,16 @@ inline bool ebtksWebBegin()
           gate?gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
       v["directory_error"]=CpmSafePoint::directoryErrorText(
           gate?gate->directoryError.load(std::memory_order_acquire):CpmSafePoint::DIR_OK);
+      // Z80-only cold restart clears the live 'state' to 'never'; the last
+      // completed operation remains visible in the same heap-owned Gate.
+      v["last_directory_state"]=CpmSafePoint::resultText(
+          gate?gate->lastDirectoryResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_directory_error"]=CpmSafePoint::directoryErrorText(
+          gate?gate->lastDirectoryError.load(std::memory_order_acquire):CpmSafePoint::DIR_OK);
+      v["last_directory_checkpoint"]=CpmSafePoint::checkpointText(
+          gate?gate->lastDirectoryCheckpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["last_directory_forced_z80_reset"]=gate &&
+          gate->lastDirectoryReset.load(std::memory_order_acquire);
       if(correctOperation && state==CpmSafePoint::PASSED) {
         CpmSafePoint::Directory snapshot;
         if(!gate->copyDirectory(snapshot)) {
