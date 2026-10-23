@@ -85,6 +85,54 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 Media Manager root-cause evidence and bounded-memory fix (hardware UNTESTED)
+
+User tested `curl -sS --max-time 15 -D ... -o ... -w ...
+http://esp32_ebtks.local/api/cpm/media` AFTER two BBS sessions.
+Response: **HTTP 200**, **Content-Length: 0**, **zero body bytes**,
+completed in **5.387394 seconds**. Python `json.tool` rejected the empty
+body (`Expecting value: line 1 column 1`). This conclusively explains the
+Media Manager's blank tables, but does not alone distinguish which of
+the two string allocations failed. Device still otherwise responsive.
+
+Source inspection of pinned ESPAsyncWebServer **3.6.0** shows
+`AsyncBasicResponse::AsyncBasicResponse(...,const char* content)`
+does `_content = content;` (another large dynamic String copy). In
+`cpm_media_page.h`, `request->send(200,"application/json",reply)`
+would use that constructor even if body construction succeeded;
+allocation failure can yield an HTTP 200 with `Content-Length: 0`.
+Meanwhile `cpmStoreBuildMediaStatusJson` built a large JsonDocument
+plus Teensy SD JsonDocument then serialized into a String, and returned
+`true` unconditionally without checking overflow, write count, or
+String allocation. Under the 268-byte historic 8-bit minimum this
+is a credible explanation of the observed empty body. The exact
+individual failing allocation is unconfirmed.
+
+**Source fix on feature branch, not yet physically verified:**
+`cpmStoreBuildMediaStatusJson(Print &out)` directly serializes the
+JSON response to a provided stream, scopes the Teensy directory
+JsonDocument so it is freed before output, checks
+`result.overflowed()`, `measureJson(result)`, and that the
+number of bytes emitted matches exactly. `cpm_media_page.h` now
+uses `AsyncResponseStream` (initial 512 B buffer) so no extra body
+copy through `AsyncBasicResponse`; if a low-heap preflight fails
+(free8 <12 KiB or largest8 <8 KiB), or the JSON writer fails,
+returns an explicit HTTP 503 JSON error instead of HTTP 200 empty
+body. Native static regression tests protect against regression.
+**Remaining risk**: `/api/cpm/media` still calls the Teensy SD query
+with up to 8 s timeout from the async HTTP callback. This is not
+addressed in the small fix and deserves architectural follow-up if
+latency/availability remain problematic.
+
+**Next**: check full CI including TFT static DRAM budget, require
+Mac TFT link before OTA; verify SHA and retest `/api/cpm/media`
+with curl `HTTP`, `bytes`, `time`, and `python3 -m json.tool` first
+at idle, then after an ordinary MODEM session (avoid forced stress).
+Expect either valid nonempty HTTP 200 JSON or explicit 503 JSON
+rather than HTTP 200/0. Keep accepted recovery firmware untouched;
+no Stage A merge until hardware regression accepted.
+
+---
 ## 2026-10-23 hardware retest after bounded Telnet TX fix — TWO BBS sessions, no freeze, UI degraded
 
 User reflashed the subsequent firmware with 2 s bounded Telnet TX writes,
