@@ -1,5 +1,8 @@
 #include "globals.h"
 #include "console_ansi_probe.h"
+#include <lwip/sockets.h>
+#include <errno.h>
+#include <stdlib.h>
 #pragma once
 
 void serialTask(void *parameter) {
@@ -7,6 +10,24 @@ void serialTask(void *parameter) {
   serial_t = true;
   // Fewer, larger WebSocket frames reduce queue pressure during screen redraws.
   uint8_t chunk[256];
+  // A modest heap buffer is allocated ONLY while Telnet is connected.
+  // Never allocate another permanent worker stack or add static DRAM/BSS.
+  // Socket output uses lwIP MSG_DONTWAIT; Arduino-ESP32 2.0.17's
+  // WiFiClient::write() internally performs up to ten 1-second select()
+  // retries, which can lock the shared ConsoleTask for much longer than
+  // our previous outer 2-second guard.
+  static constexpr size_t kTelnetTxCapacity=1024;
+  uint8_t *telnetTx=nullptr;
+  size_t telnetEnd=0,telnetStart=0;
+  TickType_t telnetLastProgress=0;
+  auto dropSlowTelnet = [&](const char *reason) {
+    EbtksDebugSerial.printf("Telnet TX %s; dropping client (queued=%u)\\n",
+                           reason,(unsigned)(telnetEnd-telnetStart));
+    serverClient.stop();
+    free(telnetTx);telnetTx=nullptr;
+    telnetEnd=telnetStart=0;
+  };
+
   // One allocation-free virtual terminal probe shared by TFT and Web.
   // Process bytes in console order, even across 256-byte output chunks.
   EbtksAnsiProbe::Terminal ansiProbe;
@@ -43,46 +64,67 @@ void serialTask(void *parameter) {
       txOutPtr = next;
     }
 
+    // Reclaim buffered Telnet data when its peer disconnects. Do NOT carry
+    // unsent CP/M bytes into a subsequent client session.
+    if (!serverClient.connected() && telnetTx) {
+      free(telnetTx);telnetTx=nullptr;
+      telnetStart=telnetEnd=0;
+    }
+
     if (n) {
-      // Passive observation of CP/M's DECCKM ?1h/?1l. This updates the
-      // physical HP-85 keyboard's VT100 cursor mode without changing bytes
-      // sent to Telnet, WebSocket or the ST7796 terminal.
+      // Process TFT and console input probes before touching the TCP socket.
+      // Even if Telnet is backed up, physical terminal output never waits
+      // for Wi-Fi write retries.
       Cpm85Input::observeConsoleOutput(chunk,n);
+      EbtksTft::mirrorFeed(chunk,n);
+      ansiProbe.feed(chunk,n,replyToGuest);
+      webTerminalWrite(chunk,n);
+
       if (serverClient.connected()) {
-        // WiFiClient::write() may accept less than the requested length.
-        // Do not discard the tail of a CP/M output burst if that happens.
-        // Under TCP/8-bit heap pressure, connected() may remain true even
-        // while write() accepts no bytes. Never let a slow Telnet peer stall
-        // the shared ConsoleTask (TFT, Web terminal, and HP keyboard router).
-        // Give each 256-byte chunk a bounded retry window, then shed only
-        // the failing Telnet client; CP/M and other outputs keep running.
-        const TickType_t telnetStart = xTaskGetTickCount();
-        size_t sent = 0;
-        while (sent < n && serverClient.connected()) {
-          if ((TickType_t)(xTaskGetTickCount() - telnetStart) >=
-              pdMS_TO_TICKS(2000)) {
-            EbtksDebugSerial.println(
-                "Telnet TX stalled for 2 s; disconnecting slow client");
-            serverClient.stop();
-            break;
+        if (!telnetTx) {
+          telnetTx=static_cast<uint8_t*>(malloc(kTelnetTxCapacity));
+          if (!telnetTx) dropSlowTelnet("buffer allocation failed");
+          else telnetLastProgress=xTaskGetTickCount();
+        }
+        if (telnetTx) {
+          // Compact only on demand. Unsent bytes stay in FIFO order.
+          if (telnetStart && telnetEnd+n>kTelnetTxCapacity) {
+            const size_t left=telnetEnd-telnetStart;
+            memmove(telnetTx,telnetTx+telnetStart,left);
+            telnetEnd=left;telnetStart=0;
           }
-          size_t wrote = serverClient.write(chunk + sent, n - sent);
-          if (wrote == 0) {
-            vTaskDelay(1);
-            continue;
+          if (telnetEnd+n>kTelnetTxCapacity) {
+            // Shedding one slow client is safer than blocking CP/M, TFT,
+            // keyboard, HTTP and SPI behind a full network send queue.
+            dropSlowTelnet("buffer full");
+          } else {
+            memcpy(telnetTx+telnetEnd,chunk,n);
+            telnetEnd+=n;
           }
-          sent += wrote;
         }
       }
-      // Mirror the same CP/M UART bytes as WebSocket/Telnet without doing
-      // any TFT SPI I/O on this latency-sensitive console router task.
-      EbtksTft::mirrorFeed(chunk, n);
-      // The BBS can probe ANSI support while the physical TFT is the ONLY
-      // active terminal. Replies enter CP/M CON: (so MODEM.COM sends them
-      // onward through the emulated 8250), not the BBS TCP socket directly.
-      // Browser JavaScript no longer sends duplicate responses.
-      ansiProbe.feed(chunk, n, replyToGuest);
-      webTerminalWrite(chunk, n);
+    }
+
+    // At most one nonblocking socket send per console iteration, even if the
+    // peer TCP window is closed. This cannot wait ten seconds in
+    // WiFiClient::write(), and preserves partial writes for the next pass.
+    if (telnetTx && telnetEnd>telnetStart && serverClient.connected()) {
+      const int fd=serverClient.fd();
+      const ssize_t wrote=(fd>=0)?
+          ::send(fd,telnetTx+telnetStart,telnetEnd-telnetStart,MSG_DONTWAIT)
+          : -1;
+      if (wrote>0) {
+        telnetStart+=(size_t)wrote;
+        telnetLastProgress=xTaskGetTickCount();
+        if (telnetStart==telnetEnd)telnetStart=telnetEnd=0;
+      } else if(wrote==0) {
+        dropSlowTelnet("socket closed");
+      } else if(fd<0 || (errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR)) {
+        dropSlowTelnet("socket error");
+      } else if((TickType_t)(xTaskGetTickCount()-telnetLastProgress)
+                >=pdMS_TO_TICKS(2000)) {
+        dropSlowTelnet("no progress for 2 s");
+      }
     }
 
     while (serverClient.connected() && serverClient.available()) {
