@@ -156,16 +156,25 @@ assert '#if EBTKS_WEB_TERMINAL_ENABLE' in web_terminal
 assert 'inline void webTerminalWrite(const uint8_t*,size_t) {}' in web_terminal
 assert 'webTerminalCleanupClients()' in web_terminal
 assert 'cpmMediaRegister(server);' in web_terminal
-assert 'serverClient.write(chunk + sent, n - sent)' in console
-assert 'vTaskDelay(1);' in console
-# No unbounded connected-but-not-writable Telnet loop: forward progress of
-# CP/M console/TFT/keyboard must not depend on a remote TCP client's ACKs.
-assert 'const TickType_t telnetStart = xTaskGetTickCount();' in console
-assert 'xTaskGetTickCount() - telnetStart' in console
+# Arduino-ESP32 2.0.17 WiFiClient::write internally waits up to 10 s.
+# The ConsoleTask cannot safely call it when the peer is slow or the TCP
+# send buffers are exhausted. Never stall TFT/CP/M behind Telnet retry.
+assert 'serverClient.write(chunk + sent, n - sent)' not in console
+assert '::send(fd,telnetTx+telnetStart,telnetEnd-telnetStart,MSG_DONTWAIT)' in console
+assert 'kTelnetTxCapacity=1024' in console
+assert 'malloc(kTelnetTxCapacity)' in console
+assert 'free(telnetTx)' in console
+assert 'telnetEnd+n>kTelnetTxCapacity' in console
+assert 'memmove(telnetTx,telnetTx+telnetStart,left)' in console
+assert 'telnetStart+=(size_t)wrote;' in console
+assert 'errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR' in console
 assert 'pdMS_TO_TICKS(2000)' in console
-assert console.index('pdMS_TO_TICKS(2000)') < console.index('serverClient.write(chunk + sent, n - sent)')
-assert 'serverClient.stop();' in console
-assert 'Telnet TX stalled for 2 s' in console
+assert 'dropSlowTelnet("buffer full")' in console
+assert 'dropSlowTelnet("no progress for 2 s")' in console
+assert 'Cpm85Input::observeConsoleOutput(chunk,n);' in console
+assert console.index('EbtksTft::mirrorFeed(chunk,n)') < console.index('::send(fd,')
+assert console.index('webTerminalWrite(chunk,n)') < console.index('::send(fd,')
+assert 'vTaskDelay(1);' in console
 assert 'CpmWifiModem::service();' in web
 assert "network_counters_available" not in web
 assert 'v["wifi_rssi_dbm"]' not in web
