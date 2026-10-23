@@ -1,6 +1,12 @@
 # Stage B1 — read-only CP/M BDOS directory service (experimental)
 
 **Source branch:** `feature/cpm85-file-transfer-hpib-ui` (ESP32 only)
+**Superseded for CURRENT feature branch:** the no-key CPDCAT/auto-Return
+extension described in [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md) now
+automatically completes a *verified empty* CCP BDOS 10 line before the D382
+trap. The manual-Return procedure below documents the **first** tested
+B1 implementation only; the new extension is not yet hardware accepted.
+
 **Status (2026-10-23):** CI green for source SHA `55a7c0803ba4b66106e5637317af8f90c0057078`; first physical read-only BDOS directory request **PASS**. Full post-operation hardware regression and exact flashed firmware SHA are **not yet reported**. Do not mark Stage B1 fully accepted or merge.
 The previously accepted Stage A probe, memory-optimized firmware, HP/Teensy
 code, mount table, disk-image writes and `recovery/` are unchanged.
