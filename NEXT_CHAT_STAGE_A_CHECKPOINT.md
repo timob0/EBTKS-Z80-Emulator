@@ -85,6 +85,38 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23: SECOND MODEM/BBS lifecycle physically VERIFIED
+
+User performed a **second complete MODEM cycle** on the ESP32 early-IRAM
+no-Telnet TFT+Web firmware, without requiring an ESP32 reboot.
+The modem **reinitialized successfully**, dialed into the BBS,
+and the browser terminal continued operating correctly with
+proper ANSI colors and special characters. After closing the
+BBS session, exiting MODEM to CP/M and returning to the
+CP/M Media Manager page, **drive assignments and media listings
+populated correctly again**. This confirms repeatable practical
+modem use/recovery and Media Manager availability across two
+successive real-hardware BBS cycles.
+
+Important evidence distinction: the first completed session
+provided `/api/system/memory` confirmation of `modem_state=0`,
+no modem stack entry, and free8=26712 after return to CCP.
+For the second cycle, the user confirmed functional operation
+and successful Media Manager listing, but **no second memory
+snapshot was supplied**; do not claim a measured second
+`modem_state=0` or exact post-cycle heap figure.
+
+Outcome: Stage A resource lifecycle change (CP/M CCP-triggered
+modem cleanup, on-demand startup) is functionally hardware
+accepted for two cycles; the old after-MODEM Media Manager
+low-memory failure is resolved in observed workflow, and
+previous memory guard remains unchanged. No extra code
+changes requested. Retain on feature branch until explicit
+approval for merge; preserve `main`, `recovery`, Teensy
+and HP firmware. Optional additional evidence: post-second-cycle
+`/api/system/memory` plus DIR/Multiplan regression.
+
+---
 ## 2026-10-23: Media Manager physically verified after MODEM/BBS teardown
 
 User confirms **CP/M Media Manager now works after the MODEM/BBS session**
