@@ -12,11 +12,58 @@
 
 inline bool ebtksHtmlAcceptsGzip(AsyncWebServerRequest *request) {
   if (!request->hasHeader("Accept-Encoding")) return false;
-  const String value = request->getHeader("Accept-Encoding")->value();
-  // Modern browser and curl --compressed use gzip. Never send a gzip
-  // entity to a client that only asked for the identity representation.
-  return value.indexOf("gzip") >= 0 &&
-         value.indexOf("gzip;q=0") < 0;
+  const String& value=request->getHeader("Accept-Encoding")->value();
+  // Tokenize the existing request header rather than allocating another
+  // entire copy. Respect explicit gzip;q=0 (including optional spaces).
+  // For a missing q parameter the HTTP default is q=1.
+  int pos=0;
+  const int length=(int)value.length();
+  while (pos<length) {
+    int end=value.indexOf(',',pos);
+    if (end<0) end=length;
+    int start=pos;
+    while (start<end && (value[start]==' ' || value[start]=='\t')) ++start;
+    const int tokenEnd=start+4;
+    if (tokenEnd<=end &&
+        (value[start]=='g'||value[start]=='G') &&
+        (value[start+1]=='z'||value[start+1]=='Z') &&
+        (value[start+2]=='i'||value[start+2]=='I') &&
+        (value[start+3]=='p'||value[start+3]=='P') &&
+        (tokenEnd==end || value[tokenEnd]==';' ||
+         value[tokenEnd]==' ' || value[tokenEnd]=='\t')) {
+      int scan=tokenEnd;
+      while (scan<end) {
+        if (value[scan]==';') {
+          ++scan;
+          while (scan<end && (value[scan]==' '||value[scan]=='\t')) ++scan;
+          if (scan+1<end && (value[scan]=='q'||value[scan]=='Q') &&
+              value[scan+1]=='=') {
+            scan+=2;
+            // An explicit zero quality disallows gzip. A fractional
+            // positive quality (e.g. 0.5) is allowed.
+            if (scan<end && value[scan]=='0') {
+              ++scan;
+              if (scan==end || value[scan]==';') return false;
+              if (value[scan]=='.') {
+                ++scan;
+                bool positive=false;
+                while (scan<end && value[scan]>='0' && value[scan]<='9') {
+                  if (value[scan]!='0') positive=true;
+                  ++scan;
+                }
+                if (!positive) return false;
+              }
+            }
+            break;
+          }
+        }
+        ++scan;
+      }
+      return true;
+    }
+    pos=end+1;
+  }
+  return false;
 }
 
 inline void ebtksServeStaticHtml(AsyncWebServerRequest *request,
