@@ -213,6 +213,9 @@ void CPUTask(void *) {
       if(gate)gate->complete(ok);
       PC=Z80_PC(ebtksCpuBridge.cpu);
       if(resetNeeded) {
+        // The outer loop will rebootstrap the Z80 and Gate::reset() will
+        // clear the live outcome. Preserve a sticky, read-only postmortem.
+        if(gate)gate->lastDirectoryReset.store(true,std::memory_order_release);
         // Never resume the CCP after an interrupted BDOS call.
         Serial.println("CP/M directory service failed after BDOS entry; requesting Z80 reset");
         RUN=false;
