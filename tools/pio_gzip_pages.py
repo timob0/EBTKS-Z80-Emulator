@@ -90,7 +90,6 @@ def render_header(project):
         "// Automatically generated at build time from embedded C++ HTML.\n",
         "#pragma once\n",
         "#include <stdint.h>\n",
-        '#include "ebtks_firmware_options.h"\n',
     ]
     for index, (variant, directive) in enumerate((
         ("EBTKS_HOME_WEB", "#if EBTKS_WEB_TERMINAL_ENABLE"),
