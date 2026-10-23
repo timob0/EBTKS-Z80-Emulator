@@ -85,6 +85,48 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 early-IRAM full TFT/Web no Telnet: BBS connected with improved heap margin
+
+User dialed BBS on physical TFT+HP keyboard with early IRAM-only
+`esp32dev-tft-no-telnet` firmware. Browser Web Terminal compiled
+IN but not connected, Telnet disabled.
+At uptime_ms 404483, `/api/system/memory`: heap_free=60024,
+free_8bit=20848, largest_8bit=17396, min_heap_free=48036,
+min_free_8bit=8860, modem_state=2,
+modem_dial_refused_low_heap=0. Console unused stack 1280B,
+modem 3320B, web 2728B, z80_cpu 2880B, HP keyboard 2132B,
+SPI 6320B, TFT 2980B.
+
+Dial stage pre-connect total 64096, free8 24920, largest8 20468;
+post-connect total 62964, free8 23788, largest8 19444.
+Dial guard conditions satisfied comfortably.
+
+| Hardware BBS condition | heap_free | free8 | largest8 | min_free8 |
+| --- | ---: | ---: | ---: | ---: |
+| Previous full, no Telnet, DRAM8 SPI cache | 57952 | 10568 | 8692 | 1836 |
+| Earlier TFT-only, IRAM32 SPI cache, Telnet disconnected | 56812 | 17636 | 16372 | 8108 |
+| **New full, no Telnet, early IRAM32 SPI cache** | **60024** | **20848** | **17396** | **8860** |
+
+Vs previous full DRAM8 cache BBS sample: +2072 total heap,
+**+10280 free8**, **+8704 largest8**, +7024 in min_free8.
+Vs TFT-only previous BBS sample: +3212 free8 and +1024 largest8,
+despite Web Terminal code compiled IN. Minima are historical
+within a boot and workload-dependent, not a uniform per-operation
+benchmark. Caution: 8860B transient minimum shows TCP/terminal
+activity still adds temporary memory pressure. No evidence yet
+on *concurrent active* Z80 browser WebSocket and BBS.
+
+**Next test gate:** preserve the single BBS connection, verify
+normal physical TFT ANSI colors, scrolling and HP keyboard;
+then log out normally, return to CP/M and record memory
+at logout and after CP/M, including historical minimum.
+No second BBS/WebTerminal concurrency until first recovery passes.
+Earlier this boot verified `cache_storage=iram32`, early allocation
+accepted with zero free8 reduction, and all ROMs including
+CBIOS loaded `Done` without Teensy UART timeouts.
+No source modification or merge as result of this snapshot.
+
+---
 ## 2026-10-23 early-IRAM fourth target: MODEM initialization memory PASSED
 
 Physical HP/TFT user started MODEM on the early-IRAM-only
