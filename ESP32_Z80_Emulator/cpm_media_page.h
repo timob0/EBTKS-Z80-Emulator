@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
+#include <esp_heap_caps.h>
 #include "cpm_mount_store.h"
 
 static const char CPM_MEDIA_PAGE[] PROGMEM = R"HTML(
@@ -100,12 +101,33 @@ inline void cpmMediaRegister(AsyncWebServer &server)
   });
 
   server.on("/api/cpm/media", HTTP_GET, [](AsyncWebServerRequest *request) {
-    String reply;
-    if (!cpmStoreBuildMediaStatusJson(reply)) {
-      request->send(500, "application/json", "{\"ok\":false,\"error\":\"Unable to read CP/M media state\"}");
+    // Unlike the small /api/system/memory payload, the 16-drive media status
+    // briefly owns a JSON tree, SD directory and response buffer. Refuse
+    // during critical network pressure rather than exhausting AsyncTCP RAM.
+    if (heap_caps_get_free_size(MALLOC_CAP_8BIT) < 12U * 1024U ||
+        heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 8U * 1024U) {
+      request->send(503, "application/json",
+                    "{\"ok\":false,\"error\":\"Media Manager unavailable: ESP32 memory low; retry after network activity\"}");
       return;
     }
-    request->send(200, "application/json", reply);
+    // ESPAsyncWebServer 3.6.0's AsyncBasicResponse copies its input String.
+    // Under modem load that extra allocation silently produced HTTP 200,
+    // Content-Length: 0. This stream owns the serialized bytes just once.
+    AsyncResponseStream *response =
+        request->beginResponseStream("application/json", 512);
+    if (!response) {
+      request->send(503, "application/json",
+                    "{\"ok\":false,\"error\":\"Media Manager response allocation failed\"}");
+      return;
+    }
+    if (!cpmStoreBuildMediaStatusJson(*response)) {
+      delete response; // discard any partial serialization
+      request->send(503, "application/json",
+                    "{\"ok\":false,\"error\":\"Media Manager JSON allocation or storage query failed\"}");
+      return;
+    }
+    response->addHeader("Cache-Control", "no-store");
+    request->send(response);
   });
 
   server.on("/api/cpm/mount", HTTP_POST, [](AsyncWebServerRequest *request) {
