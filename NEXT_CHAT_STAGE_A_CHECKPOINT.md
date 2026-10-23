@@ -2,6 +2,49 @@
 
 **Read this first if the previous chat was interrupted.** This is the current source of truth for the **CP/M CCP-safe resident service, Stage A**. Earlier entries in `NEXT_CHAT_HANDOFF.md` are chronological history and may refer to older build/test states.
 
+## 2026-10-23 final feature-branch target consolidation — awaiting user's local build
+
+**Latest user-approved packaging:** Precisely two ESP32 PlatformIO environments
+are now maintained: `esp32dev` (full services without ST7796)
+and `esp32dev-tft` (same full services plus ST7796 80x24 ANSI/VT100/CP437).
+No `esp32dev-tft-only` or `esp32dev-tft-no-telnet` environment remains.
+Both have full gzip Web Terminal, HP-80 CRT, /ws, CP/M Media Manager, modem,
+OTA, HP keyboard and Stage A CCP-safe service. Telnet listener is **disabled**
+by default in `ebtks_firmware_options.h`; optional
+`-DEBTKS_TELNET_ENABLE=1` works with either target without adding a
+separate flavor. Both enable `EBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1`
+and UART-only fallback if cache reservation fails, preserving accepted
+8bit-DRAM savings. The ST7796 implementation is the previously
+hardware-accepted experimental no-Telnet/early-IRAM configuration
+under the stable `esp32dev-tft` name.
+
+Updated `platformio.ini`, `FIRMWARE_VARIANTS.md`, README,
+GETTING_STARTED, CI and static regression guards to check only the two
+default binaries, exact Git SHA, Mac TFT .dram static ceiling 124544,
+and both compile-time Telnet opt-ins in CI smoke builds.
+**Hardware status:** previous four-flavor TFT/no-Telnet feature bundle
+physically passed two full BBS/CCP/modem reinit+teardown cycles, Media
+Manager recovery, browser and ANSI, `DIR` and Multiplan;
+**new two-target packaging has not yet been locally built or flashed by
+user** and default headless early cache needs its own acceptance.
+
+**User-directed next steps:** (1) verify latest complete CI green,
+(2) ask user to pull latest `feature/cpm85-management-console` and
+clean-build `pio run -e esp32dev-tft` on Mac, optionally also
+`pio run -e esp32dev`, (3) obtain local build success from user.
+**Do not merge `main` before that report.** When user reports
+successful local build, merge this **memory-optimized baseline**
+into ESP32 `main`, preserving user-managed `recovery` and leaving
+Teensy/HP repositories unchanged. Only **after merge**, create a
+**new feature branch from updated ESP32 main** to focus on file transfer,
+HPIB output, and the management UI. User explicitly requested that
+sequence; don't create that branch prematurely.
+
+See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) for exact build commands,
+Telnet opt-in, SPI cache behavior and safety notes.
+
+---
+
 ## What is already stable and merged
 
 Three repositories have fully merged, hardware-accepted `main` baselines for CPM85 **v0.04b**, image creation/listing (`CPDMK` / `CPDIMGS`), disk mount/unmount/reset, HP keyboard forwarding, ANSI TFT/Web terminal, and modem:
