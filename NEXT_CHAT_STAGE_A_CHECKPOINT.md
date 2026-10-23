@@ -85,6 +85,37 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 TFT-only nonblocking Telnet firmware hardware retest: MODEM START PASS
+
+User flashed latest TFT-only branch with ConsoleTask nonblocking Telnet TX (exact flashed SHA not supplied),
+then captured three memory JSON records on physical hardware.
+**Cold boot:** uptime 18461ms, heap_free=66696, free_8bit=27488, largest_8bit=25588,
+min_free_8bit=26496, telnet=0, modem_state=0; unused console stack=2088.
+**Telnet connected:** uptime 55758ms, heap_free=64264, free_8bit=25088,
+largest_8bit=24564, min_free_8bit=21228, telnet=1, modem_state=0;
+console unused stack=1528.
+**After MODEM launch without BBS dial:** uptime 85916ms,
+heap_free=56836, free_8bit=17660, largest_8bit=13300,
+min_heap_free=47952, min_free_8bit=8776,
+telnet=1, modem_state=2, modem_dial_refused_low_heap=0;
+console unused stack=1528, modem unused stack=4432, web=2320.
+Flags confirm `web_terminal_enabled=false`, `tft_terminal_enabled=true`.
+The memory API responded after MODEM start and Telnet remained connected;
+the previous TFT-only freeze + forced Telnet disconnect was **NOT** reproduced.
+The observed modem-start footprint vs before MODEM is
+7428 bytes less current free heap and free 8-bit RAM, and 11264 bytes
+less in largest available 8-bit block; console stack watermark unchanged.
+
+**Caution:** Dial guard checks ESP.getFreeHeap >=49152 and largest8>=12288.
+After MODEM, heap is 7684 bytes above that free-heap threshold, largest8
+just 1012 bytes above the threshold; earlier BBS sessions reached extremely
+low min_free_8bit. This startup PASS is NOT evidence a sustained BBS TCP
+session is stable. Suggested next step: one short controlled BBS call,
+capture current/min free8 and largest8 during and after, whether Telnet
+stays connected and HTTP is responsive; fetch `/z80debug` immediately
+if any stall/disconnection. No code change to main/recovery.
+
+---
 ## 2026-10-23 ~18:30 Europe/Berlin — debug CONFIRMS slow-Telnet watchdog; targeted TX redesign
 
 User retrieved `/z80debug` from real `esp32dev-tft-only` firmware
