@@ -85,6 +85,60 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 Telnet drop diagnosis confirmed: full 1KiB queue, free block only 1012B
+
+User captured full recent `/z80debug` in the failing TFT-only
+nonblocking-Telnet firmware after BBS session. Final relevant lines:
+
+```
+New Telnet client @ 192.168.178.52
+CP/M modem: virtual UART 88h-8Fh online
+EBTKS UART transaction timeout
+Telnet TX buffer full; dropping client (queued=1023, free8=5284, largest8=1012)
+```
+
+**Direct cause of disconnection confirmed**: CP/M ConsoleTask's
+bounded 1024-byte Telnet output queue reached 1023 queued bytes;
+the intentionally fail-fast `dropSlowTelnet("buffer full")` ran.
+The actual underlying bottleneck is still unproven: heavy CP/M output
+burst may outrun one nonblocking send per loop, TCP window may be
+congested, or network `pbuf` allocation might fail under 8-bit
+heap pressure. Do NOT claim that EAGAIN or socket error was
+observed; buffer-full log does not distinguish these.
+
+**Severe transient memory pressure at exact drop:** 5284 total
+free MALLOC_CAP_8BIT, but **largest contiguous free8 block only 1012B**.
+The recorded low water of **644B** was even worse at a different
+instant. Simply increasing Telnet queue size or its retry timeout
+would consume more scarce allocatable heap and is not a root fix.
+After Telnet/BBS closed, current free8 recovered to 19132/19928,
+largest8 to 13300, TFT+HP keyboard stayed responsive and Web UI
+recovered. MODEM worker stayed allocated (state 2).
+
+`EBTKS UART transaction timeout` source location:
+`ESP32_Z80_Emulator/ebtks_link.h::ebtksLinkTransaction()` logs
+this if no Teensy UART reply newline arrives within caller timeout.
+HP keyboard worker in `ebtks_cpm85_keyboard.h` polls at 350ms
+and serializes via UART mutex; Web `/ws` and Media Manager
+also use same transaction machinery. The timeout could be
+a missed delayed poll or another transaction, not enough
+evidence to assign it specifically to the keyboard or to OOM.
+No proof Z80 emulator halted or SD images corrupted.
+
+**Next suggested controlled isolation:** no more simultaneous
+Telnet+BBS stress on this firmware. If hardware is responsive
+and user wishes to isolate the second network socket, conduct
+one cautious BBS dial using **only TFT/HP physical terminal
+(no TCP Telnet client)**, with free8/largest8 and `/z80debug`
+monitoring. Abort immediately if Web UI becomes unresponsive.
+That establishes whether the concurrent Telnet connection
+accounts for dangerous transient allocation. Alternatively
+measure `/api/system/memory/pools` at idle and after MODEM
+to identify available capability pools. Future engineering
+should reduce simultaneous TCP/AsyncWeb allocations, not
+merely grow buffers. Stage A remains OPEN and unmerged.
+
+---
 ## 2026-10-23 post-Telnet-drop recovery: TFT/HP continues, HTTP responsive
 
 At uptime **438102 ms** (after Telnet session dropped and BBS TCP
