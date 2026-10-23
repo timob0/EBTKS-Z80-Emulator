@@ -85,6 +85,60 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23: Final post-second-MODEM snapshot and CP/M functional regression PASS
+
+User provided final `/api/system/memory` after **two complete
+MODEM/BBS cycles**, including browser Web Terminal ANSI/colors/
+characters, MODEM exiting, Media Manager loading correctly
+after each cycle, and `DIR` plus **Multiplan** working in
+the CP/M system. All of these were tested on physical hardware.
+
+At uptime_ms **448933**:
+
+```json
+{"heap_free":68440,"free_8bit":29452,"largest_8bit":27636,"min_heap_free":44476,"min_free_8bit":5488,"modem_state":0,"modem_dial_refused_low_heap":0,"telnet_enabled":false,"web_terminal_enabled":true,"tft_terminal_enabled":true}
+```
+
+`stack_unused_bytes` at final reading: web=1348,
+z80_cpu=2844, console=1468, hp_keyboard=2128,
+spi_disk=6328, tft=2972; **no modem stack entry**.
+
+| Post-CCP cleanup metric | After first session | After second |
+| --- | ---: | ---: |
+| heap_free | 65700 | **68440** |
+| free_8bit | 26712 | **29452** |
+| largest_8bit | 23540 | **27636** |
+| min_free_8bit | 5488 | **5488** |
+| modem_state | 0 | **0** |
+
+Second vs first cleanup: +2740 current heap/free8,
++4096 largest8; no evidence of accumulating heap leak.
+Lifetime min8 unchanged at 5488 across the second cycle;
+does not necessarily imply same per-cycle peak.
+Media Manager guard (heap>=57344, free8>=24576,
+largest8>=16384) passes with ample margin after
+second cycle; listings visibly populate.
+`modem_task`, `before_tcp_connect`, `after_tcp_connect`,
+`tcp_closed` entries in `stages` are **historical** samples,
+not evidence of a still-running modem worker.
+
+Watch item: web task unused stack is **1348B** in final
+reading versus **2692B** after the first cycle. Since
+stack high-water mark does not rebound, this indicates
+deeper web-task stack use at some point; not a demonstrated
+stack overflow, but worth retaining for soak testing.
+Other worker stack margins still positive.
+
+**Hardware acceptance:** second MODEM re-initialization,
+BBS connection, correct ANSI/special character rendering,
+logout, CCP-triggered resource reclamation and Media Manager
+availability all passed; CP/M `DIR` and Multiplan also passed.
+No rebuild required from this test result; no new firmware
+code change and no merge to main/recovery. The Stage A
+feature branch remains the working acceptance baseline
+pending explicit integration decision.
+
+---
 ## 2026-10-23: SECOND MODEM/BBS lifecycle physically VERIFIED
 
 User performed a **second complete MODEM cycle** on the ESP32 early-IRAM
