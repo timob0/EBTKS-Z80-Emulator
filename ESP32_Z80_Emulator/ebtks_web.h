@@ -130,6 +130,10 @@ inline void ebtksWebBackgroundTask(void *parameter)
     // Allocations are guarded by a free-heap and largest-block reserve.
     CpmWifiModem::service();
 
+    // Process at most one requested media listing in THIS background worker,
+    // never on the AsyncTCP network task. No extra 4 KiB worker stack.
+    CpmMediaAsync::service();
+
     if (ebtksRestartRequired) {
       Serial.println("Firmware update complete; rebooting ESP32");
       delay(1000);
