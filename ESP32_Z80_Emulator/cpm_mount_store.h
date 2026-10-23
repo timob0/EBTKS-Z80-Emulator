@@ -340,7 +340,9 @@ inline bool cpmStoreActivateMounts()
   return geometryOk;
 }
 
-inline bool cpmStoreBuildMediaStatusJson(String &out)
+// Writes directly to an AsyncResponseStream/Print, rather than creating a
+// second large heap String which AsyncBasicResponse would copy yet again.
+inline bool cpmStoreBuildMediaStatusJson(Print &out)
 {
   if (!cpmStoreLoaded && !cpmStoreLoadDesired()) return false;
 
@@ -358,6 +360,9 @@ inline bool cpmStoreBuildMediaStatusJson(String &out)
     cpmAddMountJson(d["active"].to<JsonObject>(), cpmActiveMounts[i]);
   }
 
+  // Free the Teensy SD listing before serializing the HTTP response;
+  // retaining both JSON trees and another response copy exhausted 8-bit RAM.
+  {
   JsonDocument listing;
   JsonArray files;
   bool listingOk = cpmStoreFetchDiskDirectory(listing, files);
@@ -399,8 +404,12 @@ inline bool cpmStoreBuildMediaStatusJson(String &out)
       m["mounted_on"] = mountedOn;
     }
   }
+  } // Teensy directory/listing heap released before response serialization.
 
-  out = "";
-  serializeJson(result, out);
-  return true;
+  // ArduinoJson 7 can return an incomplete tree on allocation failure.
+  // Never emit an HTTP 200 with an empty/truncated JSON response.
+  if (result.overflowed()) return false;
+  const size_t expected = measureJson(result);
+  if (!expected) return false;
+  return serializeJson(result, out) == expected;
 }
