@@ -13,6 +13,7 @@ static Z80Bridge ebtksCpuBridge;
 
 static bool ebtksCcpServiceFetch(void *context,uint16_t pc,const uint8_t *ram) {
   auto *gate=static_cast<CpmSafePoint::Gate *>(context);
+  gate->observeFetchedOpcode(pc);
   if(pc==CpmSafePoint::kBdosLineLoop)
     gate->observeLineCount(Z80_B(ebtksCpuBridge.cpu));
   return gate->fetch(pc,ram);
