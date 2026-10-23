@@ -1,8 +1,11 @@
 #include "globals.h"
 #include "console_ansi_probe.h"
+#include "ebtks_firmware_options.h"
+#if EBTKS_TELNET_ENABLE
 #include <lwip/sockets.h>
 #include <errno.h>
 #include <stdlib.h>
+#endif
 #pragma once
 
 void serialTask(void *parameter) {
@@ -10,6 +13,7 @@ void serialTask(void *parameter) {
   serial_t = true;
   // Fewer, larger WebSocket frames reduce queue pressure during screen redraws.
   uint8_t chunk[256];
+  #if EBTKS_TELNET_ENABLE
   // A modest heap buffer is allocated ONLY while Telnet is connected.
   // Never allocate another permanent worker stack or add static DRAM/BSS.
   // Socket output uses lwIP MSG_DONTWAIT; Arduino-ESP32 2.0.17's
@@ -32,13 +36,17 @@ void serialTask(void *parameter) {
     telnetSocketFd=-1;
   };
 
+  #endif // EBTKS_TELNET_ENABLE
+
   // One allocation-free virtual terminal probe shared by TFT and Web.
   // Process bytes in console order, even across 256-byte output chunks.
   EbtksAnsiProbe::Terminal ansiProbe;
   auto replyToGuest = [](const char *reply, size_t len) {
     // An external Telnet terminal normally supplies its own DA/DSR replies.
     // Do not inject a competing answer when one is connected.
+    #if EBTKS_TELNET_ENABLE
     if (serverClient.connected()) return;
+    #endif
     // The 1024-byte input ring is shared with real keyboard input.
     // Never inject a partial ANSI response when the ring is full.
     const size_t cap = sizeof(rxBuf);
@@ -48,6 +56,7 @@ void serialTask(void *parameter) {
       consoleRxEnqueue((uint8_t)reply[i]);
   };
 
+  #if EBTKS_TELNET_ENABLE
   // Minimal Telnet input parser.  Telnet option negotiation arrives on the
   // same TCP stream as terminal characters; those IAC command bytes must not
   // be passed to the emulated Z80 UART.
@@ -59,6 +68,8 @@ void serialTask(void *parameter) {
   // for Enter, so remember a received CR and discard a following NUL/LF.
   bool telnetAfterCr = false;
 
+  #endif // EBTKS_TELNET_ENABLE
+
   for (;;) {
     size_t n = 0;
     while (txOutPtr != txInPtr && n < sizeof(chunk)) {
@@ -68,6 +79,7 @@ void serialTask(void *parameter) {
       txOutPtr = next;
     }
 
+    #if EBTKS_TELNET_ENABLE
     // Reclaim buffered Telnet data when its peer disconnects. Do NOT carry
     // unsent CP/M bytes into a subsequent client session.
     // A newly accepted client may replace a disconnected one before
@@ -82,6 +94,8 @@ void serialTask(void *parameter) {
       telnetAfterCr=false;
     }
 
+    #endif
+
     if (n) {
       // Process TFT and console input probes before touching the TCP socket.
       // Even if Telnet is backed up, physical terminal output never waits
@@ -91,6 +105,7 @@ void serialTask(void *parameter) {
       ansiProbe.feed(chunk,n,replyToGuest);
       webTerminalWrite(chunk,n);
 
+      #if EBTKS_TELNET_ENABLE
       if (serverClient.connected()) {
         if (!telnetTx) {
           telnetTx=static_cast<uint8_t*>(malloc(kTelnetTxCapacity));
@@ -116,6 +131,9 @@ void serialTask(void *parameter) {
       }
     }
 
+    #endif // EBTKS_TELNET_ENABLE
+
+    #if EBTKS_TELNET_ENABLE
     // At most one nonblocking socket send per console iteration, even if the
     // peer TCP window is closed. This cannot wait ten seconds in
     // WiFiClient::write(), and preserves partial writes for the next pass.
@@ -187,6 +205,8 @@ void serialTask(void *parameter) {
           break;
       }
     }
+
+    #endif // EBTKS_TELNET_ENABLE
 
     // Keys from the physical HP-85 are staged by the low-priority
     // Teensy UART polling worker; only this console task feeds the
