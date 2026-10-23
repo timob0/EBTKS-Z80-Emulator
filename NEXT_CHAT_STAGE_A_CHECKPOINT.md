@@ -85,6 +85,30 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 17:20 Europe/Berlin — new Media Manager JSON response hardware PASS (load not yet verified)
+
+User pulled, built and flashed the new Media Manager streamed-response fix.
+On physical ESP32 at `http://esp32_ebtks.local/api/cpm/media`, the same
+read-only Mac curl diagnostic now returned **HTTP 200**,
+`Content-Length: 5079`, downloaded **5079 bytes** in **6.146087 s**,
+`Content-Type: application/json`, `Cache-Control: no-store`, and
+`python3 -m json.tool` reported **JSON VALID**. This is a decisive
+improvement from pre-fix HTTP 200 + 0 bytes. Exact firmware SHA was not
+printed in this report. This single test does NOT state that modem/Telnet
+were active; do not claim loaded-system acceptance.
+
+**Next test:** verify the browser Media Manager actually populates
+drives/media. Then repeat the same curl + Python JSON validation
+after one ordinary modem session alongside Telnet, capturing
+`/api/system/memory` before and after, especially `free_8bit`,
+`largest_8bit`, `min_free_8bit`, and `modem_state`. Under overload
+accept an explicit JSON 503, but never a 200/zero-body response.
+Keep Stage A wider regression open, no merge yet. Response latency
+~6.15 s is still unexplained and may be caused by synchronous
+Teensy directory transaction in the AsyncWebServer callback;
+investigate separately once correctness and stability are proven.
+
+---
 ## 2026-10-23 Media Manager root-cause evidence and bounded-memory fix (hardware UNTESTED)
 
 User tested `curl -sS --max-time 15 -D ... -o ... -w ...
