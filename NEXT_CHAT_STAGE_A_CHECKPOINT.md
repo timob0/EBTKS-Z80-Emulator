@@ -85,6 +85,12 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 gzip/Web UI browser acceptance
+
+User confirmed on physical firmware that the **Home Page Z80 Terminal button is fixed** and **Web UI pages work as expected** after introducing gzip assets. The separate gzip Media Manager low-water-memory test is **deferred**, not yet performed. Keep it as an optional next hardware measurement. No new ESP32 firmware change, no merge to main or recovery.
+
+---
+
 ## 2026-10-23 gzip-enabled `/z80` coldboot curl hardware experiment
 
 User built/flashed firmware with build-time gzip Home/Updater/CRT/Media
