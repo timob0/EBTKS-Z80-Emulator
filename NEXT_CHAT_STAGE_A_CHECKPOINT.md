@@ -2,7 +2,7 @@
 
 **Read this first if the previous chat was interrupted.** This is the current source of truth for the **CP/M CCP-safe resident service, Stage A**. Earlier entries in `NEXT_CHAT_HANDOFF.md` are chronological history and may refer to older build/test states.
 
-## 2026-10-23 final feature-branch target consolidation — awaiting user's local build
+## 2026-10-23 memory-optimized baseline merged to main (PR #8)
 
 **Latest user-approved packaging:** Precisely two ESP32 PlatformIO environments
 are now maintained: `esp32dev` (full services without ST7796)
@@ -22,23 +22,26 @@ Updated `platformio.ini`, `FIRMWARE_VARIANTS.md`, README,
 GETTING_STARTED, CI and static regression guards to check only the two
 default binaries, exact Git SHA, Mac TFT .dram static ceiling 124544,
 and both compile-time Telnet opt-ins in CI smoke builds.
-**Hardware status:** previous four-flavor TFT/no-Telnet feature bundle
-physically passed two full BBS/CCP/modem reinit+teardown cycles, Media
-Manager recovery, browser and ANSI, `DIR` and Multiplan;
-**new two-target packaging has not yet been locally built or flashed by
-user** and default headless early cache needs its own acceptance.
+**Final acceptance:** predecessor no-Telnet/early-IRAM TFT hardware
+passed two complete MODEM/BBS startup/cleanup cycles, Media Manager
+recovery, browser ANSI, CP/M `DIR` and Multiplan, plus all gzip pages.
+After simplifying the targets, the user **pulled, locally rebuilt both
+variants, flashed the consolidated `esp32dev-tft`, and completed a
+successful quick hardware test**. GitHub CI on the final branch head
+`e92b557ef65e88cfd413f50db400618f417ea15b`
+[passed both default builds, optional Telnet smoke builds, native
+regressions and static DRAM guard](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/40019386416).
+The headless target has CI coverage, but no new headless-specific
+physical test was reported.
 
-**User-directed next steps:** (1) verify latest complete CI green,
-(2) ask user to pull latest `feature/cpm85-management-console` and
-clean-build `pio run -e esp32dev-tft` on Mac, optionally also
-`pio run -e esp32dev`, (3) obtain local build success from user.
-**Do not merge `main` before that report.** When user reports
-successful local build, merge this **memory-optimized baseline**
-into ESP32 `main`, preserving user-managed `recovery` and leaving
-Teensy/HP repositories unchanged. Only **after merge**, create a
-**new feature branch from updated ESP32 main** to focus on file transfer,
-HPIB output, and the management UI. User explicitly requested that
-sequence; don't create that branch prematurely.
+**Merged:** ESP32 [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8)
+placed the accepted memory-optimized baseline on `main`
+at merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`.
+Teensy/HP repositories and `recovery` remain untouched.
+The next explicitly requested development phase is a **new ESP32 feature
+branch from merged main** focusing on **file transfer, HPIB output and
+management UI**. Explore architecture and avoid modifying hardware/Teensy
+or HP firmware without coordination.
 
 See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) for exact build commands,
 Telnet opt-in, SPI cache behavior and safety notes.

@@ -1,20 +1,12 @@
 # EBTKS Z80 / CP/M integration — current project links
 
-**Development branch configuration (23 October 2026):** The hardware-tested
-TFT full bundle has been consolidated into **two build targets**, both with
-the complete browser/CP/M/Media Manager/MODEM feature set and the early IRAM
-SPI cache. Inbound Telnet is **off by default**, optionally re-enabled with
-`-DEBTKS_TELNET_ENABLE=1`. This two-target consolidation remains on
-`feature/cpm85-management-console`, not merged to `main`, and still requires
-local build/boot confirmation for the renamed target. Read
-[FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) and
-[NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md) first.
+**Current mainline baseline — 23 October 2026:** ESP32 [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8) merged the **memory-optimized, hardware-tested full CP/M bundle** into `main` (merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`). A local macOS rebuild, flash and quick hardware test passed for the final TFT target. Earlier physical testing confirmed two MODEM/BBS cycles, modem memory reclamation, Media Manager recovery, Web Terminal ANSI/CP437, `DIR` and Multiplan. There are exactly **two official ESP32 targets**, `esp32dev` (headless) and `esp32dev-tft` (adds ST7796), with **Telnet off by default**; add `-DEBTKS_TELNET_ENABLE=1` to opt in. Both include the early-IRAM SPI read cache, gzip pages and browser terminal. Read [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md), [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md).
 
-**Current mainline status — 21 October 2026:** Hardware-validated CP/M/Z80, TFT, 16-color/CP437 Web terminal, HP keyboard integration, IRAM SPI disk cache, inbound Telnet and CP/M Hayes Wi-Fi modem are merged in the ESP32 **`main`** branch via [PR #6](https://github.com/timob0/EBTKS-Z80-Emulator/pull/6) (commit `b3d02b43`). The post-merge native/firmware CI [passed](https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39602560884). For the definitive current state and next-chat instructions see **[NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md)**; [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the full historical chronology, including superseded experimental status statements. The matching Teensy and HP Option-ROM firmware remain separately tested and **were not merged by PR #6**.
+The prior 21 October / PR #6 details and older experimental notes below are retained as project history; PR #8 supersedes them for current ESP32 build instructions. The Teensy and HP Option ROM repositories were **not modified** by PR #8; the user-managed `recovery` remains untouched.
 
 ## ESP32 build configurations
 
-The development branch builds exactly **two full bundles**, with no
+The merged ESP32 `main` builds exactly **two full bundles**, with no
 Telnet listener by default:
 
 | Environment | Display | Console access | Command |
