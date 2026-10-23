@@ -7,6 +7,35 @@ Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
 
+## Final physical regression: Multiplan and Media Manager PASS (2026-10-24)
+
+After the two-column 8.3 HP-85 catalog was accepted, user explicitly
+confirmed: **"Multiplan and Media Manager work as expected."**
+
+This closes the final requested CP/M application and disk-management
+regressions:
+- CPDCAT native BDOS Search First/Next: PASS, no forced Z80 reset
+- CPDCAT HP BASIC CRT two-column 8.3 aligned formatting: PASS
+- CP/M `DIR` after CPDCAT: PASS
+- Busy detection while running Multiplan: PASS
+- Multiplan application: PASS
+- Media Manager: PASS
+- Two pre-existing malformed entries in test A: disk: accurately skipped
+  and reported; no attempted disk repair or metadata writes
+
+Known accepted current scope: first 32 directory-search results
+(`truncated` flag when more); API exposes extents, not deduplicated
+logical files. Do not call 32-entry truncation a regression.
+
+**Ready for integration review** of the ESP32, Teensy and HP CPDCAT
+feature branches into `main`. Keep `recovery/firmware.bin` untouched:
+ESP32 `main` has a separate recovery-binary-only update; the feature
+branch is one commit behind `main` for that reason. Preserve that update
+during any later merge. Do not merge to `main` until explicit user
+instruction; latest fully tested ESP32 code SHA was
+`a794b133b00ddec125e4560a60bce07eb42eaccd`, with documentation
+only commits afterward. Other repos' branch CIs passed.
+
 ## Physical HP-85 acceptance: two-column CPDCAT display PASSED (2026-10-24)
 
 User tested the ESP32 feature branch on physical HP-85 and reported:
