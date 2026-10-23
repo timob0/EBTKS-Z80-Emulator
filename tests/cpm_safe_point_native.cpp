@@ -177,10 +177,83 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   assert(!app.gate.takeAutomaticReturn());
 }
 
+// Exercise the ACTUAL redcode bridge opcode-fetch filter. The first CPDCAT
+// revision failed here: it watched D9EF/E826 in the gate, but z80_bridge.h
+// only forwarded the four pre-existing CCP addresses.
+static Z80Bridge *autoFetchCpu=nullptr;
+static int autoReadCount=0;
+static int inputFetches=0;
+static bool fetchGateAuto(void *ctx,uint16_t pc,const uint8_t *memory) {
+  auto *gate=static_cast<CpmSafePoint::Gate *>(ctx);
+  gate->observeFetchedOpcode(pc);
+  if(pc==CpmSafePoint::kBdosLineLoop) {
+    assert(autoFetchCpu);
+    gate->observeLineCount(Z80_B(autoFetchCpu->cpu));
+  }
+  if(pc==CpmSafePoint::kBiosConinPollA ||
+     pc==CpmSafePoint::kBiosConinPollB)++inputFetches;
+  return gate->fetch(pc,memory);
+}
+static uint8_t readAutoPort(void *ctx,uint16_t port) {
+  if((port&0xFF)!=0x85)return 0xFF;
+  auto *gate=static_cast<CpmSafePoint::Gate *>(ctx);
+  if(gate->takeAutomaticReturn()) {
+    ++autoReadCount;
+    return 0x01; // virtual UART receive latch ready with synthetic CR
+  }
+  return 0;
+}
+static void testRealBridgeForwardsBdosAndBiosInputFetches() {
+  Fixture f;
+  autoFetchCpu=&f.cpu;
+  autoReadCount=inputFetches=0;
+  f.cpu.service_fetch=fetchGateAuto;
+  f.cpu.input=readAutoPort;
+  f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem);
+  f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
+  assert(f.gate.request(CpmSafePoint::DIRECTORY,1));
+
+  // Native BDOS buffered-console loop begins with PUSH BC, where B==0.
+  f.mem[CpmSafePoint::kBdosLineLoop]=0xC5;   // PUSH BC
+  f.mem[CpmSafePoint::kBdosLineLoop+1]=0x76; // HALT, test-only sentinel
+  Z80_PC(f.cpu.cpu)=CpmSafePoint::kBdosLineLoop;
+  Z80_SP(f.cpu.cpu)=0xBD00;
+  Z80_B(f.cpu.cpu)=0;
+  assert(z80BridgeRun(&f.cpu,100)==Z80_BRIDGE_HALT);
+  assert(f.gate.ccpLineKnown.load() && f.gate.ccpLineEmpty.load());
+
+  // CPU returns to the exact native CBIOS console INPUT polling instruction.
+  z80BridgeColdReset(&f.cpu);
+  f.mem[CpmSafePoint::kBiosConinPollA]=0xDB;   // IN A,(85h)
+  f.mem[CpmSafePoint::kBiosConinPollA+1]=0x85;
+  f.mem[CpmSafePoint::kBiosConinPollA+2]=0x76; // HALT
+  Z80_PC(f.cpu.cpu)=CpmSafePoint::kBiosConinPollA;
+  assert(z80BridgeRun(&f.cpu,100)==Z80_BRIDGE_HALT);
+  assert(inputFetches==1 && autoReadCount==1);
+  assert(f.gate.autoReturnSent);
+
+  // An ordinary BIOS CONOUT poll at E863 must NEVER trigger a new CR.
+  Fixture out;
+  autoFetchCpu=&out.cpu;
+  autoReadCount=inputFetches=0;
+  out.cpu.service_fetch=fetchGateAuto;
+  out.cpu.input=readAutoPort;
+  out.gate.fetch(CpmSafePoint::kCcpPrompt,out.mem);
+  out.gate.fetch(CpmSafePoint::kCcpConsoleInput,out.mem);
+  assert(out.gate.request(CpmSafePoint::DIRECTORY,1));
+  out.gate.observeLineCount(0);
+  out.mem[0xE863]=0xDB; out.mem[0xE864]=0x85; out.mem[0xE865]=0x76;
+  Z80_PC(out.cpu.cpu)=0xE863;
+  assert(z80BridgeRun(&out.cpu,100)==Z80_BRIDGE_HALT);
+  assert(autoReadCount==0 && inputFetches==0);
+  autoFetchCpu=nullptr;
+}
+
 int main(){
   testRejectAbsentAndBusy();
   testRejectWrongCcpOrMissingNative();
   testRealZ80TrapExecuteAndRestore();
   testDirectoryAutoReturnOnlyAtEmptyNativeLine();
-  std::puts("PASS: CCP-only gate, nonempty abort, WBOOT abort, real Z80 probe and exact state restoration");
+  testRealBridgeForwardsBdosAndBiosInputFetches();
+  std::puts("PASS: CCP gate, native BDOS/CBIOS opcode fetch, one-shot auto CR, Z80 probe and restoration");
 }
