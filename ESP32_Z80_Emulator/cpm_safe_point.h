@@ -20,7 +20,7 @@ enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
 enum Operation : uint8_t { PROBE=0, DIRECTORY=1 };
-static constexpr uint8_t kDirectoryMax=12;
+static constexpr uint8_t kDirectoryMax=32;
 // Directory entries are raw CP/M directory extents, not logical files/sizes.
 struct DirectoryEntry {
   char name[13]={};
@@ -31,6 +31,7 @@ struct DirectoryEntry {
 struct Directory {
   uint8_t count=0;
   bool truncated=false;
+  char drive='?';
   DirectoryEntry entries[kDirectoryMax]{};
 };
 static constexpr uint16_t kCcpPrompt = 0xD382;
@@ -38,6 +39,9 @@ static constexpr uint16_t kCcpCommand = 0xD398;
 static constexpr uint16_t kCcpConsoleInput = 0xD19C;
 static constexpr uint16_t kCcpInputReturn = 0xD1A4;
 static constexpr uint16_t kCcpInputLength = 0xD007;
+// CP/M 2.2's native BDOS buffered-input loop, observed before PUSH BC.
+// At this PC, register B holds the true number of characters on the line.
+static constexpr uint16_t kBdosLineLoop = 0xD9EF;
 
 // Cheap, no memory allocation, no FreeRTOS work, no hardware communication.
 class Gate {
@@ -46,6 +50,11 @@ public:
   std::atomic<uint8_t> result{NEVER};
   std::atomic<bool> compatible{false};
   std::atomic<uint8_t> operation{PROBE};
+  // 0=current drive, 1..16=explicit A:..P: FCB drive selector.
+  std::atomic<uint8_t> requestedDrive{0};
+  std::atomic<bool> ccpLineKnown{false};
+  std::atomic<bool> ccpLineEmpty{false};
+  bool autoReturnSent=false; // CPU-only, one synthetic CR per request
   // Only successful native CCP safe-point requests can consume this gate.
   std::atomic_flag requestBusy=ATOMIC_FLAG_INIT;
   std::atomic_flag directoryBusy=ATOMIC_FLAG_INIT;
@@ -82,6 +91,9 @@ public:
   void reset(const uint8_t *ram,bool nativeCpm) {
     blankInputReturned=false;
     insideVerifiedCcpPrompt=false;
+    ccpLineKnown.store(false,std::memory_order_release);
+    ccpLineEmpty.store(false,std::memory_order_release);
+    autoReturnSent=false;
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     mode.store(UNKNOWN,std::memory_order_release);
     result.store(NEVER,std::memory_order_release);
@@ -91,13 +103,39 @@ public:
   void onWarmBoot() {
     blankInputReturned=false;
     insideVerifiedCcpPrompt=false;
+    ccpLineKnown.store(false,std::memory_order_release);
+    ccpLineEmpty.store(false,std::memory_order_release);
+    autoReturnSent=false;
     mode.store(BUSY,std::memory_order_release);
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE)
       result.store(INVALIDATED,std::memory_order_release);
   }
 
-  // Called only on these exact four Z80 instruction addresses, by CPU task.
+  // Called from the CPU fetch callback at native BDOS's RDBUF1 entry.
+  // Never infer an empty line merely from the 0080 DMA or console ring.
+  void observeLineCount(uint8_t count) {
+    if(mode.load(std::memory_order_acquire)!=CCP_INPUT)return;
+    ccpLineEmpty.store(count==0,std::memory_order_release);
+    ccpLineKnown.store(true,std::memory_order_release);
+  }
+
+  // Called ONLY from the Z80 CPU UART status read, after checking physical
+  // keyboard queue, virtual terminal ring, and UART receive latch are empty.
+  // The synthetic CR completes the EXISTING BDOS 10; only then does the
+  // proven D382 safe point execute BDOS directory search (never reentrant).
+  bool takeAutomaticReturn() {
+    if(autoReturnSent || !insideVerifiedCcpPrompt ||
+       mode.load(std::memory_order_acquire)!=CCP_INPUT ||
+       result.load(std::memory_order_acquire)!=WAIT_EMPTY_LINE ||
+       operation.load(std::memory_order_acquire)!=DIRECTORY ||
+       !ccpLineKnown.load(std::memory_order_acquire) ||
+       !ccpLineEmpty.load(std::memory_order_acquire))return false;
+    autoReturnSent=true;
+    return true;
+  }
+
+  // Called at native CCP/BDOS instruction addresses by the CPU task.
   // Return true to trap just before executing the original CCP D382 opcode.
   bool fetch(uint16_t pc,const uint8_t *ram) {
     if(!compatible.load(std::memory_order_acquire))return false;
@@ -105,6 +143,9 @@ public:
       // Reject a direct jump into the CCP input helper from an application.
       // Only the normal CCP D382 prompt loop can authorize this state.
       if(insideVerifiedCcpPrompt) {
+        ccpLineKnown.store(false,std::memory_order_release);
+        ccpLineEmpty.store(false,std::memory_order_release);
+        autoReturnSent=false;
         inputGeneration.fetch_add(1,std::memory_order_acq_rel);
         mode.store(CCP_INPUT,std::memory_order_release);
       }
@@ -112,6 +153,8 @@ public:
     }
     if(pc==kCcpInputReturn) {
       insideVerifiedCcpPrompt=false;
+      ccpLineKnown.store(false,std::memory_order_release);
+      ccpLineEmpty.store(false,std::memory_order_release);
       mode.store(BUSY,std::memory_order_release);
       inputGeneration.fetch_add(1,std::memory_order_acq_rel);
       blankInputReturned=false;
@@ -144,7 +187,7 @@ public:
     return false;
   }
 
-  bool request(Operation requested=PROBE) {
+  bool request(Operation requested=PROBE,uint8_t drive=0) {
     if(requestBusy.test_and_set(std::memory_order_acquire))return false;
     const uint32_t generation=inputGeneration.load(std::memory_order_acquire);
     if(!compatible.load(std::memory_order_acquire) ||
@@ -158,6 +201,13 @@ public:
       requestBusy.clear(std::memory_order_release);
       return false;
     }
+    if(drive>16 || (requested==DIRECTORY &&
+       ccpLineKnown.load(std::memory_order_acquire) &&
+       !ccpLineEmpty.load(std::memory_order_acquire))) {
+      requestBusy.clear(std::memory_order_release);
+      return false;
+    }
+    requestedDrive.store(drive,std::memory_order_release);
     operation.store(requested,std::memory_order_release);
     // Only one request can be pending. A completed one may be re-armed.
     while(previous!=WAIT_EMPTY_LINE && previous!=RUNNING) {
