@@ -11,7 +11,7 @@ const page=src.match(/R"HTML\(([\s\S]*?)\)HTML"/);
 assert(page,'Z80 terminal PROGMEM HTML missing');
 const match=page[1].match(/<script>([\s\S]*?)<\/script>/);
 assert(match,'inline Web terminal JavaScript missing');
-const elements=new Map(),handlers=new Map();
+const elements=new Map(),handlers=new Map(),pendingTimers=[];
 function element(id){
   if(!elements.has(id)){
     const e={id,style:{display:'none'},value:'',textContent:'',innerHTML:'',
@@ -26,12 +26,12 @@ class FakeWebSocket{
   constructor(url){this.url=url;this.readyState=1;this.sent=[];}
   send(value){this.sent.push(value)}
 }
-FakeWebSocket.OPEN=1;
+FakeWebSocket.OPEN=1;FakeWebSocket.CONNECTING=0;
 const store=new Map();
 const ctx=vm.createContext({document,WebSocket:FakeWebSocket,
   localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)},
   location:{host:'localhost:80'},requestAnimationFrame:fn=>fn(),
-  setTimeout:()=>0,setInterval:()=>0,clearInterval:()=>0,
+  setTimeout:(fn,ms)=>{pendingTimers.push({fn,ms});return pendingTimers.length},setInterval:()=>0,clearInterval:()=>0,
   Uint8Array,console});
 vm.runInContext(match[1],ctx,{filename:'inline-z80-terminal.js'});
 function evalTerm(expr){return vm.runInContext(expr,ctx)}
@@ -144,6 +144,22 @@ handlers.get('term:keydown')({key:'x',ctrlKey:false,altKey:false,
   preventDefault(){}});
 assert.equal(evalTerm('ws.sent.length'),1);
 assert.equal(evalTerm('ws.sent[0][0]'),120);
+
+// A refused WebSocket upgrade must not cause an endless one-second retry loop.
+// Verify three attempts, progressively spaced, then a manual recovery path.
+for (let attempt=1;attempt<=3;attempt++){
+  evalTerm('ws.readyState=3;ws.onclose()');
+  if(attempt<3){
+    const retry=pendingTimers.shift();
+    assert(retry,'a bounded reconnect must be scheduled');
+    assert.equal(retry.ms,5000*attempt);
+    retry.fn(); // simulate the browser retry timer
+  }
+}
+assert.equal(pendingTimers.length,0,'Web terminal should stop after three failures');
+assert(element('state').textContent.includes('Reconnect'));
+evalTerm('retryTerminalConnection()');
+assert.equal(evalTerm('wsFailures'),0,'manual reconnect restarts the attempt budget');
 
 // Browser-only change: preserve binary WebSocket input and status.
 assert(src.includes('AsyncWebSocket z80WebSocket("/z80ws")'));
