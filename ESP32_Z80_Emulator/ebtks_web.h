@@ -263,7 +263,7 @@ inline bool ebtksWebBegin()
       v["state"]=CpmSafePoint::resultText(
           gate?gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
       v["instruction"]=accepted?
-          "Press blank RETURN at the CP/M prompt; nonempty command cancels":
+          "Directory runs automatically at the verified empty CCP input line; no key required":
           "CP/M busy, unsupported, or another service request pending";
       String body;serializeJson(v,body);
       r->send(accepted?202:409,"application/json",body);
@@ -287,7 +287,9 @@ inline bool ebtksWebBegin()
         }
         v["count"]=snapshot.count;
         v["truncated"]=snapshot.truncated;
-        v["scope"]="current_drive_current_user";
+        v["drive"]=String(snapshot.drive);
+        v["scope"]=gate->requestedDrive.load(std::memory_order_acquire)?
+            "requested_drive_current_user":"current_drive_current_user";
         v["entries_are"]="directory_extents_not_file_sizes";
         JsonArray entries=v["entries"].to<JsonArray>();
         for(uint8_t i=0;i<snapshot.count;++i) {
