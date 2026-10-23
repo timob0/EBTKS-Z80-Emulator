@@ -1,5 +1,16 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT HW TIMEOUT DIAGNOSIS AND FIX (2026-10-23; NOT YET RETESTED):**
+HP `CPDCAT` reached the ESP32 service request but timed out. Verified source
+bug: bridge `service_fetch` only forwarded the old four CCP PCs and never
+called the new BDOS line count (D9EF) or BIOS CONIN polling (E826/E831)
+observers. ESP32 feature branch fixed `z80_bridge.h` exact-PC filter and
+added a real redcode opcode-fetch regression. Native CI passes for the fix;
+both ESP32 variant/link and local macOS TFT validation are required before
+refashing. No Teensy or HP source changes were needed. Documented in
+[CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md). Preserve all baseline/recovery
+firmware; do not merge until repeat hardware verification.
+
 **LATEST EXPERIMENT: HP BASIC CPDCAT + automatic empty CCP Return (2026-10-23).**
 The directory B1 hardware test and normal DIR/Multiplan/Media Manager regression
 all passed. On three *isolated* feature branches only, CPDCAT has now been
