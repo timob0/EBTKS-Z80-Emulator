@@ -85,6 +85,44 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 early-IRAM fourth target: MODEM initialization memory PASSED
+
+Physical HP/TFT user started MODEM on the early-IRAM-only
+`esp32dev-tft-no-telnet` firmware, no BBS dial yet.
+`/api/system/memory` at uptime_ms=232449:
+`heap_free=60408`, `free_8bit=21232`, `largest_8bit=18420`,
+`min_heap_free=59296`, `min_free_8bit=20120`, `modem_state=2`,
+`telnet_enabled=false`, `telnet_connected=false`,
+`web_terminal_enabled=true`, `tft_terminal_enabled=true`,
+`modem_dial_refused_low_heap=0`. Modem worker stack unused 4440 B,
+console 2128 B, web 2728 B, TFT 2980 B, SPI 6320 B.
+MODEM_READY staged sample: total=64096, free8=24920, largest8=20468.
+
+Compare earlier full TFT+Web with disabled Telnet but **dram8 cache**
+at MODEM: heap=59308, free8=11944, largest8=10740, min8=10852.
+New early IRAM improves heap +1100 B, **free8 +9288 B**,
+**largest8 +7680 B**, min8 +9268 B (historical minima are
+timing-dependent and not identical workloads).
+
+Compare earlier **TFT-only/Web Terminal compiled OUT** control
+at MODEM (heap=60044, free8=20868, largest8=18420, min8=13040):
+new full+WebTerminal-enabled/no-Telnet has **+364 B free8**
+and **same 18420 B largest8**. This reinforces that the dramatic
+previous ~8KiB loss arose from SPI cache allocation in normal
+8bit DRAM, not from compiling Web Terminal in.
+
+Both dial guards currently satisfied: heap 60408 > 49152 and
+largest8 18420 > 12288. Boot earlier confirmed cache iram32
+and cboot/cpm22/cbios all loaded Done, no UART timeout observed.
+Recommended: one **short, controlled** physical TFT/HP keyboard
+BBS dial; keep browser `/z80` and extra Web UI pages closed,
+use `/api/system/memory` only for observation. Snapshot once
+BBS logged in and again after normal logout and return to CP/M.
+Stop if terminal/network becomes sluggish or low-water free8
+approaches a few KiB. Do not claim stability until BBS test
+completes. No source change or merge.
+
+---
 ## 2026-10-23 early-IRAM experiment: first hardware coldboot PASSED
 
 User built/flashed early IRAM-only `esp32dev-tft-no-telnet`
