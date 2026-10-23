@@ -1,5 +1,25 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**LATEST EXPERIMENT: HP BASIC CPDCAT + automatic empty CCP Return (2026-10-23).**
+The directory B1 hardware test and normal DIR/Multiplan/Media Manager regression
+all passed. On three *isolated* feature branches only, CPDCAT has now been
+implemented (NOT hardware-accepted): ESP32
+`feature/cpm85-file-transfer-hpib-ui`, Teensy
+`feature/cpm85-catalog`, HP LOADBIN
+`feature/cpm85-catalog` (CPM85 0.04c). Mailbox opcode 7 requests
+`CPDCAT "A:"`, which enumerates up to 32 CP/M directory extents.
+Automatic Return is injected on the Z80 CPU task **ONLY** when the real
+native CCP input line is proven empty, no queued real keys exist, and the
+exact BIOS console-input status opcode is executing. The existing D382
+post-BDOS safe point remains authoritative. Explicit FCB drive does not
+change default drive. Browser directory POST now auto-completes also.
+The non-BDOS `/api/cpm/service/probe` stays manual.
+**Read [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md) for build order and tests.**
+The three GitHub CI builds, macOS TFT link, exact flashed SHA, and physical
+HP/CPM regression must all pass before merge. `main` / `recovery/`
+are untouched.
+
+
 **NEW STAGE B1 DEVELOPMENT (2026-10-23; FIRST BDOS DIRECTORY HARDWARE PROBE PASS, REGRESSION PENDING):**
 On ESP32-only branch `feature/cpm85-file-transfer-hpib-ui`, a bounded, read-only
 BDOS directory search was added behind the hardware-proven CCP safe-point gate.
