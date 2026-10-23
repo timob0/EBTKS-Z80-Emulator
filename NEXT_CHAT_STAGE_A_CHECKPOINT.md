@@ -85,6 +85,59 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 — Three firmware flavours implemented on feature branch (hardware UNTESTED)
+
+User explicitly approved proceeding with three compile-time PlatformIO
+firmware options, keeping the existing HP CRT/management console and common
+CP/M codebase. Added `FIRMWARE_VARIANTS.md` with complete build and
+physical acceptance procedure.
+
+| PlatformIO env | ST7796 TFT | Browser /z80 & /z80ws | Common web services /ws, /crt, /cpmmedia, OTA | Telnet |
+| --- | --- | --- | --- | --- |
+| `esp32dev` | No | Yes | Yes | Yes |
+| `esp32dev-tft-only` | Yes | No | Yes | Yes |
+| `esp32dev-tft` | Yes | Yes | Yes | Yes |
+
+Existing `esp32dev` and `esp32dev-tft` targets are intentionally
+retained for backward compatibility; the sole new PlatformIO environment
+is `esp32dev-tft-only`. Independent
+`EBTKS_WEB_TERMINAL_ENABLE=0/1` flag omits Web-Terminal HTML, socket object,
+and queue/cleanup processing in TFT-only; **do not accidentally omit**
+`/crt`, `/ws`, Media Manager, modem, OTA, CP/M disk, HP keyboard, or
+generic Z80 status/reset endpoints. Web server home page substitutes a
+TFT/Telnet notice for the absent browser terminal button.
+
+Static regressions `tests/check_firmware_variants.py` examine the actual
+linked firmware binaries for route/page inclusion, not merely header
+defines; the Git SHA build check now covers three images, and both TFT
+ELFs are checked against the 124,544-byte static DRAM ceiling.
+CI `.github/workflows/z80-core-native.yml` builds all three, reports
+static memory for each, and retains the legacy headless SPI-read-ahead-off
+regression test.
+
+Initial full native+three-build CI at source commit
+`2d446fdc2780264ea9bc83aa7db855610006c1c2`: GitHub Actions
+run **39982662950** completed SUCCESS, including headless/full/TFT-only
+links and binary feature isolation; full TFT DRAM was 124,536 bytes.
+Subsequently CI was extended to check the TFT-only DRAM budget too,
+and a user-facing variant guide was added. **Verify newest CI run and
+Mac local clean-link before asking for a flash.** CI alone cannot
+prove OTA/actual runtime memory improvement or physical display
+stability. No merge to main and no Teensy/HP source or recovery-image
+changes.
+
+Next steps: macOS `git fetch && git switch feature/cpm85-management-console
+&& git pull --ff-only`, then clean-build `pio run -e esp32dev-tft-only`,
+compare local Git SHA with `/api/system/health` after OTA,
+measure `/api/system/memory` feature booleans and heap before modem,
+after ordinary BBS, and confirm Web Terminal absent while /crt,
+Media Manager and OTA still accessible. Then headless `esp32dev`
+(no physical TFT) and finally full `esp32dev-tft` (existing full
+behaviour). Keep Stage A overall acceptance OPEN until all
+hardware runs pass; defer CPFPUT/CPFGET and external FPGA.
+
+---
+
 ## 2026-10-23 mDNS latency proven; GUI low-memory failure confirmed
 
 After modem via Telnet, user opened the browser Media Manager: the
