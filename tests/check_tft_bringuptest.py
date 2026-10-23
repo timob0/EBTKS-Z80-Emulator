@@ -10,8 +10,13 @@ ino = (root / "ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino").read_text()
 cfg = (root / "platformio.ini").read_text()
 
 envs = re.findall(r"^\[env:([^]]+)\]", cfg, re.M)
-assert envs == ["esp32dev", "esp32dev-tft"], envs
-headless, display = cfg.split("[env:esp32dev-tft]")
+assert envs == ["esp32dev", "esp32dev-tft", "esp32dev-tft-only"], envs
+headless, rest = cfg.split("[env:esp32dev-tft]")
+display, reduced = rest.split("[env:esp32dev-tft-only]")
+assert "-DEBTKS_WEB_TERMINAL_ENABLE=1" in headless
+assert "-DEBTKS_WEB_TERMINAL_ENABLE=1" in display
+assert "-DEBTKS_WEB_TERMINAL_ENABLE=0" in reduced
+assert "extends = env:esp32dev-tft" in reduced
 assert "lovyan03/LovyanGFX" not in headless
 assert "EBTKS_TFT_ENABLE=1" not in headless
 assert "lovyan03/LovyanGFX @ 1.2.7" in display
@@ -37,4 +42,4 @@ assert "EbtksTft::startTerminalMirror();" in ino
 assert "EbtksTft::mirrorFeed" in (root / "ESP32_Z80_Emulator/serial.h").read_text()
 assert "tft.cp437(true);" in terminal and "lgfx::utf8_switch" in terminal
 assert not any(x in src for x in ["createSprite(", "malloc(", "new uint8_t[", "xTaskCreate"])
-print("PASS: exactly 2 ESP32 targets; TFT optional, VSPI isolated and ANSI/CP437 enabled")
+print("PASS: exactly 3 ESP32 targets; optional TFT/Web, VSPI isolated, ANSI/CP437")

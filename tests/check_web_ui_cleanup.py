@@ -65,6 +65,8 @@ assert "ebtksServeSdTest" not in web
 assert 'AsyncWebSocket ebtksWebSocket("/ws")' in web
 assert "spiTestRegister(ebtksServer)" in web
 assert "spiDiskRegister(ebtksServer)" in web
+assert "webTerminalCleanupClients();" in web
+assert "EBTKS_HOME_Z80_LINK" in web
 assert '"/api/system/health"' in web
 assert '"/updater"' in web
 assert "spiDiskSetEnabled(true)" in ino
@@ -150,6 +152,10 @@ for src in (web, console, web_terminal, ino):
 assert 'WiFi.mode(WIFI_STA);' in web
 assert 'pdMS_TO_TICKS(10000)' in web_terminal
 assert 'z80WebSocket.closeAll();' in web_terminal
+assert '#if EBTKS_WEB_TERMINAL_ENABLE' in web_terminal
+assert 'inline void webTerminalWrite(const uint8_t*,size_t) {}' in web_terminal
+assert 'webTerminalCleanupClients()' in web_terminal
+assert 'cpmMediaRegister(server);' in web_terminal
 assert 'serverClient.write(chunk + sent, n - sent)' in console
 assert 'vTaskDelay(1);' in console
 # No unbounded connected-but-not-writable Telnet loop: forward progress of

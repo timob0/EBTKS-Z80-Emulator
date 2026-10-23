@@ -32,7 +32,7 @@ jobs:
           g++ -std=c++17 -O2 -Wall -Wextra -Werror tests/tft_vt100_native.cpp -o /tmp/tft_vt100_test
           /tmp/tft_vt100_test
   firmware:
-    name: ESP32 headless + ST7796 ANSI terminal builds
+    name: Three ESP32 CP/M terminal firmware builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -54,15 +54,21 @@ jobs:
         run: pio run -e esp32dev
       - name: Build ST7796 CP/M ANSI/VT100/CP437 terminal
         run: pio run -e esp32dev-tft
+      - name: Build ST7796 TFT-only (no Web Terminal)
+        run: pio run -e esp32dev-tft-only
       - name: Reject macOS-incompatible TFT static DRAM growth
         run: python3 tests/check_esp32_dram_budget.py
-      - name: Verify exact Git commit encoded in both firmware images
+      - name: Verify exact Git commit encoded in all firmware images
         run: python3 tests/check_build_revision.py
-      - name: Report headless and TFT static ELF RAM
+      - name: Check feature isolation in linked binaries
+        run: python3 tests/check_firmware_variants.py
+      - name: Report all three static ELF RAM profiles
         run: |
           python3 tools/report_esp32_memory.py .pio/build/esp32dev/firmware.elf > esp32dev-memory.txt
           python3 tools/report_esp32_memory.py .pio/build/esp32dev-tft/firmware.elf > esp32dev-tft-memory.txt
+          python3 tools/report_esp32_memory.py .pio/build/esp32dev-tft-only/firmware.elf > esp32dev-tft-only-memory.txt
           cat esp32dev-tft-memory.txt
+          cat esp32dev-tft-only-memory.txt
       - name: Upload memory symbol reports
         uses: actions/upload-artifact@v4
         with:
@@ -70,6 +76,7 @@ jobs:
           path: |
             esp32dev-memory.txt
             esp32dev-tft-memory.txt
+            esp32dev-tft-only-memory.txt
           retention-days: 30
       - name: Regression - headless CP/M (SPI read-ahead default OFF)
         run: PLATFORMIO_BUILD_FLAGS=-DEBTKS_SPI_READAHEAD_DEFAULT_ON=0 pio run -e esp32dev
