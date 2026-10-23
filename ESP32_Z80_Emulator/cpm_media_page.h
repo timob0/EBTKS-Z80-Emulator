@@ -6,6 +6,7 @@
 #include <atomic>
 #include <new>
 #include "cpm_mount_store.h"
+#include "ebtks_static_pages.h"
 
 static const char CPM_MEDIA_PAGE[] PROGMEM = R"HTML(
 <!doctype html>
@@ -161,17 +162,11 @@ inline int cpmParseDriveParam(AsyncWebServerRequest *request)
 inline void cpmMediaRegister(AsyncWebServer &server)
 {
   server.on("/cpmmedia", HTTP_GET, [](AsyncWebServerRequest *request) {
-    // Serve flash-backed HTML without copying the entire page to heap.
-    AsyncWebServerResponse *response=request->beginResponse(
-      200,"text/html; charset=utf-8",
-      reinterpret_cast<const uint8_t *>(CPM_MEDIA_PAGE),
-      sizeof(CPM_MEDIA_PAGE)-1U);
-    if(!response) {
-      request->send(503,"text/plain","Media Manager response unavailable");
-      return;
-    }
-    response->addHeader("Cache-Control","no-store");
-    request->send(response);
+    ebtksServeStaticHtml(request,
+        reinterpret_cast<const uint8_t *>(CPM_MEDIA_PAGE),
+        sizeof(CPM_MEDIA_PAGE)-1U,
+        CPM_MEDIA_PAGE_GZIP,sizeof(CPM_MEDIA_PAGE_GZIP),
+        "Media Manager response unavailable");
   });
 
   CpmMediaAsync::init();
