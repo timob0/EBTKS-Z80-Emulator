@@ -25,8 +25,10 @@ assert 'case 0222:' not in keymap
 assert 'Cpm85Input::drain();' in b
 assert '#include "ebtks_cpm85_keyboard.h"' in main
 assert 'Cpm85Input::start();' in main
-assert pio.count('-DEBTKS_CPM85_KEYBOARD_ENABLE=1')==4
-assert all(f'[env:{name}]' in pio for name in ('esp32dev', 'esp32dev-tft', 'esp32dev-tft-only', 'esp32dev-tft-no-telnet'))
+# Keyboard support is common to both published targets through inheritance.
+assert pio.count('-DEBTKS_CPM85_KEYBOARD_ENABLE=1')==1
+assert all(f'[env:{name}]' in pio for name in ('esp32dev', 'esp32dev-tft'))
+assert 'build_flags =\n    ${env:esp32dev.build_flags}' in pio
 assert 'TeensySerial.write(' not in a and 'SPI.transfer(' not in a
 print('PASS: development-only CP/M keyboard bridge, no unsolicited UART/SPI')
 
