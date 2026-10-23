@@ -195,7 +195,9 @@ inline void catalog(const char *arg) {
   }
   if(state!=CpmSafePoint::PASSED) {
     if(state==CpmSafePoint::WAIT_EMPTY_LINE || state==CpmSafePoint::RUNNING) {
-      // Leave the active service to complete safely; do not cancel BDOS mid-call.
+      // Cancel only PENDING requests; never interrupt BDOS once running.
+      // An eventual blank Return must NOT revive a timed-out HP command.
+      if(state==CpmSafePoint::WAIT_EMPTY_LINE)gate->cancelPending();
       setResult(false,"CPDCAT: TIMEOUT; CHECK CP/M SERVICE STATUS");
     } else {
       setResult(false,"CPDCAT: CANCELLED OR DIRECTORY READ FAILED");
