@@ -32,10 +32,9 @@ size = Path.home() / ".platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp
 if not size.is_file():
     raise SystemExit(f"Missing pinned Xtensa size tool: {size}")
 
-# Independently enforce the Mac link-time limit for all three TFT configurations.
-# The Web Terminal is excluded only in tft-only; neither variant may
-# silently grow scarce classic ESP32 .dram0 static storage.
-for target in ("esp32dev-tft", "esp32dev-tft-only", "esp32dev-tft-no-telnet"):
+# Independently enforce the Mac link-time limit for the supported TFT configuration.
+# The single full-bundle TFT firmware must fit Mac's stricter linker.
+for target in ("esp32dev-tft",):
     elf = ROOT / ".pio" / "build" / target / "firmware.elf"
     if not elf.is_file():
         raise SystemExit(f"Missing TFT ELF: {elf}")
@@ -56,4 +55,4 @@ for target in ("esp32dev-tft", "esp32dev-tft-only", "esp32dev-tft-no-telnet"):
     if actual > LIMIT:
         print(f"FAIL: {target} static DRAM exceeds Mac-link guard", file=sys.stderr)
         sys.exit(1)
-print("PASS: all TFT DRAM budgets remain below known macOS linker overflow")
+print("PASS: TFT DRAM budget remain below known macOS linker overflow")
