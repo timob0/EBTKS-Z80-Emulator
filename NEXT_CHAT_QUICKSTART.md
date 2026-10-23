@@ -1,5 +1,18 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT SECOND HARDWARE RESULT (2026-10-23; NOT RESOLVED):**
+The user reported `CPDCAT: CANCELLED OR DIRECTORY READ FAILED` at an
+apparently idle CP/M prompt after the auto-Return bridge fix. Unlike
+the previous timeout, the service reached a terminal error/cancellation
+state. The HP text conflated multiple internal states: root cause must
+be established from `GET /api/cpm/service/status` and GET
+`/api/cpm/service/directory` before any new request. ESP32 feature
+branch now records `checkpoint` and `directory_error` read-only
+diagnostics, displays separate HP failure labels, and adds native
+tests. The HP/Teensy feature branch and `main`/`recovery` remain
+untouched. Details in [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md).
+Await fresh branch-tip CI and local Mac TFT linker before ESP32 flash.
+
 **CPDCAT HW TIMEOUT DIAGNOSIS AND FIX (2026-10-23; NOT YET RETESTED):**
 HP `CPDCAT` reached the ESP32 service request but timed out. Verified source
 bug: bridge `service_fetch` only forwarded the old four CCP PCs and never
