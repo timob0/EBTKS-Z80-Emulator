@@ -89,7 +89,7 @@ void setup() {
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
 
-#if !EBTKS_TELNET_SHARED_WORKER
+#if EBTKS_TELNET_ENABLE && !EBTKS_TELNET_SHARED_WORKER
   // Optional legacy A/B path: a separate 3072-byte acceptor task.
   xTaskCreatePinnedToCore(TelnetTask,"TelnetTask",3072,NULL,2,&Task3,0);
   while(!telnet_t) vTaskDelay(10);
