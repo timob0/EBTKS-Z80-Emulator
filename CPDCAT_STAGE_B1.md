@@ -1,0 +1,90 @@
+# Stage B1 HP BASIC CPDCAT and automatic CCP safe point
+
+**Status:** experimental three-firmware feature; NOT hardware-accepted.
+Previously accepted ESP32 Stage B1 directory read (manual blank Return) was
+user-tested on real hardware, followed by successful DIR, Multiplan and Media
+Manager tests. These new automatic-return / HP catalog changes have NOT yet
+been flashed or regression-tested physically.
+
+## Source branches (do not merge or touch recovery)
+
+- ESP32: `timob0/EBTKS-Z80-Emulator`, `feature/cpm85-file-transfer-hpib-ui`
+- Teensy: `timob0/ebtks-alt-firmware`, `feature/cpm85-catalog`
+- HP LOADBIN: `timob0/HP85-Option-Roms`, `feature/cpm85-catalog`
+  (`src/cpm85.asm`, CPM85 **0.04c**)
+- `main` and `recovery/` in every repository remain unchanged.
+
+## User operation
+
+On the HP-85 BASIC side, load the new standalone CPM85 module and run:
+
+```basic
+LOADBIN "CPM85"
+CPVER
+CPDCAT "A:"
+CPDCAT "B:"
+```
+
+The HP keyboard must be in BASIC mode (press the usual **K8** to detach it
+from CP/M if necessary). CP/M itself must be at a native CCP prompt, e.g.
+`A>` or `B>`, not inside an application.
+
+CPDCAT checks the requested active mount, submits mailbox opcode **7**
+through the already-established 0343..0346 HP/Teensy ports and `cpm_keys`
+UART control link, then waits with a bounded timeout for the ESP32 service.
+
+The ESP32 verifies the native CCP prompt and actual BDOS buffered input
+line count, checks empty real-keyboard/virtual-UART receive queues, and
+synthesizes ONE blank CR **only at the native BIOS console INPUT status
+instruction** (CBIOS E826 or E831). A typed, nonempty line is refused;
+applications and incompatible CP/M images are refused. This completes
+the EXISTING BDOS function 10 first. Only at the subsequently validated
+CCP D382 prompt boundary does it run BDOS functions 17/18. No reentrant
+BDOS entry, keyboard ISR waiting, HP-side artificial keystroke, or data
+file write.
+
+The service uses a 1-based explicit-drive FCB selector (1=A: .. 16=P:),
+without changing the CCP's default drive, and the CP/M current user area.
+Results contain up to **32 directory extents**, formatted for the HP-85
+32-column CRT. Duplicate filename extents are displayed individually.
+If more extents exist, the footer reads **MORE NOT SHOWN**. This is not
+yet a paginated, complete directory listing on very full disks, and no
+file sizes are calculated. Future improvement: paginated, deduplicated
+catalogs after this architectural bridge is hardware accepted.
+
+On the Web API, `POST /api/cpm/service/directory` also triggers automatically
+on a verified empty input line. GET of the same URL returns the last
+snapshot, including selected `drive`; the original Stage A `probe`
+still requires the operator's blank Return.
+
+## Mandatory build and test gates
+
+1. Await green GitHub Actions on all three feature branches.
+2. Rebuild and flash **Teensy feature branch firmware** first (adds opcode
+   7; no HP I/O ISR disk/UART work).
+3. Rebuild the **ESP32** firmware locally on the macOS host. Build both
+   `esp32dev` and `esp32dev-tft` as relevant. Confirm successful **macOS TFT
+   linking** as well as the static DRAM budget / Git SHA checks, then flash
+   the ESP32 experimental firmware.
+4. Assemble HP `src/cpm85.asm` with CAPASM using the HP branch. Load the
+   experimental `CPM85.dat` on HP only after new Teensy and ESP32 builds
+   are running; `CPVER` should show **0.04c**.
+5. Before HP testing, while CP/M sits at an **empty** CCP prompt, send
+   `POST /api/cpm/service/directory` and poll GET. No manual Return
+   should be needed. The guest will see a harmless empty line/prompt cycle.
+6. From HP BASIC run `CPDCAT "A:"`. Expect real filename extents, an
+   explicit truncation footer if needed, and a normal HP BASIC input line.
+   Optionally test `B:` if active. Repeat; verify CP/M `DIR`, Multiplan,
+   disk operations, Web Terminal, TFT terminal and Media Manager afterwards.
+7. Type a **partial command without Enter** in a Web CP/M terminal, then run
+   HP `CPDCAT "A:"`. It must refuse as **CP/M BUSY OR COMMAND LINE NOT EMPTY**
+   and must NOT submit or change the partial command. Finish/cancel the line
+   manually. Repeat with CP/M running MODEM: refuse rather than steal input.
+8. Check `GET /api/system/health` for running ESP32 Git SHA and memory
+   baselines. Stop on any unexpected reset; keep the proven old firmware
+   and recovery image intact.
+
+The ESP32 `CPM85Keys` worker has only 3584 bytes of stack; the 32-entry
+directory snapshot lives on the existing heap Gate and is formatted under
+its short existing lock, **not copied onto the HP command worker stack**.
+No new tasks or permanent static TFT DRAM arrays were added.
