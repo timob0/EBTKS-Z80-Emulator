@@ -223,23 +223,42 @@ inline void catalog(const char *arg) {
   const CpmSafePoint::Directory &snapshot=gate->directory;
   bool formatted=snapshot.drive==char('A'+drive);
   size_t used=0;
+  uint8_t listed=0;
+  bool outputTruncated=false;
   if(formatted) {
-    int n=snprintf(lastText,kTextMax,"CP/M %c: DIRECTORY (USER AREA)\\n",char('A'+drive));
+    // HP CRT is 32 columns wide. Use actual line feeds, not a literal
+    // backslash+n sequence. Keep room for all mandatory warning footers.
+    const int n=snprintf(lastText,kTextMax,
+                         "CP/M %c: DIRECTORY\\n",char('A'+drive));
     formatted=n>0 && size_t(n)<kTextMax;
     if(formatted)used=size_t(n);
   }
   for(uint8_t i=0;formatted && i<snapshot.count;++i) {
+    // Reserve 70 bytes for the extent count and bad-filename diagnostic.
+    // This guard makes truncation visible instead of failing the command.
+    if(used+19+70>=kTextMax) {
+      outputTruncated=true;
+      break;
+    }
     const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
-    // HP-85 CRT is 32 columns. One name/extent per line.
     const int n=snprintf(lastText+used,kTextMax-used,
                          "%-12.12s EX%u\\n",e.name,(unsigned)e.extent);
     formatted=n>0 && size_t(n)<kTextMax-used;
-    if(formatted)used+=size_t(n);
+    if(formatted){used+=size_t(n);++listed;}
   }
   if(formatted) {
     const int n=snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\\n",
                          (unsigned)snapshot.count,
-                         snapshot.truncated?" (MORE NOT SHOWN)":"");
+                         (snapshot.truncated||outputTruncated)?
+                           " (MORE NOT SHOWN)":"");
+    formatted=n>0 && size_t(n)<kTextMax-used;
+    if(formatted)used+=size_t(n);
+  }
+  if(formatted && snapshot.skipped) {
+    // Malformed on-disk entries were skipped, not invented or rewritten.
+    const int n=snprintf(lastText+used,kTextMax-used,
+                         "%u BAD NAME(S) SKIPPED\\n",
+                         (unsigned)snapshot.skipped);
     formatted=n>0 && size_t(n)<kTextMax-used;
   }
   gate->directoryBusy.clear(std::memory_order_release);
