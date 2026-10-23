@@ -180,7 +180,7 @@ inline void cpmMediaRegister(AsyncWebServer &server)
     CpmMediaAsync::Job* job=CpmMediaAsync::job;
     if(!job) {
       request->send(503,"application/json",
-                    "{\\"ok\\":false,\\"error\\":\\"Media job unavailable\\"}");
+                    "{\"ok\":false,\"error\":\"Media job unavailable\"}");
       return;
     }
     uint8_t ready=3;
@@ -190,25 +190,25 @@ inline void cpmMediaRegister(AsyncWebServer &server)
       job->phase.store(0,std::memory_order_release);
       if(response) {request->send(response);return;}
       request->send(503,"application/json",
-                    "{\\"ok\\":false,\\"error\\":\\"Media result unavailable\\"}");
+                    "{\"ok\":false,\"error\":\"Media result unavailable\"}");
       return;
     }
     uint8_t failed=4;
     if(job->phase.compare_exchange_strong(failed,0,std::memory_order_acq_rel)) {
       request->send(503,"application/json",
-                    "{\\"ok\\":false,\\"error\\":\\"Media query failed or ran out of memory; retry after network activity\\"}");
+                    "{\"ok\":false,\"error\":\"Media query failed or ran out of memory; retry after network activity\"}");
       return;
     }
     uint8_t idle=0;
     if(job->phase.load(std::memory_order_acquire)==0 &&
        !CpmMediaAsync::sufficientMemory()) {
       request->send(503,"application/json",
-                    "{\\"ok\\":false,\\"error\\":\\"Media Manager unavailable: ESP32 memory low; close terminal or modem connection and retry\\"}");
+                    "{\"ok\":false,\"error\":\"Media Manager unavailable: ESP32 memory low; close terminal or modem connection and retry\"}");
       return;
     }
     job->phase.compare_exchange_strong(idle,1,std::memory_order_acq_rel);
     request->send(202,"application/json",
-                  "{\\"ok\\":true,\\"pending\\":true,\\"retry_ms\\":750}");
+                  "{\"ok\":true,\"pending\":true,\"retry_ms\":750}");
   });
 
   server.on("/api/cpm/mount", HTTP_POST, [](AsyncWebServerRequest *request) {
