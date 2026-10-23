@@ -1,5 +1,15 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT HARDWARE DISPLAY ACCEPTED (2026-10-24):**
+Physical HP-85 retest of the two-column 8.3-aligned formatter succeeded:
+user says "This works nicely, the directory formatting is good."
+Proper CRT lines, two columns and name alignment are accepted. CP/M
+`DIR` already passed, BDOS catalog succeeded and did not force a Z80
+reset; two malformed A: entries were previously confirmed disk damage.
+Only final Multiplan and Media Manager regressions remain before merging
+ESP32 feature branch to `main`. Maintain `main`/recovery and HP/Teensy
+firmware unchanged until acceptance.
+
 **CPDCAT TWO-COLUMN HP CRT FORMAT (2026-10-24; HARDWARE TEST PENDING):**
 At user request, the ESP32 feature branch formats 8.3 names in aligned
 12-character fields (8 base + dot + 3 extension), two per row with
