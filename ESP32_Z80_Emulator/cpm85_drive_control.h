@@ -202,29 +202,38 @@ inline void catalog(const char *arg) {
     }
     return;
   }
-  CpmSafePoint::Directory snapshot;
-  if(!gate->copyDirectory(snapshot) || snapshot.drive!=char('A'+drive)) {
+  // The Teensy-poll worker has only a 3584-byte stack. Do NOT copy the
+  // 32-entry snapshot onto it: render from the gate's heap-owned snapshot
+  // under a short nonblocking lock, avoiding old large-array stack resets.
+  if(gate->directoryBusy.test_and_set(std::memory_order_acquire)) {
+    setResult(false,"CPDCAT: DIRECTORY RESULT BUSY");return;
+  }
+  const CpmSafePoint::Directory &snapshot=gate->directory;
+  bool formatted=snapshot.drive==char('A'+drive);
+  size_t used=0;
+  if(formatted) {
+    int n=snprintf(lastText,kTextMax,"CP/M %c: DIRECTORY (USER AREA)\\n",char('A'+drive));
+    formatted=n>0 && size_t(n)<kTextMax;
+    if(formatted)used=size_t(n);
+  }
+  for(uint8_t i=0;formatted && i<snapshot.count;++i) {
+    const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
+    // HP-85 CRT is 32 columns. One name/extent per line.
+    const int n=snprintf(lastText+used,kTextMax-used,
+                         "%-12.12s EX%u\\n",e.name,(unsigned)e.extent);
+    formatted=n>0 && size_t(n)<kTextMax-used;
+    if(formatted)used+=size_t(n);
+  }
+  if(formatted) {
+    const int n=snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\\n",
+                         (unsigned)snapshot.count,
+                         snapshot.truncated?" (MORE NOT SHOWN)":"");
+    formatted=n>0 && size_t(n)<kTextMax-used;
+  }
+  gate->directoryBusy.clear(std::memory_order_release);
+  if(!formatted) {
     setResult(false,"CPDCAT: DIRECTORY RESULT UNAVAILABLE");return;
   }
-  if(!lastText)return;
-  size_t used=0;
-  int n=snprintf(lastText,kTextMax,"CP/M %c: DIRECTORY (USER AREA)\n",char('A'+drive));
-  if(n<0 || size_t(n)>=kTextMax) {
-    setResult(false,"CPDCAT FORMAT ERROR");return;
-  }
-  used=size_t(n);
-  for(uint8_t i=0;i<snapshot.count;++i) {
-    const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
-    // HP-85 CRT is 32 columns. One name/extent per line, no 32-bit sizes.
-    n=snprintf(lastText+used,kTextMax-used,
-               "%-12.12s EX%u\n",e.name,(unsigned)e.extent);
-    if(n<0 || size_t(n)>=kTextMax-used) {
-      setResult(false,"CPDCAT RESPONSE TOO LONG");return;
-    }
-    used+=size_t(n);
-  }
-  snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\n",
-           (unsigned)snapshot.count,snapshot.truncated?" (MORE NOT SHOWN)":"");
   lastOk=true;
 }
 
