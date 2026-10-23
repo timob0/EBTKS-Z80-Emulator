@@ -117,9 +117,45 @@ static void testRealZ80TrapExecuteAndRestore() {
   // A running task never enters CCP input; no changes to current CPU state.
 }
 
+static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
+  Fixture f;
+  f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem);
+  f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
+  // No BDOS RDBUF1 observation yet: never auto-inject blindly.
+  assert(f.gate.request(CpmSafePoint::DIRECTORY,1));
+  assert(!f.gate.takeAutomaticReturn());
+  f.gate.observeLineCount(0);  // Z80 B=0 at BDOS D9EF
+  assert(f.gate.takeAutomaticReturn());
+  assert(!f.gate.takeAutomaticReturn()); // one and only one virtual CR
+  f.gate.onWarmBoot();
+
+  Fixture typed;
+  typed.gate.fetch(CpmSafePoint::kCcpPrompt,typed.mem);
+  typed.gate.fetch(CpmSafePoint::kCcpConsoleInput,typed.mem);
+  typed.gate.observeLineCount(3);
+  assert(!typed.gate.request(CpmSafePoint::DIRECTORY,1));
+  assert(!typed.gate.takeAutomaticReturn());
+  typed.gate.observeLineCount(0); // operator cleared the line
+  assert(typed.gate.request(CpmSafePoint::DIRECTORY,2));
+  assert(typed.gate.requestedDrive.load()==2);
+  assert(typed.gate.takeAutomaticReturn());
+  typed.gate.fetch(CpmSafePoint::kCcpInputReturn,typed.mem);
+  typed.gate.fetch(CpmSafePoint::kCcpCommand,typed.mem);
+  assert(typed.gate.fetch(CpmSafePoint::kCcpPrompt,typed.mem));
+  assert(typed.gate.operation.load()==CpmSafePoint::DIRECTORY);
+  typed.gate.complete(true);
+  assert(!typed.gate.takeAutomaticReturn());
+
+  Fixture app;
+  assert(!app.gate.request(CpmSafePoint::DIRECTORY,1));
+  app.gate.observeLineCount(0);
+  assert(!app.gate.takeAutomaticReturn());
+}
+
 int main(){
   testRejectAbsentAndBusy();
   testRejectWrongCcpOrMissingNative();
   testRealZ80TrapExecuteAndRestore();
+  testDirectoryAutoReturnOnlyAtEmptyNativeLine();
   std::puts("PASS: CCP-only gate, nonempty abort, WBOOT abort, real Z80 probe and exact state restoration");
 }
