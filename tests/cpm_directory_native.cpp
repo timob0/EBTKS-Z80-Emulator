@@ -75,7 +75,7 @@ static void testDirectoryAndExactRestore() {
   bool mustReset=true;
   assert(CpmDirectoryService::execute(&f.bridge,out,mustReset));
   assert(!mustReset);
-  assert(out.count==1 && !out.truncated);
+  assert(out.count==1 && !out.truncated && out.error==CpmSafePoint::DIR_OK);
   assert(strcmp(out.entries[0].name,"HELLO.TXT")==0);
   assert(out.entries[0].user==0 && out.entries[0].records==8);
   assert(memcmp(f.ram+0xC000,scratch,sizeof(scratch))==0);
@@ -99,6 +99,7 @@ static void testFailClosedBeforeBdos() {
   CpmSafePoint::Directory out;
   bool mustReset=true;
   assert(!CpmDirectoryService::execute(&f.bridge,out,mustReset));
+  assert(out.error==CpmSafePoint::DIR_BAD_DMA);
   assert(!mustReset);
   assert(memcmp(&f.bridge.cpu,&original,sizeof(original))==0);
 }
@@ -112,6 +113,7 @@ static void testEmptyDirectoryAndBoundedOutput() {
   bool reset=false;
   assert(CpmDirectoryService::execute(&f.bridge,out,reset));
   assert(out.count==0 && !out.truncated && !reset);
+  assert(out.error==CpmSafePoint::DIR_OK);
 
   Fixture many;
   many.armDirectory();
@@ -119,7 +121,7 @@ static void testEmptyDirectoryAndBoundedOutput() {
   many.ram[0xD806]=0xAF;many.ram[0xD807]=0xC9;
   assert(CpmDirectoryService::execute(&many.bridge,out,reset));
   assert(out.count==CpmSafePoint::kDirectoryMax);
-  assert(out.truncated && !reset);
+  assert(out.truncated && !reset && out.error==CpmSafePoint::DIR_OK);
 }
 
 int main() {
