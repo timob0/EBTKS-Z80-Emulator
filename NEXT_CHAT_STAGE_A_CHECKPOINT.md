@@ -85,6 +85,42 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 Physical TFT/HP-only BBS logout, return to CP/M: no sustained heap loss
+
+User completed controlled no-Telnet BBS session on physical TFT/HP keyboard
+and provided two subsequent `/api/system/memory` samples.
+
+| Phase | uptime_ms | heap_free | free_8bit | largest_8bit | min_free_8bit | telnet | modem |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| MODEM before BBS | 96286 | 60044 | 20868 | 18420 | 13040 | 0 | 2 |
+| Logged into BBS | 155720 | 56812 | 17636 | 16372 | 8108 | 0 | 2 |
+| Logged off BBS | 213815 | 59940 | 20764 | 19444 | 8108 | 0 | 2 |
+| Back in CP/M | 256095 | 59928 | 20752 | 19444 | **4212** | 0 | 2 |
+
+Comparison of MODEM-before-BBS to CP/M after: free8 only 116B lower;
+heap_free only 116B lower, largest8 1024B HIGHER, consistent with
+most per-connection memory reclaimed. No evidence from these snapshots
+of substantial retained heap loss after logout. The modem background
+worker persists at state 2, explaining ~8KiB persistent footprint
+vs cold boot (free8 28808 to 20752). HP keyboard/TFT and CP/M continue.
+
+**Important transient warning:** `min_free_8bit` dropped from 8108
+at logout to 4212 at return to CP/M although current free8 changed
+only -12B. Some intervening event briefly used at least ~3.9KiB
+more 8-bit RAM and later released it. The source is unknown: do
+NOT ascribe it to a particular service without targeted diagnostic.
+Lowest free8 is still far above the 644B transient during simultaneous
+BBS+Telnet run, but not comfortably high for unchecked new allocations.
+
+Test outcome: single physical TFT+HP BBS path **logged in, logged off,
+returned to CP/M, stable heap after logout**. Sustained long-session
+responsiveness, ANSI colors, Media Manager availability and repeated
+BBS dials remain unverified. This is NOT acceptance of concurrent
+Telnet+BBS stress, which previously FAILED. User has not yet explicitly
+reported subjective TFT rendering/keyboard/UI feel for this run.
+Keep variants on feature branch; no source changes or merge.
+
+---
 ## 2026-10-23 Physical TFT-only BBS logged in with no Telnet: substantial heap improvement
 
 Follow-up to cold-boot baseline. Physical HP keyboard + TFT CP/M MODEM COM
