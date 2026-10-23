@@ -85,6 +85,39 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 further hardware observation — CPRESET did not recover hang
+
+User adds that, during the same network/console freeze reported below,
+the HP `CPRESET` command returned `Z80 RESET REQUESTED`, but there was
+no observable Z80 restart; the unit required power-off. This is an
+important distinction between a management ACK and actual CPU reset.
+`cpm85_drive_control.h::execute(op=4)` calls
+`cpmStoreVerifyDesired()`, sets `RUN=false`, then immediately returns
+`Z80 RESET REQUESTED` without synchronously waiting for CPU-task ACK.
+The CPU task only stops after it returns from `z80BridgeRun`; it can
+still be blocked in an I/O callback, console ring pressure, or other
+work while `RUN` has been set false. The UI ACK alone does NOT establish
+that a Z80 reset took place. The simultaneous HTTP unresponsiveness
+also leaves network starvation/heap exhaustion as an open possibility.
+
+After this report, checked GitHub Actions run 39934832703 for source at
+`b0160b72926f97025a7598795ca437dd235b44f1`: both native and
+ESP32/headless/TFT build jobs completed **SUCCESS**, including
+static TFT DRAM check. This proves compile/static tests, NOT hardware
+liveness or recovery. The next untested code includes only bounded
+Telnet TX loop (2s per 256-byte chunk) plus the already-tested Web
+Terminal admission guard. User powered off unit and will flash only
+once a new version is ready. Preserve `recovery/` and do not merge.
+
+Priority when retesting: Mac link, verify embedded SHA, begin with
+cold boot/CP/M CCP & CPRESET normal-operation check, then a single
+Telnet/large-output session. Avoid reproducing repeated modem+Web
+stress before isolating the deadlock and establishing low-heap safe
+admission. If another freeze appears, record pre-failure memory,
+uptime and reset reason when obtainable; don't infer a hardware
+reset reason where power-off was needed.
+
+---
 ## 2026-10-23 11:47 Europe/Berlin — physical combined-network regression FAILED
 
 User tested the newly committed Web Terminal low-heap admission guard (post
