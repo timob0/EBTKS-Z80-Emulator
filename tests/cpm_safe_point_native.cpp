@@ -123,12 +123,14 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
   // No BDOS RDBUF1 observation yet: never auto-inject blindly.
   assert(f.gate.request(CpmSafePoint::DIRECTORY,1));
+  assert(f.gate.checkpoint.load()==CpmSafePoint::ARMED);
   assert(!f.gate.takeAutomaticReturn());
   f.gate.observeLineCount(0);  // Z80 B=0 at BDOS D9EF
   f.gate.observeFetchedOpcode(0xE863); // BIOS console OUTPUT status read
   assert(!f.gate.takeAutomaticReturn());
   f.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
   assert(f.gate.takeAutomaticReturn());
+  assert(f.gate.checkpoint.load()==CpmSafePoint::AUTO_CR);
   assert(!f.gate.takeAutomaticReturn()); // one and only one virtual CR
   f.gate.onWarmBoot();
 
@@ -149,6 +151,7 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   assert(typed.gate.fetch(CpmSafePoint::kCcpPrompt,typed.mem));
   assert(typed.gate.operation.load()==CpmSafePoint::DIRECTORY);
   typed.gate.complete(true);
+  assert(typed.gate.checkpoint.load()==CpmSafePoint::BDOS_OK);
   assert(!typed.gate.takeAutomaticReturn());
 
   Fixture cancelled;
@@ -158,6 +161,7 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   assert(cancelled.gate.request(CpmSafePoint::DIRECTORY,1));
   cancelled.gate.observeLineCount(1);  // user typed before automatic CR
   assert(cancelled.gate.result.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  assert(cancelled.gate.checkpoint.load()==CpmSafePoint::NONEMPTY_LINE);
   cancelled.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
   assert(!cancelled.gate.takeAutomaticReturn());
   assert(!cancelled.gate.cancelPending());
@@ -167,6 +171,7 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   timedOut.gate.fetch(CpmSafePoint::kCcpConsoleInput,timedOut.mem);
   assert(timedOut.gate.request(CpmSafePoint::DIRECTORY,1));
   assert(timedOut.gate.cancelPending());
+  assert(timedOut.gate.checkpoint.load()==CpmSafePoint::CANCEL_ON_TIMEOUT);
   timedOut.gate.observeLineCount(0);
   timedOut.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
   assert(!timedOut.gate.takeAutomaticReturn());
