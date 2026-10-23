@@ -116,6 +116,52 @@ static void testFailClosedBeforeBdos() {
   assert(memcmp(&f.bridge.cpu,&original,sizeof(original))==0);
 }
 
+// The real CP/M image has shown noncanonical filename data. BDOS itself
+// returned safely. The host may omit malformed metadata, but MUST NOT force
+// a Z80 restart or risk running its native CCP with altered registers/RAM.
+static void testNoncanonicalFilenameIsWarningNotGuestReset() {
+  Fixture f;
+  f.armDirectory();
+  f.ram[0x81]=0x00; // first byte of returned 8.3 base name is invalid
+  const Z80 saved=f.bridge.cpu;
+  uint8_t scratch[256],dma[128];
+  memcpy(scratch,f.ram+0xC000,sizeof(scratch));
+  memcpy(dma,f.ram+0x80,sizeof(dma));
+  CpmSafePoint::Directory out;
+  bool reset=true;
+  assert(CpmDirectoryService::execute(&f.bridge,out,reset,1));
+  assert(!reset);
+  assert(out.drive=='A');
+  assert(out.count==0 && out.skipped==1);
+  assert(out.error==CpmSafePoint::DIR_INVALID_NAME);
+  assert(out.firstBadIndex==0 && out.firstBadOffset==1 && out.firstBadByte==0);
+  assert(memcmp(&f.bridge.cpu,&saved,sizeof(saved))==0);
+  assert(memcmp(scratch,f.ram+0xC000,sizeof(scratch))==0);
+  assert(memcmp(dma,f.ram+0x80,sizeof(dma))==0);
+
+  // CP/M may report a bad directory slot/user after returning normally:
+  // fail the request, but this alone never justifies guest restart.
+  Fixture user;
+  user.armDirectory();
+  user.ram[0x80]=16;
+  bool resetUser=true;
+  assert(!CpmDirectoryService::execute(&user.bridge,out,resetUser,1));
+  assert(!resetUser && out.error==CpmSafePoint::DIR_INVALID_USER);
+}
+
+static void testInterruptedBdosStillRequestsGuestReset() {
+  Fixture f;
+  f.armDirectory();
+  // Emulated BDOS halts before returning to the service trampoline.
+  // This is an UNSAFE guest execution failure, unlike a bad name.
+  f.ram[0xD806]=0x76; // HALT
+  CpmSafePoint::Directory out;
+  bool reset=false;
+  assert(!CpmDirectoryService::execute(&f.bridge,out,reset,1));
+  assert(reset);
+  assert(out.error==CpmSafePoint::DIR_BDOS_INTERRUPTED);
+}
+
 static void testEmptyDirectoryAndBoundedOutput() {
   Fixture f;
   f.armDirectory();
@@ -140,6 +186,8 @@ int main() {
   testDirectoryAndExactRestore();
   testExplicitRequestedDrive();
   testFailClosedBeforeBdos();
+  testNoncanonicalFilenameIsWarningNotGuestReset();
+  testInterruptedBdosStillRequestsGuestReset();
   testEmptyDirectoryAndBoundedOutput();
   std::puts("PASS: BDOS directory search, bounded entries, safe rejection and exact Z80 restore");
 }
