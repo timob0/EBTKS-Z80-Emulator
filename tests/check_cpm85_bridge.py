@@ -101,8 +101,8 @@ expected_lines=(
 for prefix in expected_lines:
     matched=[ast.literal_eval(x) for x in cpp_strings if prefix in x]
     assert len(matched)==1, (prefix,matched)
-    assert matched[0].endswith("\\n"), (
+    assert matched[0].endswith(chr(10)), (
         "CPDCAT catalog line must end with a REAL LF, not literal \\\\n",prefix,matched
     )
-    assert "\\\\n" not in matched[0], (prefix,matched)
+    assert (chr(92)+"n") not in matched[0], (prefix,matched)
 print("PASS: HP CPDCAT sends real ASCII LF in header, entries and footers")
