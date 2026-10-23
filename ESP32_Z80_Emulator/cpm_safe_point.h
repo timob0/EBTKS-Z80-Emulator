@@ -42,6 +42,8 @@ static constexpr uint16_t kCcpInputLength = 0xD007;
 // CP/M 2.2's native BDOS buffered-input loop, observed before PUSH BC.
 // At this PC, register B holds the true number of characters on the line.
 static constexpr uint16_t kBdosLineLoop = 0xD9EF;
+static constexpr uint16_t kBiosConinPollA = 0xE826;
+static constexpr uint16_t kBiosConinPollB = 0xE831;
 
 // Cheap, no memory allocation, no FreeRTOS work, no hardware communication.
 class Gate {
@@ -55,6 +57,7 @@ public:
   std::atomic<bool> ccpLineKnown{false};
   std::atomic<bool> ccpLineEmpty{false};
   bool autoReturnSent=false; // CPU-only, one synthetic CR per request
+  bool biosConinPoll=false; // CPU-only: last fetched opcode is BIOS CONIN IN A,(85h)
   // Only successful native CCP safe-point requests can consume this gate.
   std::atomic_flag requestBusy=ATOMIC_FLAG_INIT;
   std::atomic_flag directoryBusy=ATOMIC_FLAG_INIT;
@@ -94,6 +97,7 @@ public:
     ccpLineKnown.store(false,std::memory_order_release);
     ccpLineEmpty.store(false,std::memory_order_release);
     autoReturnSent=false;
+    biosConinPoll=false;
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     mode.store(UNKNOWN,std::memory_order_release);
     result.store(NEVER,std::memory_order_release);
@@ -106,6 +110,7 @@ public:
     ccpLineKnown.store(false,std::memory_order_release);
     ccpLineEmpty.store(false,std::memory_order_release);
     autoReturnSent=false;
+    biosConinPoll=false;
     mode.store(BUSY,std::memory_order_release);
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE)
@@ -114,6 +119,10 @@ public:
 
   // Called from the CPU fetch callback at native BDOS's RDBUF1 entry.
   // Never infer an empty line merely from the 0080 DMA or console ring.
+  void observeFetchedOpcode(uint16_t pc) {
+    biosConinPoll=(pc==kBiosConinPollA || pc==kBiosConinPollB);
+  }
+
   void observeLineCount(uint8_t count) {
     if(mode.load(std::memory_order_acquire)!=CCP_INPUT)return;
     ccpLineEmpty.store(count==0,std::memory_order_release);
@@ -125,7 +134,7 @@ public:
   // The synthetic CR completes the EXISTING BDOS 10; only then does the
   // proven D382 safe point execute BDOS directory search (never reentrant).
   bool takeAutomaticReturn() {
-    if(autoReturnSent || !insideVerifiedCcpPrompt ||
+    if(autoReturnSent || !biosConinPoll || !insideVerifiedCcpPrompt ||
        mode.load(std::memory_order_acquire)!=CCP_INPUT ||
        result.load(std::memory_order_acquire)!=WAIT_EMPTY_LINE ||
        operation.load(std::memory_order_acquire)!=DIRECTORY ||
