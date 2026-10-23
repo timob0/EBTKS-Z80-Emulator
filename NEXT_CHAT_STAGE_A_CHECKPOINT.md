@@ -85,6 +85,50 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23: Physical MODEM/BBS -> CCP resource teardown VERIFIED
+
+User pulled and flashed CCP-triggered modem worker reclamation on
+`feature/cpm85-management-console`, `esp32dev-tft-no-telnet`.
+After using MODEM to access BBS, logging out and exiting MODEM
+back to CP/M, `/api/system/memory` at uptime 125963ms showed:
+
+```json
+{"heap_free":65700,"free_8bit":26712,"largest_8bit":23540,"min_heap_free":44476,"min_free_8bit":5488,"modem_state":0,"modem_dial_refused_low_heap":0}
+```
+
+`stack_unused_bytes` lists web=2692, z80_cpu=2844,
+console=1468, hp_keyboard=2128, spi_disk=6328, tft=2972,
+**NO modem worker entry**. This verifies modem `startState`
+returned to zero and worker task resources were reclaimed
+after reaching genuine CP/M CCP. Stage history retains
+historical modem_task and TCP connect/closed records; those
+capture points are not current allocations.
+
+Comparison to previous early-IRAM firmware **without teardown**
+after BBS/CPM: heap=60140, free8=20964, largest8=17396,
+modem_state=2, worker stack still present. New: **+5560B
+total heap, +5748B current free8, +6144B largest8**
+(different runs and workloads, so approximate).
+
+Media Manager `CpmMediaAsync::sufficientMemory` guard requires
+ESP total heap>=57344B, free8>=24576B, largest8>=16384B.
+New snapshot 65700/26712/23540 **passes all three**.
+Actual `/api/cpm/media` media listing has NOT yet been tested
+at this point; open `/cpmmedia` and verify drive and SD listings.
+No need to relax Media Manager guard. Historical min_free8=5488B
+indicates substantial transient load earlier in the boot but
+is not current free heap; concurrent activity still warrants
+caution.
+
+**Essential pending regression:** start MODEM again after
+teardown, verify AT/ATI, BBS dial/redial/hangup, exit Ctrl-X,
+and confirm `modem_state=0` after a second cleanup; check
+DIR and Multiplan disk functionality. Avoid broadening
+concurrency until clean second init/cleanup tested.
+
+Do not merge ESP32 branch into main or touch recovery/Teensy/HP.
+
+---
 ## 2026-10-23: Post-MODEM Media Manager guard & proposed CCP lifecycle release
 
 User tested MODEM successfully through active **browser Web Terminal**
