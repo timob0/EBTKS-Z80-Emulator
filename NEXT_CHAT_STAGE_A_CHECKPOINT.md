@@ -85,6 +85,52 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 TFT-only nonblocking Telnet: live BBS/Telnet load FAIL
+
+User's actual TFT-only branch firmware with new nonblocking Telnet TX reached
+MODEM prompt without the earlier startup freeze; Telnet stayed connected
+through dial and BBS login. However terminal was **sluggish**, ANSI
+**colors appeared lost**, Web UI became less responsive, and eventually
+**Telnet disconnected**. No precise disconnect reason yet: **retrieve
+`/z80debug` on physical machine BEFORE any additional load**. The new
+ConsoleTask logs `Telnet TX buffer full`, `no progress for 2 s`, or
+`socket error`, including `queued`, `free8`, `largest8`.
+
+| Physical sample | heap_free | free_8bit | largest_8bit | min_free_8bit | telnet_connected | modem_state |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Prior to dialing; uptime 222752ms | 56624 | 17448 | 13300 | 4212 | 1 | 2 |
+| Logged in to BBS; uptime 304259ms | 48072 | 8896 | 7924 | **644** | 1 | 2 |
+| After Telnet disconnect; uptime 372499ms | 59104 | 19928 | 13300 | 644 | 0 | 2 |
+
+Modem `dial_refused_low_heap=0` because its **before TCP connect**
+sample had heap 60360 and largest8 13300, satisfying 48KiB/12KiB
+preflight. **After connect** sampled 58028/18852/13300.
+The `tcp_closed` sample at final snapshot was heap=61124, free8=21948,
+largest8=13300: both BBS TCP and Telnet had become disconnected by the
+later observation. This is significant transient allocator exhaustion
+(minimum available 8-bit RAM **644 bytes**, vs 268 bytes in prior
+full-bundle regression), not proof of a permanent heap leak.
+Despite TFT-only excluding Web Terminal and ConsoleTask nonblocking
+send, simultaneous BBS + Telnet + TFT has FAILED hardware acceptance.
+
+Observed console task unused stack: ~1484B during login and ~1132B
+after disconnect; modem unused ~3312B, web ~2320B, TFT ~2984B.
+No measured stack overflow, but transient network memory pressure
+remains critical. The Telnet ring may shed connection by buffer-full
+or TX timeout; cannot distinguish without `/z80debug`.
+Do NOT claim lost ANSI colors proves a parser bug: content may have
+been missed/truncated, terminal settings may have changed, or the
+remote BBS emitted something unexpected. Investigate with logs.
+
+**Next actions:** avoid another BBS stress test now; request
+`curl -sS --max-time 5 http://192.168.178.197/z80debug`
+(numeric IP may differ) to identify latest Telnet TX disconnect reason.
+Check whether Web UI/CP/M/TFT have recovered and whether reconnect
+to Telnet works at idle. Do not deploy another unverified firmware
+until root and memory allocation strategy are revisited; keep Stage A
+open, main/recovery untouched.
+
+---
 ## 2026-10-23 TFT-only nonblocking Telnet firmware hardware retest: MODEM START PASS
 
 User flashed latest TFT-only branch with ConsoleTask nonblocking Telnet TX (exact flashed SHA not supplied),
