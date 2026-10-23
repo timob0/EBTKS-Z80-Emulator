@@ -170,9 +170,68 @@ inline void makeImage(const char *name) {
   setResult(false, "IMAGE CREATE PENDING; CHECK CPDIMGS");
 }
 
+// CPDCAT A: runs native BDOS directory search only after a verified empty
+// CCP line is auto-terminated on the Z80 CPU thread. Called on the existing
+// Teensy-poll worker (never HP I/O ISR); timeout is bounded. No file writes.
+inline void catalog(const char *arg) {
+  uint8_t drive=0;
+  if(!driveIndex(arg,drive)) {
+    setResult(false,"CPDCAT: INVALID DRIVE A:..P:");return;
+  }
+  if(!RUN || !cpmActiveMounts[drive].mounted) {
+    setResult(false,"CPDCAT: CP/M DRIVE NOT ACTIVE");return;
+  }
+  CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+  if(!gate || !gate->compatible.load(std::memory_order_acquire) ||
+     !gate->request(CpmSafePoint::DIRECTORY,drive+1)) {
+    setResult(false,"CPDCAT: CP/M BUSY OR COMMAND LINE NOT EMPTY");return;
+  }
+  const uint32_t started=millis();
+  uint8_t state=CpmSafePoint::WAIT_EMPTY_LINE;
+  while((uint32_t)(millis()-started)<12000UL) {
+    state=gate->result.load(std::memory_order_acquire);
+    if(state!=CpmSafePoint::WAIT_EMPTY_LINE && state!=CpmSafePoint::RUNNING)break;
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+  if(state!=CpmSafePoint::PASSED) {
+    if(state==CpmSafePoint::WAIT_EMPTY_LINE || state==CpmSafePoint::RUNNING) {
+      // Leave the active service to complete safely; do not cancel BDOS mid-call.
+      setResult(false,"CPDCAT: TIMEOUT; CHECK CP/M SERVICE STATUS");
+    } else {
+      setResult(false,"CPDCAT: CANCELLED OR DIRECTORY READ FAILED");
+    }
+    return;
+  }
+  CpmSafePoint::Directory snapshot;
+  if(!gate->copyDirectory(snapshot) || snapshot.drive!=char('A'+drive)) {
+    setResult(false,"CPDCAT: DIRECTORY RESULT UNAVAILABLE");return;
+  }
+  if(!lastText)return;
+  size_t used=0;
+  int n=snprintf(lastText,kTextMax,"CP/M %c: DIRECTORY (USER AREA)\\n",char('A'+drive));
+  if(n<0 || size_t(n)>=kTextMax) {
+    setResult(false,"CPDCAT FORMAT ERROR");return;
+  }
+  used=size_t(n);
+  for(uint8_t i=0;i<snapshot.count;++i) {
+    const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
+    // HP-85 CRT is 32 columns. One name/extent per line, no 32-bit sizes.
+    n=snprintf(lastText+used,kTextMax-used,
+               "%-12.12s EX%u\\n",e.name,(unsigned)e.extent);
+    if(n<0 || size_t(n)>=kTextMax-used) {
+      setResult(false,"CPDCAT RESPONSE TOO LONG");return;
+    }
+    used+=size_t(n);
+  }
+  snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\\n",
+           (unsigned)snapshot.count,snapshot.truncated?" (MORE NOT SHOWN)":"");
+  lastOk=true;
+}
+
 inline void execute(uint8_t op,const char *args) {
   char msg[112]={};
   uint8_t drive=0;
+  if(op==7){catalog(args);return;}
   if(op==1){status();return;}
   if(op==5){images();return;}
   if(op==6){makeImage(args);return;}
@@ -228,8 +287,8 @@ inline void receiveCommand(JsonVariantConst command) {
     lastSequence=(uint16_t)seq;
     haveLast=true;
     const char *args=command["args"] | "";
-    // Match Teensy mailbox opcodes 1..6 (5=CPDIMGS, 6=CPDMK).
-    if(op<1||op>6||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
+    // Teensy opcode 7 is the bounded read-only CPDCAT directory service.
+    if(op<1||op>7||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
     else execute((uint8_t)op,args);
   }
   pendingAck=true;
