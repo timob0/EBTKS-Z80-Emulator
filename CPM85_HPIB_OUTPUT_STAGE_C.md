@@ -9,6 +9,34 @@
 - Plain `CPM` selects the user's existing `PRINTER IS` target. Optional numeric `CPM 705` would override the target for that CPM attachment (interface 7, device 05), without inadvertently changing unrelated HP BASIC printer use. Exact implementation of the override depends on the HP printer ROM/output API and requires checking.
 - If no HP receiver is running, if the printer backend fails, or if output cannot be accepted without byte loss, CP/M `LISTST` must report not ready. Detach/K8/ROM unload/HP reset must revoke ready; reconnection must start a clean session.
 
+## Clarification: CPM stays active for the user, but its entry routine returns
+
+User observes (correctly) that invoking `CPM` keeps the HP-85 in
+CP/M keyboard-control mode until K8, with BASIC keystrokes intercepted.
+Source in HP Option ROM `src/cpm85.asm` shows that **the CPMRUN entry
+routine itself does not spin in a foreground loop**: after installing
+`CHIDLE`, setting `KHACT=1` and writing `CPCTL=1`, it executes
+`CPMRET: BIN / PAD / RTN`. Thereafter HP BASIC remains in its keyboard
+wait/editor machinery, while `KHOOK` intercepts and consumes keys.
+`KHOOK` returns via `EOJ2` / `RTN`, and K8 runs `KREL`.
+
+Thus **active control mode != continuously executing CPMRUN**. The user
+cannot type into BASIC during capture, which gives the strong appearance
+of a modal foreground program and is fully consistent with how it
+behaves on physical hardware. We should keep this user experience.
+
+There are two candidate HP-side printer receivers:
+- **Cooperative resident receiver** executed in a verified safe BASIC
+  idle/service context while the keyboard hook remains active.
+- **Foreground CPM loop** redesigned to poll printer data and process it
+  while arranging keyboard dispatch/K8 correctly. This is a meaningful
+  change to the accepted keyboard integration, so first prove that HP
+  keyboard interception and native printer calls remain functional.
+
+Do NOT assume the `CHIDLE` hook runs every timer tick or is a safe
+printer-calling context merely because keyboard capture persists. A
+printer service must not rely on additional keystrokes to make progress.
+
 ## What already exists and the important architectural gap
 
 - The current HP-85 `CPM` statement installs a `CHIDLE` keyboard hook and **returns to BASIC**; it does *not* remain in a foreground BASIC receiver loop. K8 releases the hook through `KREL` and writes Teensy control port `0177742`.
