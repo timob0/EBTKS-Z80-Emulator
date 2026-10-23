@@ -86,3 +86,23 @@ assert 'if(op==7){catalog(args);return;}' in control
 assert 'gate->request(CpmSafePoint::DIRECTORY,drive+1)' in control
 assert 'CPDCAT: CP/M BUSY OR COMMAND LINE NOT EMPTY' in control
 assert 'snapshot.truncated' in control
+# 2026-10-24 hardware regression: the original catalog formatter compiled
+# cleanly but emitted the two printable ASCII characters '\\' and 'n'
+# instead of an actual ASCII LF. The HP CPM85 ROM translates LF to an HP
+# native line break, so validate the DECODED C/C++ string literal, not just
+# the presence of a backslash before 'n' in the source.
+import ast
+catalog=control.split("inline void catalog(",1)[1].split("inline void execute(",1)[0]
+cpp_strings=re.findall(r'"(?:\\\\.|[^"\\\\])*"', catalog)
+expected_lines=(
+    "CP/M %c: DIRECTORY", "%-12.12s EX%u",
+    "%u EXTENTS%s", "%u BAD NAME(S) SKIPPED",
+)
+for prefix in expected_lines:
+    matched=[ast.literal_eval(x) for x in cpp_strings if prefix in x]
+    assert len(matched)==1, (prefix,matched)
+    assert matched[0].endswith("\\n"), (
+        "CPDCAT catalog line must end with a REAL LF, not literal \\\\n",prefix,matched
+    )
+    assert "\\\\n" not in matched[0], (prefix,matched)
+print("PASS: HP CPDCAT sends real ASCII LF in header, entries and footers")
