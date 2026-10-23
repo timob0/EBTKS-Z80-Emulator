@@ -62,6 +62,12 @@ void setup() {
   // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
   // exclusively by TeensySerial for the framed ESP32 <-> Teensy protocol.
   ebtksLinkBegin();
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY && EBTKS_SPI_READAHEAD_DEFAULT_ON
+  // Fourth-target memory experiment: reserve 8192B IRAM before Wi-Fi,
+  // AsyncTCP/Web, HP console tasks and CP/M disk startup. Never use
+  // ordinary DRAM as an implicit fallback in this configuration.
+  spiDiskReserveCacheEarly();
+#endif
   delay(100);
 
   Serial.println("\nEBTKS Z80 Emulator - Milestone 2");
