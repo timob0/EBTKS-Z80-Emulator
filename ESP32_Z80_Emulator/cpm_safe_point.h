@@ -98,6 +98,13 @@ public:
   std::atomic<uint8_t> requestedDrive{0};
   std::atomic<uint8_t> checkpoint{IDLE};
   std::atomic<uint8_t> directoryError{DIR_OK};
+  // Sticky, read-only postmortem. reset() is called on every Z80-only cold
+  // start and must NOT erase a BDOS error or service-induced reset evidence.
+  // These atomics live in the existing heap Gate, not new TFT .bss storage.
+  std::atomic<uint8_t> lastDirectoryResult{NEVER};
+  std::atomic<uint8_t> lastDirectoryError{DIR_OK};
+  std::atomic<uint8_t> lastDirectoryCheckpoint{IDLE};
+  std::atomic<bool> lastDirectoryReset{false};
   std::atomic<bool> ccpLineKnown{false};
   std::atomic<bool> ccpLineEmpty{false};
   bool autoReturnSent=false; // CPU-only, one synthetic CR per request
@@ -162,6 +169,10 @@ public:
     if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
       result.store(INVALIDATED,std::memory_order_release);
       checkpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
+      if(operation.load(std::memory_order_acquire)==DIRECTORY) {
+        lastDirectoryCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
+        lastDirectoryResult.store(INVALIDATED,std::memory_order_release);
+      }
     }
   }
 
@@ -182,8 +193,11 @@ public:
     // A pending request is cancelled as soon as BDOS observes characters.
     if(count!=0 && operation.load(std::memory_order_acquire)==DIRECTORY) {
       uint8_t expected=WAIT_EMPTY_LINE;
-      result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
-                                     std::memory_order_acq_rel);
+      if(result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
+                                        std::memory_order_acq_rel)) {
+        lastDirectoryCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
+        lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+      }
     }
   }
 
@@ -234,6 +248,10 @@ public:
         } else {
           result.store(INPUT_NOT_EMPTY,std::memory_order_release);
           checkpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
+          if(operation.load(std::memory_order_acquire)==DIRECTORY) {
+            lastDirectoryCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
+            lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+          }
         }
       }
       return false;
@@ -316,7 +334,13 @@ public:
     uint8_t expected=WAIT_EMPTY_LINE;
     const bool cancelled=result.compare_exchange_strong(
         expected,INPUT_NOT_EMPTY,std::memory_order_acq_rel);
-    if(cancelled)checkpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
+    if(cancelled) {
+      checkpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
+      if(operation.load(std::memory_order_acquire)==DIRECTORY) {
+        lastDirectoryCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
+        lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+      }
+    }
     return cancelled;
   }
 
@@ -324,8 +348,16 @@ public:
     // The original CCP instruction will now execute; it must reach the
     // console input marker before a new management operation is accepted.
     mode.store(BUSY,std::memory_order_release);
-    if(operation.load(std::memory_order_acquire)==DIRECTORY)
-      checkpoint.store(passed?BDOS_OK:BDOS_FAIL,std::memory_order_release);
+    if(operation.load(std::memory_order_acquire)==DIRECTORY) {
+      const uint8_t finalCheckpoint=passed?BDOS_OK:BDOS_FAIL;
+      checkpoint.store(finalCheckpoint,std::memory_order_release);
+      lastDirectoryCheckpoint.store(finalCheckpoint,std::memory_order_release);
+      lastDirectoryError.store(directoryError.load(std::memory_order_acquire),
+                               std::memory_order_release);
+      lastDirectoryReset.store(false,std::memory_order_release);
+      // Store this result LAST for a coherent postmortem snapshot.
+      lastDirectoryResult.store(passed?PASSED:FAILED,std::memory_order_release);
+    }
     result.store(passed?PASSED:FAILED,std::memory_order_release);
   }
 };
