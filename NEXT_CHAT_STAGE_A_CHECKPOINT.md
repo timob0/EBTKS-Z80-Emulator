@@ -85,6 +85,76 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 ~18:25 Europe/Berlin — TFT-only hardware MODEM START stalls Telnet (FAILED)
+
+User built/flashed new **esp32dev-tft-only** variant, confirmed
+shared Web UI works immediately post-reboot. CP/M,TFT were running.
+Beginning Telnet+MODEM test yielded an unexpected *temporary freeze*
+of CP/M and unresponsive `/api/system/memory`; after a delay the
+Telnet session disconnected. HP/TFT eventually recovered and memory
+endpoint worked, but no BBS dial was reached. Do NOT assume modem/BBS
+stability or propose promoting/merging the variant. User describes
+this as worse than prior full-bundle run.
+
+| Sample | heap_free | free_8bit | largest_8bit | min_free_8bit | modem | Telnet |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| TFT-only after boot, uptime 120875 ms | 67664 | 28488 | 26612 | 7092 | 0 | 0 |
+| TFT-only Telnet, uptime 154055 ms | 65372 | 26196 | 25588 | 7092 | 0 | 1 |
+| After trying MODEM, uptime 318189 ms | 59572 | 20396 | 14836 | 5388 | 2 | 0 |
+
+Feature flags confirmed by firmware: `web_terminal_enabled=false`,
+`tft_terminal_enabled=true`. Stage `cpm_boot_ready` snapshot:
+`total=81544, free8=42368, largest8=34804`, significantly better
+than prior full-bundle stage `total=69576, free8=30400,
+largest8=23540` (+11968 free8). But live post-boot heap
+was only ~848 bytes ahead of prior full firmware (`28488 vs 27640`);
+other runtime allocations/active browser traffic/Media Manager
+operation may have obscured the startup saving; not demonstrated
+which allocations yet. Startup-only snapshots are not identical
+conditions. Prior full with Telnet had `free8=25048`; TFT-only
+has `26196` (+1148). Prior full after MODEM had `free8=16228`
+with Telnet still connected; TFT-only had `20396` after Telnet
+had disconnected, so cannot compare directly.
+
+Task unused stack after attempted MODEM: web 1104, z80_cpu 2888,
+console **988**, hp_keyboard 2124, spi_disk 6104, modem 4428,
+tft 2984. Console high-water nearly 1 KiB but no confirmed overflow.
+Low-water `min_free_8bit` was **7092 even before MODEM** and 5388
+after; unlike prior 268-B low-water, this does NOT itself prove
+global RAM exhaustion as the cause of this particular stall.
+MODEM task state=2 and no dial refusal means startup completed.
+
+**Important diagnostic available WITHOUT a reflash:** TFT-only build
+preserves `/z80debug`. The console routing code in `serial.h` emits
+`Telnet TX stalled for 2 s; disconnecting slow client` into that
+rolling 2048-byte log when its 2s Telnet send guard fires.
+Mac: `curl -sS --max-time 5 http://192.168.178.197/z80debug`
+(adjust ESP32 numeric IP) ASAP before the log rolls. If it contains
+that line, the Telnet disconnect was intentional after a TX stall.
+Also inspect for `CP/M modem: virtual UART 88h-8Fh online` and
+web-service failures. Absence is not decisive because rolling log
+can truncate. Web worker handles Telnet *accept* (not active data),
+UART modem startup and Media Manager background listing, so a busy
+web worker can impact new connections. Investigate overlapping
+network/socket operations and synchronous `WiFiClient::write` under
+memory pressure before escalating modem guards. Consider measuring
+heap snapshots from cold boot **without browsing Media Manager**
+to isolate background/HTTP allocations.
+
+Media Manager after MODEM displayed blank tables, `Loading...`,
+and a controlled low-8-bit-memory 503 message. That response is
+expected under the current 24KiB free8 preflight and is not
+a separate directory or disk failure. But UI still has an obsolete
+`Z80 Terminal` navigation button in TFT-only and `Loading...`
+does not clear on 503; small UX issues to fix in next source revision.
+
+**Status:** three-variant static/CI regression compiled, but
+TFT-only practical hardware regression FAIL, no further OTA
+until modem/Telnet stability is better understood. Preserve main,
+recovery firmware and CP/M disk images. Exact ESP32 flashed SHA
+was not captured in this report.
+
+---
 ## 2026-10-23 — Three firmware flavours implemented on feature branch (hardware UNTESTED)
 
 User explicitly approved proceeding with three compile-time PlatformIO
