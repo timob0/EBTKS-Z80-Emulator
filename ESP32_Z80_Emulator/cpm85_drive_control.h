@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include "cpm_catalog_format.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -232,16 +233,21 @@ inline void catalog(const char *arg) {
     formatted=n>0 && size_t(n)<kTextMax;
     if(formatted)used=size_t(n);
   }
-  for(uint8_t i=0;formatted && i<snapshot.count;++i) {
-    // Reserve 51 bytes for the extent count and bad-filename diagnostic.
-    // This guard makes truncation visible instead of failing the command.
-    if(used+19+51>=kTextMax) {
+  // Two 12-character 8.3 fields with six spaces between them = 30
+  // printable CRT columns. Read adjacent entries left-to-right. The
+  // final odd entry is printed on the left without a blank right field.
+  // Bounded by the 32-entry snapshot; no heap or large stack buffers.
+  for(uint8_t i=0;formatted && i<snapshot.count;i+=2) {
+    // Reserve 51 bytes for footer and malformed-name warning. With 32
+    // entries the two-column output fits comfortably in kTextMax=680.
+    if(used+CpmCatalogFormat::kMaxRowBytes+51>=kTextMax) {
       outputTruncated=true;
       break;
     }
-    const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
-    const int n=snprintf(lastText+used,kTextMax-used,
-                         "%-12.12s EX%u\n",e.name,(unsigned)e.extent);
+    const char *left=snapshot.entries[i].name;
+    const char *right=(i+1<snapshot.count)?snapshot.entries[i+1].name:nullptr;
+    const int n=CpmCatalogFormat::formatRow(
+        lastText+used,kTextMax-used,left,right);
     formatted=n>0 && size_t(n)<kTextMax-used;
     if(formatted)used+=size_t(n);
   }
