@@ -7,6 +7,47 @@ Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
 
+## HP BASIC CPDCAT: fixed-width 8.3 columns (2026-10-24)
+
+Following physical verification of `CPDCAT "A:"` and native CP/M `DIR`,
+the user requested **two columns** on the HP-85 32-column CRT with
+**aligned 8.3 extensions**. Implemented **on the ESP32 feature branch
+only**; no HP LOADBIN or Teensy changes.
+
+New pure C++ formatter `ESP32_Z80_Emulator/cpm_catalog_format.h`:
+each filename prints in 12 characters (8 padded basename columns,
+fixed dot column, 3 extension columns). Missing extensions print spaces
+without a fabricated dot. Two fields separated by six spaces occupy
+30 printable columns (plus ASCII LF), leaving a 2-character right
+margin to avoid wrap on the physical HP CRT. Paired entries are printed
+left-to-right; the last unpaired entry prints left only. The format
+omits **per-entry raw extent numbers** to fit two columns; the footer
+retains total valid extents, more-not-shown warning, and skipped
+malformed-name count. The existing 32-entry snapshot and 680-byte
+HP mailbox constraints remain unchanged, with no new large buffers
+or static TFT DRAM. Four output strings still use real ASCII LF.
+
+Representative rows:
+
+```text
+CP/M A: DIRECTORY
+STAT    .COM      PIP     .COM
+DOWNLOAD.COM      MP80
+30 EXTENTS (MORE NOT SHOWN)
+2 BAD NAME(S) SKIPPED
+```
+
+Native regression `tests/cpm_catalog_format_native.cpp` tests
+format alignment, 30-column width, odd final row, real ASCII LF and
+32-entry result within the 680-byte mailbox. It is now required by
+`.github/workflows/z80-core-native.yml`. The existing bridge static
+test also checks for the two-column loop, output bounding and use of
+this formatter.
+
+**Hardware acceptance remains pending** until fresh headless/TFT CI,
+local Mac TFT link and HP display retest. Re-test CP/M `DIR` and
+Multiplan/Media Manager before merging. No change to disk metadata.
+
 ## Physical CP/M DIR accepted; literal backslash-n in HP catalog fixed (2026-10-24)
 
 User confirmed CP/M `DIR` still works after a successful `CPDCAT`
