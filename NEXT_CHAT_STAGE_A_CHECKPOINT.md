@@ -85,6 +85,49 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 active browser Web Terminal disconnected: full heap recovery
+
+User **navigated away** from browser Web Terminal `/z80`,
+after testing it in CP/M on the new early-IRAM TFT+Web/no-Telnet
+firmware. `/api/system/memory` at uptime 792493ms:
+`heap_free=60704`, `free_8bit=21528`,
+`largest_8bit=18420`, `min_heap_free=41612`,
+`min_free_8bit=2436`, modem_state=2,
+Telnet disabled, Web Terminal compiled in, TFT enabled.
+
+| Sample | heap_free | free8 | largest8 | min_free8 |
+| --- | ---: | ---: | ---: | ---: |
+| CP/M before browser terminal | 60140 | 20964 | 17396 | 8860 |
+| Browser terminal active | 59032 | 19856 | 18420 | 2436 |
+| Browser navigated away | **60704** | **21528** | **18420** | **2436** |
+
+After browser close, current free8 **+1672 bytes** vs
+terminal-active and **+564 bytes** vs earlier CP/M baseline;
+largest 8-bit block **+1024 bytes** vs earlier baseline.
+Thus no substantial retained heap leak is visible in this
+single open/use/close cycle; the network client and associated
+session resources appear reclaimed. Navigating away is not
+independent proof of WebSocket disconnect; if needed add
+session count diagnostics. Historical low remains 2436B
+because it is monotonic until reboot.
+
+**Outstanding caution:** 2436B transient historical min
+appeared during browser active phase, down from 8860B before
+opening. Cause cannot be attributed specifically to handshake,
+HTTP page delivery, WebSocket output or other allocator traffic
+from endpoint snapshots alone; do not use live Web Terminal
+concurrently with BBS yet. Next sensible A/B isolation:
+fresh cold boot, no BBS, idle CP/M, capture memory before
+opening `/z80`, while active, and after closing. If transient
+trough repeats, instrument specific WebSocket connect/output
+allocation paths with tiny stage captures rather than relying
+only on lifetime min_free8. Verify DIR/Multiplan separately
+if user has not confirmed them on this experimental image.
+
+No firmware changes from the browser-close observation; no
+main/recovery merge.
+
+---
 ## 2026-10-23 early-IRAM fourth target: active browser Web Terminal memory observation
 
 After completing and logging out of a physical TFT/HP BBS session,
