@@ -153,7 +153,7 @@ assert 'doc["early_iram_only"] = true;' in spi
 fallback_guard=spi.split("  // Safe fallback to the proven DRAM cache",1)[0]
 assert "#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY\n" in fallback_guard
 assert "  return false;\n#endif" in fallback_guard
-assert fallback_guard.index("  return false;\n#endif") < spi.index("heap_caps_malloc(SPI_DISK_CACHE_BYTES, MALLOC_CAP_8BIT)") if False else True
+assert spi.index("#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY\n  // Never consume") < spi.index("heap_caps_malloc(SPI_DISK_CACHE_BYTES, MALLOC_CAP_8BIT)")
 
 assert "EBTKS_SPI_CACHE_WORD32" in spi
 assert 'doc["cache_storage"] = spiDiskCacheStorage();' in spi
