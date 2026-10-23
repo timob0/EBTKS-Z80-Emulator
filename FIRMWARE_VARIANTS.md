@@ -39,6 +39,66 @@ implementation and never creates the LovyanGFX panel or its task.
 `/api/system/memory` exposes `web_terminal_enabled` and
 `tft_terminal_enabled` as explicit runtime capability flags.
 
+## Build-time gzip static Web UI pages and repaired Home link
+
+All five firmware-embedded HTML sources have **deterministic
+gzip copies generated at PlatformIO build time**:
+Home (variant-aware Web Terminal/Telnet/TFT link),
+updater **fallback** page, HP CRT (`/crt`),
+CP/M Media Manager (`/cpmmedia`), and Z80 Terminal (`/z80`).
+Editable JavaScript and markup stay in existing C++ source
+HTML literals; `tools/pio_gzip_pages.py` extracts those bytes
+and creates build-directory `ebtks_static_pages_gzip.h`.
+Source files and generated gzip arrays are both in flash:
+no runtime compression, no large HTML heap String, and
+no SPIFFS change. HTTP `Accept-Encoding: gzip` selects
+the compressed bytes, `Content-Encoding: gzip` and
+`Vary: Accept-Encoding`; otherwise the unchanged identity
+HTML is served. OTA POST uploads and all JSON/WebSocket
+routes stay untouched. Existing SPIFFS `/updater.html`
+overrides the fallback exactly as before; `/style.css`
+is likewise still served from SPIFFS, not repackaged.
+
+| Source | Original HTML bytes | Gzip bytes |
+| --- | ---: | ---: |
+| Home, Web Terminal variant | 936 | 546 |
+| Updater fallback | 694 | 455 |
+| HP-80 CRT | 10357 | 3680 |
+| CP/M Media Manager | 6841 | 2756 |
+| Z80 Terminal | 18581 | 6969 |
+
+The Home Page markup defect had literal text
+`\") EBTKS_HOME_Z80_LINK R\"HTML(` from an improperly
+closed raw string. Repaired with adjacent C++ raw/string
+literals around the macro, so the Home Page now includes a
+real working Z80 Terminal button in browser-enabled builds,
+or TFT/Telnet explanatory text in the relevant other targets.
+`tests/check_html_gzip.py` validates decompression equivalence,
+all variants, correct link and static page contents.
+
+With the installed ESPAsyncWebServer 3.6.0, a flash page
+response still uses a temporary 8-bit DRAM output buffer
+in `AsyncAbstractResponse::_ack`. Serving fewer compressed
+bytes bounds this allocation substantially without changing
+the library or handing byte-oriented TCP buffers to unsafe
+32-bit-only IRAM. If transient RAM remains too low, evaluate
+a *bounded-size 8-bit buffer* as a separate experiment rather
+than using `MALLOC_CAP_32BIT` alone for AsyncTCP/lwIP.
+
+**Hardware A/B:** cold boot, snapshot `/api/system/memory`,
+fetch `curl -sS --compressed -D - -o /dev/null
+http://192.168.178.197/z80`, snapshot again.
+`--compressed` sends `Accept-Encoding` and transparently
+supports gzip; headers must show `Content-Encoding: gzip`
+and `Vary: Accept-Encoding`. Repeat for `/cpmmedia` and
+`/crt` only if coldboot memory margins allow. Then test
+browser Home link, CRT, media listing and Web Terminal
+input/output on physical hardware. Old command `curl -sS
+-o /dev/null URL` by default does **not** advertise gzip
+and intentionally receives original identity HTML, so
+it is **not** the right A/B comparison for the new change.
+
+---
 ## Before flashing
 
 The source is on branch `feature/cpm85-management-console`; **do not**
