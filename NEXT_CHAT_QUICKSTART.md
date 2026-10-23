@@ -1,5 +1,17 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT CRT NEWLINE BUG FIX (2026-10-24, HW RETEST PENDING):**
+User confirmed CP/M `DIR` remains fully operational; the two malformed
+filenames really are prior A: disk corruption from testing. HP `CPDCAT`
+list printed *literal* backslash-n glyphs because four formatter
+literals in `cpm85_drive_control.h` used doubly escaped newlines.
+Corrected all four to C++ LF escape; HP `CPREAD` already handles ASCII
+LF natively. Added static regression testing decoded C++ strings.
+First regex for regression was incorrectly over-escaped and failed CI;
+fixed regex. No HP/Teensy changes. Only reflash ESP32 after CI + local
+Mac TFT build. Repeat HP CPDCAT with clean line breaks, then CP/M DIR.
+See CPDCAT_STAGE_B1.md for details.
+
 **CPDCAT ROOT CAUSE / ESP32 FIX (2026-10-24; hardware test pending):**
 User's last physical `CPDCAT "A:"` under SHA `cc574613a870...`
 produced `last_directory_state:"failed"`,
