@@ -199,8 +199,18 @@ inline void catalog(const char *arg) {
       // An eventual blank Return must NOT revive a timed-out HP command.
       if(state==CpmSafePoint::WAIT_EMPTY_LINE)gate->cancelPending();
       setResult(false,"CPDCAT: TIMEOUT; CHECK CP/M SERVICE STATUS");
+    } else if(state==CpmSafePoint::INPUT_NOT_EMPTY) {
+      setResult(false,"CPDCAT: CP/M INPUT NOT EMPTY");
+    } else if(state==CpmSafePoint::INVALIDATED) {
+      setResult(false,"CPDCAT: CP/M WARM BOOT CANCELLED");
+    } else if(state==CpmSafePoint::FAILED) {
+      char err[108];
+      snprintf(err,sizeof(err),"CPDCAT: BDOS %s",
+               CpmSafePoint::directoryErrorText(
+                   gate->directoryError.load(std::memory_order_acquire)));
+      setResult(false,err);
     } else {
-      setResult(false,"CPDCAT: CANCELLED OR DIRECTORY READ FAILED");
+      setResult(false,"CPDCAT: UNEXPECTED SERVICE STATE");
     }
     return;
   }
