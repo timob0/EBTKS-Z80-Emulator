@@ -208,7 +208,7 @@ inline void catalog(const char *arg) {
   }
   if(!lastText)return;
   size_t used=0;
-  int n=snprintf(lastText,kTextMax,"CP/M %c: DIRECTORY (USER AREA)\\n",char('A'+drive));
+  int n=snprintf(lastText,kTextMax,"CP/M %c: DIRECTORY (USER AREA)\n",char('A'+drive));
   if(n<0 || size_t(n)>=kTextMax) {
     setResult(false,"CPDCAT FORMAT ERROR");return;
   }
@@ -217,13 +217,13 @@ inline void catalog(const char *arg) {
     const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
     // HP-85 CRT is 32 columns. One name/extent per line, no 32-bit sizes.
     n=snprintf(lastText+used,kTextMax-used,
-               "%-12.12s EX%u\\n",e.name,(unsigned)e.extent);
+               "%-12.12s EX%u\n",e.name,(unsigned)e.extent);
     if(n<0 || size_t(n)>=kTextMax-used) {
       setResult(false,"CPDCAT RESPONSE TOO LONG");return;
     }
     used+=size_t(n);
   }
-  snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\\n",
+  snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\n",
            (unsigned)snapshot.count,snapshot.truncated?" (MORE NOT SHOWN)":"");
   lastOk=true;
 }
