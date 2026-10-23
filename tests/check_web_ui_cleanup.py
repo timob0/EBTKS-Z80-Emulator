@@ -26,6 +26,24 @@ assert "m.name.startsWith('.')" in media_page
 assert "const supported=visibleMedia.filter(m=>m.supported)" in media_page
 assert "for(const m of visibleMedia)" in media_page
 
+# Media Manager must not allocate/copy its entire 16-drive JSON response
+# twice through AsyncBasicResponse under modem TCP pressure. A 200/0-byte
+# response is invalid; error paths must be explicit and any partial body
+# discarded before sending a separate 503.
+store = (ROOT / "cpm_mount_store.h").read_text(encoding="utf-8")
+assert 'inline bool cpmStoreBuildMediaStatusJson(Print &out)' in store
+assert 'if (result.overflowed()) return false;' in store
+assert 'const size_t expected = measureJson(result);' in store
+assert 'return serializeJson(result, out) == expected;' in store
+assert 'Teensy directory/listing heap released before response serialization' in store
+assert 'AsyncResponseStream *response' in media_page
+assert 'request->beginResponseStream("application/json", 512)' in media_page
+assert 'if (!cpmStoreBuildMediaStatusJson(*response))' in media_page
+assert 'delete response;' in media_page
+assert 'request->send(503, "application/json"' in media_page
+assert 'heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 8U * 1024U' in media_page
+assert 'request->send(200, "application/json", reply);' not in media_page
+
 # The retired /sdtest page has no residual entry point.
 assert not (ROOT / "sd_test_page.h").exists()
 assert "/sdtest" not in web
