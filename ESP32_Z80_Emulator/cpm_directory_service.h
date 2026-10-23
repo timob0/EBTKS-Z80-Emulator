@@ -47,11 +47,11 @@ inline bool invoke(Z80Bridge *bridge,uint8_t function,void (*yieldCpu)()) {
 // In that case the caller must request Z80-only reset: do not resume a
 // partially interrupted, potentially non-reentrant BDOS activation.
 inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
-                    bool &needReset,void (*yieldCpu)()=nullptr) {
+                    bool &needReset,uint8_t drive=0,void (*yieldCpu)()=nullptr) {
   needReset=false;
   result=CpmSafePoint::Directory{};
-  if(!bridge || !bridge->memory || (bridge->running && !*bridge->running))
-    return false;
+  if(!bridge || !bridge->memory || drive>16 ||
+     (bridge->running && !*bridge->running))return false;
   uint8_t *ram=bridge->memory;
   // Fail closed on other CP/M variants, corrupted page-zero vector or
   // unexpected DMA. CCP is expected to have installed standard DMA 0080.
@@ -75,7 +75,9 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
   const uint16_t oldStoppedAt=bridge->stopped_at;
 
   memset(ram+kFcb,0,36);
-  memset(ram+kFcb+1,'?',11); // 8.3 wildcard for current drive/user
+  ram[kFcb]=drive; // 0=current, 1..16=explicit A:..P:
+  result.drive=char('A'+(drive?drive-1:(ram[4]&0x0F)));
+  memset(ram+kFcb+1,'?',11); // 8.3 wildcard, current user area
   bool ok=true;
   bool completed=false;
   for(unsigned index=0;index<=CpmSafePoint::kDirectoryMax;++index) {
