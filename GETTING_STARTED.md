@@ -4,7 +4,7 @@
 
 This guide is for owners of an **EBTKS v3.x board with its original Teensy 4.1 and classic ESP32**, installed in an HP Series-80 computer (tested on the HP-85). It installs our **parallel Z80/CP/M emulator**, not HP's original HP 82900A CP/M boot ROM.
 
-The HP-85 keeps running independently. The Teensy continues servicing the HP computer and owns the SD card; the ESP32 runs Z80/CP/M, serves the browser terminal and Media Manager, and offers Telnet access. No extra ESP32 SD card, Z80 processor, display or serial terminal is needed.
+The HP-85 keeps running independently. The Teensy continues servicing the HP computer and owns the SD card; the ESP32 runs Z80/CP/M, serves the browser terminal and Media Manager, and can optionally offer Telnet when compiled with the Telnet switch. No extra ESP32 SD card, Z80 processor, display or serial terminal is needed.
 
 **This is a practical guide to the tested integrated build, not the historical standalone ESP32 emulator described farther down in the original README.** For technical design and regression notes see [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md).
 
@@ -66,6 +66,7 @@ Eject the card safely, put it back in the EBTKS and start the HP/EBTKS system. C
 ```sh
 git clone https://github.com/timob0/EBTKS-Z80-Emulator.git
 cd EBTKS-Z80-Emulator
+# Full feature set without a TFT (default Telnet off)
 pio run -e esp32dev -t clean
 pio run -e esp32dev
 ```
@@ -203,7 +204,13 @@ The **Clear** button only clears the *browser's current terminal display*; it do
 
 A drive can have any allowed filename under `/cpm/disks`; the file need not be named after its drive letter. A mount change is not live until Apply/Reset.
 
-**Telnet alternative:** Connect to TCP port 23, for example `telnet <EBTKS-IP> 23`, using a VT100-capable terminal. Telnet and the browser can be connected concurrently, displaying the same virtual Z80 console output. Opening Telnet **does not reset** CP/M; Telnet is not required for complete browser output.
+**Optional Telnet for advanced users:** Inbound TCP port 23 is **disabled**
+in both standard firmware builds. To enable it, compile either target with
+`-DEBTKS_TELNET_ENABLE=1` in its `build_flags`. Connect using
+`telnet <EBTKS-IP> 23` and a VT100 terminal. Telnet shares the same CP/M
+console and opening it does not reset CP/M, but concurrent Telnet+BBS
+connections can exhaust scarce ESP32 memory. See
+[FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) for the options and cautions.
 
 ## 5. First-boot walkthrough
 
