@@ -150,6 +150,12 @@ assert "if (!allocated) {" in spi
 assert "spiDiskBootDisabled=true;" in spi
 assert '"Early IRAM32 cache unavailable; UART disk reads only"' in spi
 assert 'doc["early_iram_only"] = true;' in spi
+assert 'doc["early_cache_allocator"].to<JsonObject>()' in spi
+assert 'early["free8_before"]' in spi
+assert 'early["free8_after"]' in spi
+assert 'early["exec32_free_before"]' in spi
+assert 'early["exec32_largest_before"]' in spi
+assert 'spiDiskEarlyDiag->accepted=(uint32_t)allocated;' in spi
 fallback_guard=spi.split("  // Safe fallback to the proven DRAM cache",1)[0]
 assert "#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY\n" in fallback_guard
 assert "  return false;\n#endif" in fallback_guard
