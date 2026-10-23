@@ -85,6 +85,49 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 early-IRAM fourth target: active browser Web Terminal memory observation
+
+After completing and logging out of a physical TFT/HP BBS session,
+user opened browser Z80 Web Terminal `/z80` in CP/M, with Telnet
+compiled out and no BBS connected. Browser terminal reported
+"open and in use"; no explicit DIR or Multiplan repeat has yet
+been reported for this step.
+
+At uptime_ms 734628, `/api/system/memory`:
+heap_free=59032, free_8bit=19856, largest_8bit=18420,
+min_heap_free=41612, **min_free_8bit=2436**, modem_state=2
+(worker resident, NOT evidence BBS still connected),
+telnet_enabled=false, telnet_connected=false,
+web_terminal_enabled=true, tft_terminal_enabled=true.
+Stack unused Web2728, CPU2880, console1280, keyboard2132,
+SPI6320, modem3320, TFT2980.
+
+Compared to prior CP/M-only before browser Web Terminal open
+(heap=60140, free8=20964, largest8=17396,
+min_heap=48036, min_free8=8860): current heap -1108,
+free8 -1108, largest8 +1024, historical min8 **-6424**
+to only **2436** (and min total -6424). Thus modest ~1.1KiB
+persistent net delta between these two samples but at least
+6.4KiB further transient memory pressure after prior snapshot.
+Unclear which specific event caused trough (initial HTTP page,
+WebSocket handshake, terminal output bursts, HTTP memory
+diagnostics, other concurrent task); do NOT assert exact source
+from high-water mark alone. Web Terminal live operation appears
+functionally usable; no user-reported fault.
+
+**Next controlled gate**: close `/z80` browser window
+(disconnect WebSocket), leave modem TCP idle, allow allocations
+to settle, and capture `/api/system/memory` once more.
+Low-water mark is lifetime cumulative and won't rise after
+close until ESP reboot; compare current free8/heap/largest.
+Do NOT attempt concurrent live BBS/WebSocket until transient
+headroom issue is investigated. It may be useful to instrument
+WebSocket handshake, terminal output, and dynamic HTTP
+allocation peaks separately in followup build, without
+consuming constrained static DRAM. Early cache allocation
+`iram32` and no-Telnet decision remain successful.
+
+---
 ## 2026-10-23 early-IRAM fourth target: BBS logout and return to CP/M complete
 
 User continued single BBS session on physical TFT and HP keyboard using
