@@ -23,6 +23,8 @@ static EbtksModem::Uart8250* uart=nullptr;
 static TaskHandle_t workerHandle=nullptr;
 // 0 dormant; 1 requested by Z80 I/O; 5 starting; 2 running;
 // 3 insufficient heap; 4 allocation/task startup failure.
+// 6 CCP release requested; 7 worker suspended and ready for reaping.
+// A Hayes ATH or remote-carrier loss must NOT release the virtual UART.
 // The modem must NOT allocate before TFT/SPI/HP/web services are ready.
 static std::atomic<uint8_t> startState{0};
 inline uint8_t status(){return startState.load(std::memory_order_acquire);}
@@ -283,6 +285,32 @@ static void pollEscapes(uint32_t now) {
 static void worker(void*) {
   // Bounded memory and only one socket; keep CP/M and Telnet UI responsive.
   for(;;) {
+    if (status()==6) {
+      // The Z80 reached the verified native CCP input prompt: MODEM exited.
+      // Release WiFiClient only from its owning worker, never a second task
+      // while TCP connect/read/write may still be in progress.
+      socketClient->stop();
+      online=false;commandMode=true;
+      setCarrier(false);
+      portENTER_CRITICAL(&uartMux);
+      EbtksModem::Uart8250* oldUart=uart;
+      uart=nullptr;
+      portEXIT_CRITICAL(&uartMux);
+      delete oldUart;
+      delete socketClient;socketClient=nullptr;
+      delete hayes;hayes=nullptr;
+      free(netTx);netTx=nullptr;
+      free(response);response=nullptr;
+      netIn=netOut=responseIn=responseOut=0;
+      telState=telCommand=sbOption=sbValue=0;
+      txBinary=false;pendingPluses=0;
+      EbtksDebugSerial.println("CP/M modem: CCP prompt; socket and buffers released");
+      // Suspend this worker. The existing web task will delete it only
+      // after it is actually suspended, reclaiming its TCB and stack.
+      startState.store(7,std::memory_order_release);
+      vTaskSuspend(nullptr);
+      for(;;) vTaskDelay(portMAX_DELAY); // never resume
+    }
     const uint32_t now=millis();
     if(online && !commandMode)pollEscapes(now);
     // Consume no more Z80 bytes if TCP output buffering is congested.
@@ -343,6 +371,10 @@ inline void start() {
   }
   uart=newUart;netTx=newNet;response=newResponse;
   socketClient=newClient;hayes=newHayes;
+  netIn=netOut=responseIn=responseOut=0;
+  telState=telCommand=sbOption=sbValue=0;
+  pendingPluses=0;txBinary=false;
+  online=false;commandMode=true;
   uart->reset();hayes->reset();
   BaseType_t ok=xTaskCreatePinnedToCore(worker,"CPMWifiModem",5120,nullptr,
                                         1,&workerHandle,0);
@@ -361,7 +393,24 @@ inline void start() {
     EbtksDebugSerial.println("CP/M modem: virtual UART 88h-8Fh online");
   }
 }
+// Reclaim modem resources only after the native CP/M CCP returns to its
+// verified interactive command prompt. ATH and remote BBS logoff leave the
+// 8250 running so the same MODEM program can dial a second time.
+inline void requestReleaseAtCcp(){
+  uint8_t running=2;
+  startState.compare_exchange_strong(running,6,std::memory_order_acq_rel);
+}
 inline void service(){
+  // The modem worker is suspended (not executing or touching its stack)
+  // before another task deletes it. Reinitialize on the next Z80 port access.
+  if(status()==7 && workerHandle &&
+     eTaskGetState(workerHandle)==eSuspended) {
+    TaskHandle_t finished=workerHandle;
+    workerHandle=nullptr;
+    vTaskDelete(finished);
+    startState.store(0,std::memory_order_release);
+    EbtksDebugSerial.println("CP/M modem: worker stack released; ready for next MODEM");
+  }
   uint8_t wanted=1;
   if(startState.compare_exchange_strong(wanted,5,
                                         std::memory_order_acq_rel))start();
