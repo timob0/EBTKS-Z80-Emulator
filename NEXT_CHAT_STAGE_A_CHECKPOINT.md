@@ -85,6 +85,45 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 four firmware target experiment: full Web + TFT, Telnet compiled OUT
+
+User confirms that during no-Telnet physical TFT/HP-only BBS session
+ANSI **colors**, scrolling, HP keyboard and overall terminal behavior
+were **normal**. In that session user accessed **only** the HTTP
+`/api/system/memory` endpoint; no other Web UI pages/sockets.
+This reinforces that earlier 8-KiB improvement at BBS login versus
+concurrent Telnet was not caused by turning off all Web UI pages,
+rather by the absence of Telnet connection and/or browser Z80 Web
+Terminal implementation. The no-Telnet isolation variant will help
+separate those factors.
+
+**New fourth PlatformIO environment:** `esp32dev-tft-no-telnet`.
+Extends full `esp32dev-tft`: TFT=1, mirror=1, HP keyboard=1,
+Web Terminal=1, **`EBTKS_TELNET_ENABLE=0`**. Removes Telnet
+port-23 listener/client global objects, TelnetTask, shared Web
+Telnet polling, ConsoleTask Telnet 1024-byte TX FIFO/send path
+and Telnet input parser using compile-time guards. Leaves
+browser `/z80`, `/z80ws`, TFT, HP keyboard, CP/M Wi-Fi MODEM
+(a separate outgoing TCP connection), Web UI `/ws`, `/crt`,
+`/api/system/memory`, Media Manager and OTA. API new explicit
+`telnet_enabled` boolean; in fourth variant `telnet_connected=false`,
+`telnet_listener_mode="disabled"`. Existing three build targets
+stay the same. Update docs `FIRMWARE_VARIANTS.md` with Mac build
+commands and controlled first-pass test using **only memory endpoint**.
+Tests/CI extended for fourth binary and Mac static DRAM safety.
+
+**Proposed hardware order:** after CI and Mac build, flash
+`.pio/build/esp32dev-tft-no-telnet/firmware.bin`, verify port 23
+refused, TFT works, WebTerminal available but NOT yet connected;
+capture cold-boot, MODEM-ready and BBS login/logout memory with
+only memory endpoint open. Once this control passes, optionally
+connect browser Z80 Web Terminal and compare active concurrent
+WebSocket use, monitoring 8-bit free/largest low water. Do not
+automatically open WebTerminal while running the first controlled
+single-socket BBS run. Never merge feature branch into main
+without user approval.
+
+---
 ## 2026-10-23 Physical TFT/HP-only BBS logout, return to CP/M: no sustained heap loss
 
 User completed controlled no-Telnet BBS session on physical TFT/HP keyboard
