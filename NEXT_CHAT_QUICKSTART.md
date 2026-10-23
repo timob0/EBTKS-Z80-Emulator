@@ -1,5 +1,17 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT TWO-COLUMN HP CRT FORMAT (2026-10-24; HARDWARE TEST PENDING):**
+At user request, the ESP32 feature branch formats 8.3 names in aligned
+12-character fields (8 base + dot + 3 extension), two per row with
+six spaces between: 30 of the HP-85's 32 CRT columns. Preserves final
+odd entry, extents/partial/malformed warning footer, 32-entry limit,
+680-byte mailbox, real LF. Omits raw EX# annotations to make space.
+New `cpm_catalog_format.h` is heap-free; native
+`cpm_catalog_format_native.cpp` test included in CI and static
+checks enforce use. No HP/Teensy changes. Verify CI + local Mac TFT
+link, then flash ESP32 feature branch and test HP `CPDCAT "A:"`,
+CP/M `DIR`, Multiplan/Media Manager; do not merge yet.
+
 **CPDCAT CRT NEWLINE BUG FIX (2026-10-24, HW RETEST PENDING):**
 User confirmed CP/M `DIR` remains fully operational; the two malformed
 filenames really are prior A: disk corruption from testing. HP `CPDCAT`
