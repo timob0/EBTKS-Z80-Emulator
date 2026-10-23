@@ -19,6 +19,8 @@ jobs:
           /tmp/console_ansi_probe_test
           python3 tests/check_tft_bringuptest.py
           python3 tests/check_cpm85_bridge.py
+          g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/cpm_catalog_format_native.cpp -o /tmp/cpm_catalog_format_test
+          /tmp/cpm_catalog_format_test
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/cpm85_keymap_native.cpp -o /tmp/cpm85_keymap_test
           /tmp/cpm85_keymap_test
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/modem_uart_native.cpp -o /tmp/modem_uart_test
