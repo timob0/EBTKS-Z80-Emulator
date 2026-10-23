@@ -85,6 +85,64 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 early-IRAM experiment: first hardware coldboot PASSED
+
+User built/flashed early IRAM-only `esp32dev-tft-no-telnet`
+(source revision 639261d377508a1c0b9245f960e22b99a4b218ba).
+At uptime 34411ms, `/api/cpm/spireads` reported:
+
+```json
+{"enabled":true,"boot_disabled":false,"cache_storage":"iram32",
+ "early_iram_only":true,"cache_bytes":8192,
+ "early_cache_allocator":{"accepted":true,
+ "free8_before":165676,"free8_after":165676,
+ "exec32_free_before":174984,"exec32_free_after":166776,
+ "exec32_largest_before":110580,"exec32_largest_after":110580},
+ "cache_hits":30,"cache_misses":2,"batch_reads":2,
+ "frames":32,"uart_fallbacks":0,"spi_failures":0}
+```
+
+**Confirmed** early IRAM allocation accepted. Exactly zero 8-bit
+RAM consumed by reservation; exact-capability free decreased 8208B
+for 8192B word cache plus allocator overhead. SPI read-ahead functioning,
+no failures. Fourth variant has telnet_enabled=false,
+web_terminal_enabled=true, tft_terminal_enabled=true.
+
+`/api/system/memory` coldboot: uptime_ms=34411,
+heap_free=69204, free_8bit=30028, largest_8bit=26612,
+min_heap_free=61288, min_free_8bit=22112, modem_state=0.
+Compared with previous fourth variant with cache `dram8` at coldboot
+(heap=68168, free8=20784, largest8=18420, min_free8=14244):
++1036 heap, **+9244 free8**, **+8192 largest8**,
++7868 minimum free8. Compared with earlier TFT-only WebTerm-off
+coldboot free8=28808, new full WebTerm-on no-Telnet free8=30028;
+Web Terminal compiled-in idle does not appear to cost 8KiB.
+
+Stages of new boot: web total112820/free8=73644; keyboard
+100684/61508; SPI stage 99644/60468; TFT 87932/48756;
+CP/M boot 81608/42432. `stack_unused_bytes`: Web2984,
+Z80 CPU2880, console2128, HP keyboard2164, SPI6320, TFT2980.
+Compare old fourth variant SPI stage free8=52252, confirming
+the previous ordinary-DRAM cache was the important difference.
+
+`/z80debug` on new coldboot: `/cpm/cboot.rom` 3B Done,
+`/cpm/cpm22.rom` 5683B Done, `/cpm/cbios.rom` 6656B Done.
+**No EBTKS UART transaction timeout visible**; previous CBIOS
+loader failure did not reproduce on this boot. Do not claim
+intermittent UART defect resolved permanently.
+
+**Next hardware gate:** start MODEM from physical HP/TFT, keep
+Telnet disabled and browser `/z80` unopened; capture
+`/api/system/memory` before dialing. Compare old TFT-only MODEM
+free8=20868/largest8=18420/min_free8=13040, previous fourth
+variant `dram8` MODEM free8=11944/largest8=10740/min_free8=10852.
+If memory margin healthy and CP/M remains responsive, only then
+one short BBS test, with snapshots and normal logout. Avoid
+multiple simultaneous browser/Telnet sockets in this gate.
+No firmware changes made from these first hardware findings;
+feature branch remains unmerged; do not touch main/recovery.
+
+---
 ## 2026-10-23 Fourth-target experimental fix: reserve IRAM cache before Web/Wi-Fi
 
 Hardware baseline: full TFT+Web **without Telnet** previously used
