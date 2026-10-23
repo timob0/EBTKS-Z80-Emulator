@@ -85,6 +85,64 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 11:47 Europe/Berlin — physical combined-network regression FAILED
+
+User tested the newly committed Web Terminal low-heap admission guard (post
+`c70b55d`, with native/TFT GitHub CI passing). Exact running SHA was not
+supplied for this test, so do not assert one. Test A: after cold boot,
+MODEM active, Telnet connected: heap_free=56884, free_8bit=17708,
+largest_8bit=10740, min_free_8bit=2548, modem_state=2.
+Opening `/z80` correctly produced HTTP 503 text:
+`Web Terminal unavailable: ESP32 8-bit RAM is low. Exit MODEM or close
+other sessions, then reload.` This confirms the *page guard* works.
+
+Test B: cold boot, Web Terminal connected first: heap_free=63760,
+free_8bit=24584, largest_8bit=20468, min_free_8bit=5952, modem_state=0.
+Starting MODEM and connecting to a BBS dropped the Web Terminal mid-banner
+with its bounded-retry error message. At uptime 89036:
+heap_free=55520, free_8bit=16344, largest_8bit=10740,
+min_free_8bit=3996, modem_state=2. BBS session continued successfully
+on physical TFT, CCP returned, Multiplan launched successfully.
+At uptime 345135 after BBS session: heap_free=57620,
+free_8bit=18444, largest_8bit=13300, **min_free_8bit=388 bytes**
+(historical low water!), modem_state=2 (worker persisted, no proof of leak).
+Opening `/z80` was safely refused with HTTP 503.
+
+After that the user connected via Telnet and launched a second MODEM
+session, which **froze CP/M and made all Web pages including the memory
+API unreachable**; disconnecting Telnet did not recover; hardware reboot
+was necessary. Do NOT mark Stage A as generally accepted and do NOT merge.
+No evidence yet identifies whether the final hang was a network OOM,
+blocking Telnet write, task/watchdog issue, or another interaction.
+Original modem dial threshold (heap >=49152, largest8 >=12288) has only
+~1 KiB margin vs 13300-byte largest block in post-BBS snapshot; actual
+values at the *second dial attempt* are unknown. Do not relax guards.
+
+**Source inspection:** `serial.h::serialTask` has an unbounded
+`while(sent<n && serverClient.connected())` loop and keeps retrying
+`WiFiClient::write()` after zero-byte writes without a deadline.
+A congested-but-reported-connected Telnet stream could block console
+routing indefinitely; this is a plausible secondary liveness flaw, NOT
+by itself proof of whole HTTP stack deadlock. `ebtks_modem.h::worker`
+retains 512-byte net TX, 256-byte response FIFO, virtual 8250, Hayes
+parser, socket and 5120-byte modem FreeRTOS task after hangup.
+Web Terminal handshake guard cannot prevent memory dips from an
+*already connected* client amid BBS bursts. `min_free_8bit` is
+a cumulative minimum and should not be confused with current free.
+
+**Next:** Freeze feature merge and keep known-good recovery image;
+isolate Telnet write boundedness and dynamic socket memory pressure.
+Prefer a small separately verifiable liveness fix and safer dial
+admission, with native+TFT DRAM CI and local Mac link before OTA.
+A/B run without Web Terminal, then with Telnet, to isolate repeated
+MODEM TCP session pressure only after protective fixes. Subsequently
+the user's agreed roadmap is three PlatformIO firmware environments:
+(1) TFT excluding Web Terminal, (2) headless with Web Terminal,
+(3) full combination. After regression stability, complete Stage B
+CPFPUT/CPFGET and HP management UI, then a fourth optional Tang Nano
+FPGA display backend. Do not modify Teensy/HP or recovery binaries.
+
+---
 ## 2026-10-23 hardware follow-up — safe point PASS, Web/Modem RAM regression remains
 
 ESP32 `2fd4f856d9aeb95b8468183caad233e7b6735208` ran on physical HP-85/EBTKS/TFT hardware.
