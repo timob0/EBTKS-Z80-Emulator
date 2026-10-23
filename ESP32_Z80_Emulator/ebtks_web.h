@@ -216,6 +216,8 @@ inline bool ebtksWebBegin()
       v["ccp_idle"]=supported && mode==CpmSafePoint::CCP_INPUT && (bool)RUN;
       v["mode"]=CpmSafePoint::modeText(mode);
       v["probe"]=CpmSafePoint::resultText(result);
+      v["operation"]=CpmSafePoint::operationText(
+          gate?gate->operation.load(std::memory_order_acquire):CpmSafePoint::PROBE);
       v["git_commit"]=EBTKS_BUILD_GIT_COMMIT;
       v["web_terminal_enabled"]=(bool)EBTKS_WEB_TERMINAL_ENABLE;
       v["tft_terminal_enabled"]=(bool)EBTKS_TFT_TERMINAL_MIRROR;
@@ -244,6 +246,60 @@ inline bool ebtksWebBegin()
           "CP/M busy, unsupported, or probe already pending";
       String body;serializeJson(v,body);
       r->send(accepted?202:409,"application/json",body);
+    });
+
+  // Stage B1: directory search is read-only BDOS 17/18 and never starts
+  // from the AsyncTCP task. Only the pinned Z80 worker touches guest RAM.
+  ebtksServer.on("/api/cpm/service/directory",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+          gate->request(CpmSafePoint::DIRECTORY);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["supported"]=supported;
+      v["operation"]="directory";
+      v["state"]=CpmSafePoint::resultText(
+          gate?gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+          "Press blank RETURN at the CP/M prompt; nonempty command cancels":
+          "CP/M busy, unsupported, or another service request pending";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/directory",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const uint8_t state=gate?
+          gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER;
+      const bool correctOperation=gate &&
+          gate->operation.load(std::memory_order_acquire)==CpmSafePoint::DIRECTORY;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correctOperation?"directory":"none";
+      v["state"]=correctOperation?CpmSafePoint::resultText(state):"not_requested";
+      if(correctOperation && state==CpmSafePoint::PASSED) {
+        CpmSafePoint::Directory snapshot;
+        if(!gate->copyDirectory(snapshot)) {
+          r->send(503,"application/json","{\"error\":\"snapshot_busy\"}");
+          return;
+        }
+        v["count"]=snapshot.count;
+        v["truncated"]=snapshot.truncated;
+        v["scope"]="current_drive_current_user";
+        v["entries_are"]="directory_extents_not_file_sizes";
+        JsonArray entries=v["entries"].to<JsonArray>();
+        for(uint8_t i=0;i<snapshot.count;++i) {
+          JsonObject entry=entries.add<JsonObject>();
+          entry["name"]=snapshot.entries[i].name;
+          entry["user"]=snapshot.entries[i].user;
+          entry["extent"]=snapshot.entries[i].extent;
+          entry["records"]=snapshot.entries[i].records;
+        }
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
     });
 
   // RAM-only liveness and reset forensics, no SPI/UART/SD work.
