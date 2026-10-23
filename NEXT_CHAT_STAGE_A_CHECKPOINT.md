@@ -85,6 +85,28 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 physical TFT + HP keyboard, no-Telnet control test: cold-boot baseline
+
+User initiated controlled comparison without Telnet to isolate the
+second TCP client. Cold boot measurement at uptime=35636 ms:
+`heap_free=67984`, `free_8bit=28808`, `largest_8bit=27636`,
+`min_heap_free=60456`, `min_free_8bit=21280`,
+`telnet_connected=0`, `modem_state=0`, `modem_dial_refused_low_heap=0`,
+feature flags `web_terminal_enabled=false`, `tft_terminal_enabled=true`.
+Boot-ready snapshot free8=43360, largest8=38900; worker stacks unused
+Web 2556, CPU 2660, console 2084, HP keyboard 2136, SPI disk 6328,
+TFT 2980. Compared with previous TFT-only boot (free8=27488,
+largest8=25588), this current sample is +1320 free8 and
++2048 largest8. Minimum 21280 is a **historical low-water mark**
+since this boot, not the currently available 8-bit memory.
+
+Next: launch MODEM from physical HP keyboard/TFT with Telnet still
+disconnected, record snapshot before dialing, then one short BBS dial
+only if dial guards satisfied and UI remains responsive. Abort
+on signs of severe memory pressure. This is an in-progress
+**isolation test**, not a stable firmware acceptance.
+
+---
 ## 2026-10-23 Telnet drop diagnosis confirmed: full 1KiB queue, free block only 1012B
 
 User captured full recent `/z80debug` in the failing TFT-only
