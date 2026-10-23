@@ -13,6 +13,7 @@ jobs:
         run: |
           bash tests/run_z80_core_native.sh
           python3 tests/check_web_ui_cleanup.py
+          python3 tests/check_html_gzip.py
           node tests/web_terminal_browser_native.js
           g++ -std=c++11 -O2 -Wall -Wextra -Werror -pedantic tests/console_ansi_probe_native.cpp -o /tmp/console_ansi_probe_test
           /tmp/console_ansi_probe_test
