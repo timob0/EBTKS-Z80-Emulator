@@ -85,6 +85,46 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 asynchronous Media Manager hardware report — 202/200 and low-memory 503 WORK
+
+User flashed the feature branch version with `CpmMediaAsync` background job.
+After reboot, three successive
+`curl http://esp32_ebtks.local/api/cpm/media` requests:
+1. HTTP **202**, **41 bytes**, **5.046570 s**
+2. HTTP **202**, **41 bytes**, **5.112937 s**
+3. HTTP **200**, **5079 bytes**, **5.887209 s**;
+   headers `Content-Length: 5079`, `Cache-Control: no-store`,
+   `Content-Type: application/json`; Python JSON validator **VALID**.
+Thus asynchronous request/poll/result handoff succeeds on physical ESP32.
+
+After an ordinary BBS MODEM session **via Telnet**, another GET returned
+HTTP **503**, **112 bytes**, **5.070838 s** (no empty reply or timeout).
+The 112-byte length **exactly matches** the source's low-memory preflight
+error `{\"ok\":false,\"error\":\"Media Manager unavailable: ESP32 memory low; close terminal or modem connection and retry\"}`;
+the refusal is deliberate, not a broken 200/empty response.
+The preceding `JSON VALID` command was run before the failed/load
+curl and tested a prior `/tmp/cpm-media.json`, not this 503.
+Actual HTTP 503 response body not pasted, but exact 112-byte match
+identifies the low-memory guard with high confidence.
+
+**New timing clue:** All five observed responses (two 202, one 200,
+one 503, plus previous data) each cost approximately **5 seconds**,
+including immediate 202/503 callbacks. This suggests pre-handler
+DNS/mDNS resolution of `esp32_ebtks.local` or connection establishment
+(hypothesis, not yet verified), rather than ~5s of synchronous API
+logic. Before changing firmware measure `curl -w` timings for
+`time_namelookup`, `time_connect`, `time_starttransfer`, `time_total`,
+and compare `.local` URL with numeric ESP32 IP.
+
+Status: Media Manager idle + safe-refusal hardware tests PASS; media
+listing remains intentionally **unavailable** under modem memory
+pressure, not accepted as simultaneous full operation. The prior
+full-freeze scenarios and persistent extremely low 8-bit heap
+deserve caution. No additional code changes for this report;
+keep Stage A feature branch unmerged; next planned milestone is
+three firmware variants once wider regression is sufficiently safe.
+
+---
 ## 2026-10-23 later Media Manager retest — HTTP responsiveness still BROKEN after Web Terminal/BBS
 
 User ran BBS via **Web Terminal** (not TFT/Telnet); Media Manager took
