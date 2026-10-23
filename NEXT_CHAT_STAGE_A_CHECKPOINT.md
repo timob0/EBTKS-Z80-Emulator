@@ -85,6 +85,77 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 hardware retest after bounded Telnet TX fix — TWO BBS sessions, no freeze, UI degraded
+
+User reflashed the subsequent firmware with 2 s bounded Telnet TX writes,
+then cold booted and tested DIR/Multiplan, Telnet, MODEM and two BBS sessions.
+Git SHA of actually flashed binary was **not supplied**; do not assume
+HEAD just from successful build. HP/TFT/CP/M and Telnet stayed responsive
+through both sessions, so the prior total freeze did not recur in this run.
+No hardware proof yet attributes this improvement specifically to the
+Telnet timeout versus changed allocation timing or other factors.
+
+| Phase | heap_free | free_8bit | largest_8bit | min_free_8bit |
+| --- | ---: | ---: | ---: | ---: |
+| Boot + CP/M DIR/Multiplan | 66,816 | 27,640 | 25,588 | 23,960 |
+| Telnet connected | 64,224 | 25,048 | 24,564 | 20,240 |
+| DIR and Multiplan via Telnet | 64,232 | 25,056 | 24,564 | 13,036 |
+| MODEM initialized, no dial | 55,404 | 16,228 | 13,300 | 13,036 |
+| BBS session #1 active | 54,100 | 14,924 | 13,300 | 1,564 |
+| After BBS #1 | 56,380 | 17,204 | 13,300 | **268** |
+| BBS #2 active | 54,176 | 15,000 | 13,300 | **268** |
+| After BBS #2 | 55,888 | 16,712 | 13,300 | **268** |
+| After Web UI browsing | 55,956 | 16,780 | 13,300 | **268** |
+
+Telnet remained connected (`telnet_connected=1`) and modem worker
+initialized (`modem_state=2`) throughout both BBS sessions. Modem
+refusal counter stayed 0. Web Terminal correctly returned HTTP 503
+low-8-bit-RAM warning after modem initialization. BBS sessions were
+completed and the CP/M/TFT and network stayed responsive.
+
+At BBS #2 hangup the captured `tcp_closed` stage had
+free_8bit=11180, largest_8bit=5876, versus current free_8bit=16712
+and largest_8bit=13300 after the session: a significant *transient*
+post-close memory pressure, not proof of retained leak. At #1 close
+the capture showed free_8bit=14428, largest_8bit=11764. The cumulative
+268 B minimum occurred by the end of #1 and remained unchanged during #2.
+Modem startup consumes roughly 8–11 KiB measured at these checkpoints.
+Console task stack unused declined as low as 932 bytes (not yet
+a stack overflow or confirmed liveness issue).
+
+**Outstanding issue:** HP CRT remote display and simple Web API endpoints
+remain responsive but CP/M Media Manager UI stays at `Loading...`,
+drive/media tables blank, with browser error `The string did not match
+the expected pattern.` The error is not proven to be a JSON parse error;
+it could reflect network/fetch failure. In current source the
+`/api/cpm/media` handler calls `cpmStoreBuildMediaStatusJson(reply)`
+**synchronously in AsyncWebServer callback**, constructs two
+`ArduinoJson::JsonDocument` allocations (`result` containing all
+16 drives and media list, plus Teensy SD `listing`), serializes
+into a dynamic `String`, and then forms an HTTP response. It calls
+`cpmStoreFetchDiskDirectory` (Teensy UART with up to 8 s timeout).
+This is an inherently high peak-memory/blocking path in the same
+resource-stressed AsyncTCP environment; **hypothesis**, exact
+failure not yet proven. No SD/NVS corruption indicated.
+
+**Next priority:** inspect the *actual HTTP response* without triggering
+a mount change. From Mac request
+`curl -i --max-time 15 http://<ESP32-IP>/api/cpm/media`
+and if possible save to file / validate JSON. If 200 malformed or
+connection prematurely closed, focus on allocation/response limits.
+If 500 or 503, use status details. If curl JSON is valid, investigate
+Safari fetch handling/URL rather than assuming ESP32 JSON failure.
+Keep Stage A general regression OPEN, no merge yet. Do not repeat
+unsafe combined load just to force another freeze.
+
+Potential engineering response (not implemented): preflight /api/cpm/media
+heap guard with explicit JSON 503, catch ArduinoJson overflowed()
+and String reserve/serialize failure, make Media Manager show an
+unambiguous recoverable status; longer-term reduce peak JSON
+allocation and avoid 8 s blocking UART transaction from AsyncTCP
+callback. Compare the planned 3 firmware flavours after this.
+
+---
 ## 2026-10-23 further hardware observation — CPRESET did not recover hang
 
 User adds that, during the same network/console freeze reported below,
