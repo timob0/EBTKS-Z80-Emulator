@@ -85,6 +85,58 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 later Media Manager retest — HTTP responsiveness still BROKEN after Web Terminal/BBS
+
+User ran BBS via **Web Terminal** (not TFT/Telnet); Media Manager took
+a long time to update, then two curl attempts to
+`http://esp32_ebtks.local/api/cpm/media` failed:
+`curl (52) Empty reply from server`, **HTTP 000, zero bytes**, 6.182236 s;
+then `curl (28) Operation timed out after 15002 milliseconds with 0 bytes
+received`, **HTTP 000**. No headers on second request.
+Subsequent `python3 -m json.tool /tmp/cpm-media.json` reported JSON VALID
+but the file may be **STALE from the earlier 5079-byte HTTP 200 success**
+because failed curl may not overwrite `-o` output. This is not proof
+that any new JSON arrived. Correct testing must remove output first.
+
+Source diagnosis: `GET /api/cpm/media` still synchronously called
+`cpmStoreBuildMediaStatusJson` in AsyncTCP's request callback, including
+`cpmStoreFetchDiskDirectory` -> serialized `ebtksLinkTransaction` with
+up to 8 s Teensy UART wait + heap-intensive ArduinoJson construction.
+This blocking callback can stall network request processing, and in low
+RAM can result in aborted HTTP responses. The exact root cause of
+transport failures remains a hypothesis (AsyncTCP task occupancy plus
+low memory); no ESP32 memory snapshot was supplied for this run.
+
+**New proposed source design on this feature branch; hardware UNTESTED:**
+`cpm_media_page.h`: requests now return immediate HTTP 202
+`{ok:true,pending:true,retry_ms:750}` and enqueue a single listing job;
+the existing `EBTKSWebTask` (`ebtks_web.h`) runs
+`CpmMediaAsync::service()` and performs Teensy UART + JSON serialization
+outside AsyncTCP's callback. The browser `refreshAll()` polls 202
+responses until it receives HTTP 200 with the complete JSON or an
+explicit HTTP 503 error. No extra worker task stack. Work is admitted
+only if `heap_free >=56 KiB`, `free_8bit >=24 KiB`, and largest8
+`>=16 KiB`, verified again by the worker. This conservatively refuses
+Media Manager refresh during modem/Telnet low-memory loads, protecting
+network operations at cost of unavailable listing under high load.
+At completion the worker owns an `AsyncResponseStream` and atomically
+transfers it to the next HTTP GET; an unclaimed response is deleted
+after 15 s to avoid permanently retaining ~5 KiB. No direct storage
+operation or dynamic media response tree in the HTTP callback.
+Existing GET route behavior changes: a one-shot curl may see HTTP 202;
+the browser handles it automatically. For manual testing, poll GET until
+the status becomes HTTP 200 or 503 (remove old /tmp output before each
+curl); verify JSON only if that request produced bytes.
+
+Important follow-up: while the background worker spends ~6–8 s in the
+Teensy query, it cannot itself accept NEW Telnet sessions or service
+the legacy Teensy browser bridge, but AsyncTCP HTTP callbacks and
+active Telnet ConsoleTask remain schedulable. This is a stability
+trade-off and should be profiled after basic hardware validation.
+Check the macOS TFT link and CI static DRAM guard before flashing;
+no baseline merge; no Teensy/HP/recovery changes.
+
+---
 ## 2026-10-23 17:20 Europe/Berlin — new Media Manager JSON response hardware PASS (load not yet verified)
 
 User pulled, built and flashed the new Media Manager streamed-response fix.
