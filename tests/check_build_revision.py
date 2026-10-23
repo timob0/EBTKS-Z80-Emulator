@@ -14,7 +14,7 @@ sha = subprocess.check_output(
 ).strip()
 assert re.fullmatch(r"[0-9a-f]{40}", sha), sha
 
-for target in ("esp32dev", "esp32dev-tft", "esp32dev-tft-only"):
+for target in ("esp32dev", "esp32dev-tft", "esp32dev-tft-only", "esp32dev-tft-no-telnet"):
     directory = root / ".pio" / "build" / target
     header = (directory / "ebtks_build_revision.h").read_text(encoding="utf-8")
     assert f'#define EBTKS_BUILD_GIT_COMMIT "{sha}"' in header, target
@@ -22,4 +22,4 @@ for target in ("esp32dev", "esp32dev-tft", "esp32dev-tft-only"):
     binary = (directory / "firmware.bin").read_bytes()
     assert sha.encode("ascii") in binary, f"commit not embedded in {target} firmware.bin"
 
-print(f"PASS: all three ESP32 images contain full Git build ID {sha}")
+print(f"PASS: all four ESP32 images contain full Git build ID {sha}")
