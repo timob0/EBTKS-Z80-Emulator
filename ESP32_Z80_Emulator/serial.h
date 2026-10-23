@@ -21,8 +21,10 @@ void serialTask(void *parameter) {
   size_t telnetEnd=0,telnetStart=0;
   TickType_t telnetLastProgress=0;
   auto dropSlowTelnet = [&](const char *reason) {
-    EbtksDebugSerial.printf("Telnet TX %s; dropping client (queued=%u)\\n",
-                           reason,(unsigned)(telnetEnd-telnetStart));
+    EbtksDebugSerial.printf("Telnet TX %s; dropping client (queued=%u, free8=%lu, largest8=%lu)\n",
+                           reason,(unsigned)(telnetEnd-telnetStart),
+                           (unsigned long)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+                           (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
     serverClient.stop();
     free(telnetTx);telnetTx=nullptr;
     telnetEnd=telnetStart=0;
