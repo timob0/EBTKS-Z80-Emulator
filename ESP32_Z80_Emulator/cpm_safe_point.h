@@ -10,8 +10,8 @@
 // may have overwritten the CCP; reject requests unless the ROM signatures
 // are intact and cpmWarmBootCapture() has recognized the native image.
 //
-// This first milestone never calls BDOS or changes a mounted drive. A
-// benign, non-BDOS Z80 probe can run at the NEXT D382 prompt boundary,
+// Stage A supports a benign non-BDOS probe; Stage B1 adds an explicitly
+// read-only BDOS directory search at that same D382 prompt boundary,
 // provided the previous input line was EMPTY. No surprise queued execution
 // following a command, and no Z80 register/memory access from the web task.
 namespace CpmSafePoint {
@@ -19,6 +19,20 @@ enum Mode : uint8_t { UNKNOWN=0, BUSY=1, CCP_INPUT=2, PROBE_RUNNING=3 };
 enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
+enum Operation : uint8_t { PROBE=0, DIRECTORY=1 };
+static constexpr uint8_t kDirectoryMax=12;
+// Directory entries are raw CP/M directory extents, not logical files/sizes.
+struct DirectoryEntry {
+  char name[13]={};
+  uint8_t user=0;
+  uint8_t extent=0;
+  uint8_t records=0;
+};
+struct Directory {
+  uint8_t count=0;
+  bool truncated=false;
+  DirectoryEntry entries[kDirectoryMax]{};
+};
 static constexpr uint16_t kCcpPrompt = 0xD382;
 static constexpr uint16_t kCcpCommand = 0xD398;
 static constexpr uint16_t kCcpConsoleInput = 0xD19C;
@@ -31,6 +45,23 @@ public:
   std::atomic<uint8_t> mode{UNKNOWN};
   std::atomic<uint8_t> result{NEVER};
   std::atomic<bool> compatible{false};
+  std::atomic<uint8_t> operation{PROBE};
+  // Only successful native CCP safe-point requests can consume this gate.
+  std::atomic_flag requestBusy=ATOMIC_FLAG_INIT;
+  std::atomic_flag directoryBusy=ATOMIC_FLAG_INIT;
+  Directory directory{};
+  void publishDirectory(const Directory &snapshot) {
+    while(directoryBusy.test_and_set(std::memory_order_acquire)) {}
+    directory=snapshot;
+    directoryBusy.clear(std::memory_order_release);
+  }
+  bool copyDirectory(Directory &out) {
+    // Never block an AsyncTCP callback behind an active Z80 operation.
+    if(directoryBusy.test_and_set(std::memory_order_acquire))return false;
+    out=directory;
+    directoryBusy.clear(std::memory_order_release);
+    return true;
+  }
   // Generation changes at BOTH entry to and exit from the input wait.
   // A request racing with a submitted command cannot remain armed.
   std::atomic<uint32_t> inputGeneration{0};
@@ -113,10 +144,15 @@ public:
     return false;
   }
 
-  bool request() {
+  bool request(Operation requested=PROBE) {
+    if(requestBusy.test_and_set(std::memory_order_acquire))return false;
     const uint32_t generation=inputGeneration.load(std::memory_order_acquire);
     if(!compatible.load(std::memory_order_acquire) ||
-       mode.load(std::memory_order_acquire)!=CCP_INPUT)return false;
+       mode.load(std::memory_order_acquire)!=CCP_INPUT) {
+      requestBusy.clear(std::memory_order_release);
+      return false;
+    }
+    operation.store(requested,std::memory_order_release);
     // Only one request can be pending. A completed one may be re-armed.
     uint8_t previous=result.load(std::memory_order_acquire);
     while(previous!=WAIT_EMPTY_LINE && previous!=RUNNING) {
@@ -129,11 +165,14 @@ public:
           uint8_t waiting=WAIT_EMPTY_LINE;
           result.compare_exchange_strong(waiting,INPUT_NOT_EMPTY,
                                          std::memory_order_acq_rel);
+          requestBusy.clear(std::memory_order_release);
           return false;
         }
+        requestBusy.clear(std::memory_order_release);
         return true;
       }
     }
+    requestBusy.clear(std::memory_order_release);
     return false;
   }
 
@@ -144,6 +183,9 @@ public:
     result.store(passed?PASSED:FAILED,std::memory_order_release);
   }
 };
+inline const char *operationText(uint8_t o) {
+  return o==DIRECTORY?"directory":"probe";
+}
 inline const char *modeText(uint8_t m) {
   switch(m) {
     case BUSY:return "busy";
