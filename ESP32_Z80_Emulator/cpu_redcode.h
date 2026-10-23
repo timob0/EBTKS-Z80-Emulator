@@ -6,6 +6,7 @@
 #include "disk.h"
 #include "z80_bridge.h"
 #include "cpm_service_probe.h"
+#include "cpm_directory_service.h"
 #include <new>  // tiny standard-heap allocation, not 32-bit/EXEC IRAM
 
 static Z80Bridge ebtksCpuBridge;
@@ -180,10 +181,26 @@ void CPUTask(void *) {
     if(reason==Z80_BRIDGE_SERVICE) {
       // This runs ONLY on the Z80 task at the verified CCP D382 opcode,
       // after a blank Enter. No other task touches Z80 registers or RAM.
-      const bool ok=CpmServiceProbe::execute(&ebtksCpuBridge);
-      if (auto *gate=static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device))
-        gate->complete(ok);
+      auto *gate=static_cast<CpmSafePoint::Gate *>(ebtksCpuBridge.device);
+      bool ok=false;
+      bool resetNeeded=false;
+      if(gate && gate->operation.load(std::memory_order_acquire)==CpmSafePoint::DIRECTORY) {
+        // All BDOS calls run on this pinned CPU task, never an HTTP worker.
+        // Give other system tasks a chance to run between bounded CPU slices.
+        CpmSafePoint::Directory snapshot;
+        ok=CpmDirectoryService::execute(&ebtksCpuBridge,snapshot,resetNeeded,
+                                         [](){taskYIELD();});
+        gate->publishDirectory(snapshot);
+      } else {
+        ok=CpmServiceProbe::execute(&ebtksCpuBridge);
+      }
+      if(gate)gate->complete(ok);
       PC=Z80_PC(ebtksCpuBridge.cpu);
+      if(resetNeeded) {
+        // Never resume the CCP after an interrupted BDOS call.
+        Serial.println("CP/M directory service failed after BDOS entry; requesting Z80 reset");
+        RUN=false;
+      }
     } else if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {
       RUN=false;
     } else if(reason==Z80_BRIDGE_EXTERNAL_STOP) {
