@@ -1,10 +1,18 @@
 # Stage B1 HP BASIC CPDCAT and automatic CCP safe point
 
-**Status:** experimental three-firmware feature; NOT hardware-accepted.
-Previously accepted ESP32 Stage B1 directory read (manual blank Return) was
-user-tested on real hardware, followed by successful DIR, Multiplan and Media
-Manager tests. These new automatic-return / HP catalog changes have NOT yet
-been flashed or regression-tested physically.
+**STATUS (2026-10-24): HARDWARE ACCEPTED AND MERGED TO MAIN in all three repositories.**
+The final physical HP-85 tests passed: automatic Return, CPDCAT read-only
+native BDOS catalog, two-column 8.3 alignment and LF rendering, native CP/M
+DIR, Multiplan, Media Manager, and busy-state safety. Two known-corrupt A:
+entries are skipped with diagnostics; 32 BDOS result limit is documented.
+The user explicitly approved integration. GitHub merge commits:
+ESP32 `72a12d7989ddde578daf33db07f956be0e4de71c` (PR #9),
+Teensy `680b3e0eb4985e4acb6c1446f8193480d276f6b1` (PR #4),
+HP `33200112bcce7eb2ccbaa7497dea166deac9aa60` (PR #2).
+The independent ESP32 recovery binary on main was PRESERVED (recovery
+directory tree SHA unchanged, `dcc23902cef631d9ce77f2a21a10c45072d4e476`).
+All previous "pending merge" and "not yet hardware-tested" statements in
+this stage report are historical; use this header as the authoritative status.
 
 
 ## Final physical regression: Multiplan and Media Manager PASS (2026-10-24)
