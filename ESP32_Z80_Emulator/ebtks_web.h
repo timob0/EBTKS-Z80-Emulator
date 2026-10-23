@@ -315,6 +315,14 @@ inline bool ebtksWebBegin()
         }
         v["count"]=snapshot.count;
         v["truncated"]=snapshot.truncated;
+        v["skipped_malformed_entries"]=snapshot.skipped;
+        if(snapshot.skipped) {
+          // Index, byte offset and raw byte of first malformed 8.3 name:
+          // disclose metadata, never raw file payload or guest memory.
+          v["first_bad_search_index"]=snapshot.firstBadIndex;
+          v["first_bad_name_offset"]=snapshot.firstBadOffset;
+          v["first_bad_name_byte"]=snapshot.firstBadByte;
+        }
         v["drive"]=String(snapshot.drive);
         v["scope"]=gate->requestedDrive.load(std::memory_order_acquire)?
             "requested_drive_current_user":"current_drive_current_user";
