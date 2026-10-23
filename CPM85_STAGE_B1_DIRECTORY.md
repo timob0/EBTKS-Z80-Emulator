@@ -1,9 +1,26 @@
 # Stage B1 — read-only CP/M BDOS directory service (experimental)
 
 **Source branch:** `feature/cpm85-file-transfer-hpib-ui` (ESP32 only)
-**Status:** implementation and native/CI checks pending. **NOT hardware-accepted.**
+**Status (2026-10-23):** CI green for source SHA `55a7c0803ba4b66106e5637317af8f90c0057078`; first physical read-only BDOS directory request **PASS**. Full post-operation hardware regression and exact flashed firmware SHA are **not yet reported**. Do not mark Stage B1 fully accepted or merge.
 The previously accepted Stage A probe, memory-optimized firmware, HP/Teensy
 code, mount table, disk-image writes and `recovery/` are unchanged.
+
+## First physical test and current status
+
+**2026-10-23 Stage B1 first hardware result (user-reported):** The operator sent
+`POST /api/cpm/service/directory` and received HTTP **202**, with
+`accepted=true`, `supported=true`, `state=waiting_for_empty_return`.
+After blank Return, GET returned `state=passed`, `count=12`,
+`truncated=true`, `scope=current_drive_current_user`, and 12 plausible
+native BDOS directory extents including `DOWNLOAD.COM`, `STAT.COM`,
+`PIP.COM`, `ASM.COM` and `MBASIC.COM` (extent=1), all user 0.
+The 12-entry limit is intentional; this is not file aggregation.
+The latest GitHub CI run for source SHA `55a7c0803ba4b66106e5637317af8f90c0057078`
+passed: https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/40024339445 .
+**Not yet evidenced:** post-service `DIR`, Multiplan, HP/TFT/Web/Media
+Manager regression, nonempty cancellation, MODEM busy rejection, alternate
+current-drive/empty-directory testing, and exact running SHA (no health
+reading furnished). No merge, no Teensy/HP firmware changes.
 
 ## What it does
 
