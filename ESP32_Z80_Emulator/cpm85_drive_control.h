@@ -223,7 +223,6 @@ inline void catalog(const char *arg) {
   const CpmSafePoint::Directory &snapshot=gate->directory;
   bool formatted=snapshot.drive==char('A'+drive);
   size_t used=0;
-  uint8_t listed=0;
   bool outputTruncated=false;
   if(formatted) {
     // HP CRT is 32 columns wide. Use actual line feeds, not a literal
@@ -234,9 +233,9 @@ inline void catalog(const char *arg) {
     if(formatted)used=size_t(n);
   }
   for(uint8_t i=0;formatted && i<snapshot.count;++i) {
-    // Reserve 70 bytes for the extent count and bad-filename diagnostic.
+    // Reserve 51 bytes for the extent count and bad-filename diagnostic.
     // This guard makes truncation visible instead of failing the command.
-    if(used+19+70>=kTextMax) {
+    if(used+19+51>=kTextMax) {
       outputTruncated=true;
       break;
     }
@@ -244,7 +243,7 @@ inline void catalog(const char *arg) {
     const int n=snprintf(lastText+used,kTextMax-used,
                          "%-12.12s EX%u\\n",e.name,(unsigned)e.extent);
     formatted=n>0 && size_t(n)<kTextMax-used;
-    if(formatted){used+=size_t(n);++listed;}
+    if(formatted)used+=size_t(n);
   }
   if(formatted) {
     const int n=snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\\n",
