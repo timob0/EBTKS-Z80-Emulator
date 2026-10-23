@@ -24,35 +24,36 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-ELF = ROOT / ".pio/build/esp32dev-tft/firmware.elf"
 STABLE_STATIC_DRAM_BYTES = 124_528
 MAX_NEW_STATIC_DRAM_BYTES = 16
 LIMIT = STABLE_STATIC_DRAM_BYTES + MAX_NEW_STATIC_DRAM_BYTES
 
-if not ELF.is_file():
-    raise SystemExit(f"Missing TFT ELF: {ELF}")
 size = Path.home() / ".platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-size"
 if not size.is_file():
     raise SystemExit(f"Missing pinned Xtensa size tool: {size}")
-report = subprocess.check_output([str(size), "-A", str(ELF)], text=True)
-sections = {}
-for line in report.splitlines():
-    m = re.match(r"^\s*(\.dram0\.(?:data|bss))\s+(\d+)\s+", line)
-    if m:
-        sections[m.group(1)] = int(m.group(2))
-if set(sections) != {".dram0.data", ".dram0.bss"}:
-    raise SystemExit(f"Can't read TFT dram0 sections: {sections!r}")
-actual = sum(sections.values())
-print(
-    f"TFT static DRAM: {actual:,} bytes "
-    f"(.data {sections['.dram0.data']:,} + .bss {sections['.dram0.bss']:,}); "
-    f"stable {STABLE_STATIC_DRAM_BYTES:,}, guard ceiling {LIMIT:,}"
-)
-if actual > LIMIT:
+
+# Independently enforce the Mac link-time limit for both TFT configurations.
+# The Web Terminal is excluded only in tft-only; neither variant may
+# silently grow scarce classic ESP32 .dram0 static storage.
+for target in ("esp32dev-tft", "esp32dev-tft-only"):
+    elf = ROOT / ".pio" / "build" / target / "firmware.elf"
+    if not elf.is_file():
+        raise SystemExit(f"Missing TFT ELF: {elf}")
+    report = subprocess.check_output([str(size), "-A", str(elf)], text=True)
+    sections = {}
+    for line in report.splitlines():
+        m = re.match(r"^\\s*(\\.dram0\\.(?:data|bss))\\s+(\\d+)\\s+", line)
+        if m:
+            sections[m.group(1)] = int(m.group(2))
+    if set(sections) != {".dram0.data", ".dram0.bss"}:
+        raise SystemExit(f"Can't read {target} dram0 sections: {sections!r}")
+    actual = sum(sections.values())
     print(
-        "FAIL: TFT static DRAM above Mac-link guard. "
-        "Remove static BSS; do not rely on Linux-only link success.",
-        file=sys.stderr,
+        f"{target} static DRAM: {actual:,} bytes "
+        f"(.data {sections['.dram0.data']:,} + .bss {sections['.dram0.bss']:,}); "
+        f"stable {STABLE_STATIC_DRAM_BYTES:,}, guard ceiling {LIMIT:,}"
     )
-    sys.exit(1)
-print("PASS: TFT DRAM budget remains below known macOS overflow")
+    if actual > LIMIT:
+        print(f"FAIL: {target} static DRAM exceeds Mac-link guard", file=sys.stderr)
+        sys.exit(1)
+print("PASS: both TFT DRAM budgets remain below known macOS linker overflow")
