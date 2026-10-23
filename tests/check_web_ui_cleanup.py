@@ -87,6 +87,27 @@ modem = (ROOT / "ebtks_modem.h").read_text(encoding="utf-8")
 term = (ROOT / "web_terminal.h").read_text(encoding="utf-8")
 assert "CpmWifiModem::start();" not in ino
 assert 'CpmWifiModem::service();' in web
+assert 'CpmWifiModem::requestReleaseAtCcp();' in web
+assert 'gate->compatible.load(std::memory_order_acquire)' in web
+assert 'gate->mode.load(std::memory_order_acquire)==CpmSafePoint::CCP_INPUT' in web
+assert web.index('CpmWifiModem::requestReleaseAtCcp();') < web.index('CpmWifiModem::service();')
+assert 'inline void requestReleaseAtCcp()' in modem
+assert 'startState.compare_exchange_strong(running,6' in modem
+assert 'if (status()==6)' in modem
+assert 'socketClient->stop();' in modem
+assert 'delete oldUart;' in modem
+assert 'delete socketClient;socketClient=nullptr;' in modem
+assert 'delete hayes;hayes=nullptr;' in modem
+assert 'free(netTx);netTx=nullptr;' in modem
+assert 'free(response);response=nullptr;' in modem
+assert 'startState.store(7,std::memory_order_release);' in modem
+assert 'vTaskSuspend(nullptr);' in modem
+assert 'eTaskGetState(workerHandle)==eSuspended' in modem
+assert 'vTaskDelete(finished);' in modem
+assert 'startState.store(0,std::memory_order_release);' in modem
+assert 'netIn=netOut=responseIn=responseOut=0;' in modem
+assert modem.index('inline void requestReleaseAtCcp()') > modem.index('static void hangup(bool respond)')
+
 assert "startState.compare_exchange_strong" in modem
 assert "ESP.getFreeHeap()<48U*1024U" in modem
 assert "heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)<8192U" in modem
