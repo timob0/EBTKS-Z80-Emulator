@@ -85,6 +85,56 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 20:00 Berlin — Fourth build cold boot: suspect 8KiB SPI cache DRAM fallback
+
+User flashed full TFT+Web without Telnet (`esp32dev-tft-no-telnet`).
+Cold-boot uptime=35768 ms: heap_free=68168, free8=20784,
+largest8=18420, min_free8=14244,
+`telnet_enabled=false`, listener mode disabled, connected=false,
+`web_terminal_enabled=true`, `tft_terminal_enabled=true`, modem_state=0.
+Web worker stack unused=3016, cpu=2656, console=2128, keyboard=2132,
+SPI=6324, TFT=2976. All expected capability flags correct.
+
+Compared with prior **TFT-only, no connected Telnet** coldboot
+(67984 heap, 28808 free8, 27636 largest8), the new build
+shows **+184 bytes total free heap**, but **-8024 free8** and
+**-9216 largest 8bit**. An initialization-stage comparison is
+almost definitive that the difference emerges at SPI disk-cache
+allocation, not at Web startup or Z80 console:
+
+| Stage | TFT-only free8 | No-Telnet full free8 |
+| --- | ---: | ---: |
+| web | 73544 | 73684 |
+| keyboard | 61380 | 61548 |
+| spi_disk_cache | 60368 | **52252** |
+| tft | 48652 | 40584 |
+| cpm_boot_ready | 43360 | 34260 |
+
+`spi_disk_read.h::spiDiskEnsureCache()` first tries an **8192-byte**
+`heap_caps_malloc(..., MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL)`
+and accepts it only if `free8After >= free8Before` (storage `iram32`).
+If it cannot allocate IRAM or consumes 8bit RAM, it frees and
+**falls back to 8192-byte MALLOC_CAP_8BIT DRAM** (`dram8`).
+The new build's 8K step is highly consistent with **dram8 fallback**,
+and the prior TFT-only boot used IRAM32, but verify direct telemetry
+**before concluding**. Existing endpoint
+`GET /api/cpm/spireads` has `cache_storage`, `cache_allocated`,
+`word_cache_default`, `enabled`, `last_error` fields.
+Also `GET /api/system/health` includes `spi_cache_storage`, and
+`/api/system/memory/pools` reports allocator-capability inventory.
+Use numeric IP; no need to reboot/flash. Ask for these BEFORE BBS
+stress; with just 20784 free8 at coldboot, MODEM+BBS may approach
+the dangerous previous 644B low water or refuse the modem dial.
+
+**Caution:** The apparent 8KiB 'Web Terminal cost' is confounded
+by cache allocation placement and should not be attributed to
+browser WebTerminal HTML/WS until controlled comparison establishes it.
+If confirmed, prioritize deterministic IRAM-only cache policy or
+startup allocation order, balanced against performance of UART
+fallback if no IRAM available. No source change made from this
+observation. Keep four target source on feature branch only.
+
+---
 ## 2026-10-23 Four firmware configurations: successful GitHub CI, ready for Mac/hardware testing
 
 Fourth target implemented and CI **GREEN** at source commit
