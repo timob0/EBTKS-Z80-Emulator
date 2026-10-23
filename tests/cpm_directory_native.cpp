@@ -91,6 +91,18 @@ static void testDirectoryAndExactRestore() {
   assert(!f.gate.request(CpmSafePoint::DIRECTORY));
 }
 
+static void testExplicitRequestedDrive() {
+  Fixture f;
+  f.armDirectory();
+  CpmSafePoint::Directory out;
+  bool reset=false;
+  assert(CpmDirectoryService::execute(&f.bridge,out,reset,1));
+  assert(!reset && out.count==1 && out.error==CpmSafePoint::DIR_OK);
+  assert(out.drive=='A');
+  // Executing the explicit-drive FCB must not overwrite guest TPA scratch.
+  assert(f.ram[CpmDirectoryService::kFcb]!=1);
+}
+
 static void testFailClosedBeforeBdos() {
   Fixture f;
   f.armDirectory();
@@ -126,6 +138,7 @@ static void testEmptyDirectoryAndBoundedOutput() {
 
 int main() {
   testDirectoryAndExactRestore();
+  testExplicitRequestedDrive();
   testFailClosedBeforeBdos();
   testEmptyDirectoryAndBoundedOutput();
   std::puts("PASS: BDOS directory search, bounded entries, safe rejection and exact Z80 restore");
