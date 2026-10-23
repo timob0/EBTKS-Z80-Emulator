@@ -6,6 +6,34 @@ user-tested on real hardware, followed by successful DIR, Multiplan and Media
 Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
+
+## Second physical CPDCAT result: generic cancellation/failure (2026-10-23)
+
+After the ESP32 fetch-filter fix, the HP command no longer timed out.
+With CP/M at an apparently idle prompt, the operator got
+`CPDCAT: CANCELLED OR DIRECTORY READ FAILED`. The existing HP message
+collapses `INPUT_NOT_EMPTY`, `FAILED`, `INVALIDATED` and other outcomes.
+**Exact failure cause is unknown until the HTTP service state is read.**
+Without starting a new directory request, inspect:
+
+```sh
+curl -s http://192.168.178.197/api/cpm/service/status
+curl -s http://192.168.178.197/api/cpm/service/directory
+```
+
+On the updated **ESP32-only** diagnostic branch, both HTTP endpoints now
+include an atomic `checkpoint` and precise `directory_error` value;
+HP `CPDCAT` now prints distinct labels for nonempty input, warm boot,
+and native BDOS errors. The pinned Z80 task records errors for vector
+validation, DMA preflight, interrupted BDOS, invalid search slot, invalid
+user/name and DMA corruption. Native regressions assert checkpoint
+transitions and explicit-drive behavior. Do not conflate this with a
+confirmed BDOS defect: first distinguish `cancelled_nonempty_command`
+from `failed`. **All diagnostic changes are still awaiting physical
+hardware acceptance**; retain existing Teensy/HP firmware, and only flash
+the ESP32 after current branch-tip CI and macOS TFT build succeed.
+
+
 ## First hardware CPDCAT timeout and corrective fix (2026-10-23)
 
 User reported: `CPDCAT` printed **TIMEOUT; CHECK CP/M SERVICE STATUS**.
