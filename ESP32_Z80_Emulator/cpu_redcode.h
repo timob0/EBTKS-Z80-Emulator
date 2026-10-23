@@ -205,6 +205,7 @@ void CPUTask(void *) {
         ok=CpmDirectoryService::execute(&ebtksCpuBridge,snapshot,resetNeeded,
                                          gate->requestedDrive.load(std::memory_order_acquire),
                                          [](){taskYIELD();});
+        gate->directoryError.store(snapshot.error,std::memory_order_release);
         gate->publishDirectory(snapshot);
       } else {
         ok=CpmServiceProbe::execute(&ebtksCpuBridge);
