@@ -11,6 +11,7 @@
 #include <esp_heap_caps.h>
 #include "ebtks_build_revision.h" // generated at firmware build
 #include "ebtks_firmware_options.h"
+#include "ebtks_static_pages.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal has its own independent websocket endpoint.
@@ -39,7 +40,7 @@ static const char EBTKS_HOME_FALLBACK[] PROGMEM = R"HTML(
 body{font-family:Verdana,sans-serif;text-align:center;background:#252525;color:#eaeaea}main{max-width:420px;margin:3rem auto}button{border:0;border-radius:.3rem;background:#1fa3ec;color:white;line-height:2.4rem;font-size:1.1rem;width:100%;margin:.45rem 0;cursor:pointer}button:hover{background:#0e70a4}.small{font-size:.85rem;color:#aaa}
 </style></head><body><main><h2>EBTKS</h2><p>ESP32 services</p>
 <button onclick="location.href='/crt'">HP-80 Remote Display</button>
-)" EBTKS_HOME_Z80_LINK R"HTML(
+)HTML" EBTKS_HOME_Z80_LINK R"HTML(
 <button onclick="location.href='/cpmmedia'">CP/M Media Manager</button>
 <button onclick="location.href='/updater'">Firmware Updater</button>
 <p class="small">The original EBTKS websocket service remains available at /ws.</p>
@@ -52,31 +53,30 @@ body{font-family:Verdana,sans-serif;text-align:center;background:#222;color:#fff
 <form method="POST" action="/updater" enctype="multipart/form-data"><input type="file" class="bt" name="update" required><br><input type="submit" class="bt" value="Update!"></form>
 <p><button class="bt" onclick="history.back()">Back</button></p></body></html>)HTML";
 
-// All static pages use AsyncProgmemResponse. It never duplicates whole
-// HTML bodies as mutable heap Strings, unlike AsyncBasicResponse.
-inline void ebtksServeFlashPage(AsyncWebServerRequest *request,
-                                const char *data,size_t bytes) {
-  AsyncWebServerResponse *response=request->beginResponse(
-      200,"text/html; charset=utf-8",
-      reinterpret_cast<const uint8_t *>(data),bytes);
-  if(!response) {
-    request->send(503,"text/plain","HTML response allocation failed");
-    return;
-  }
-  response->addHeader("Cache-Control","no-store");
-  request->send(response);
-}
+// Preserve identity HTML in flash for clients without gzip support.
+// The matching compressed bytes come from PlatformIO's build-time generator.
 inline void ebtksServeHome(AsyncWebServerRequest *request)
 {
-  ebtksServeFlashPage(request,EBTKS_HOME_FALLBACK,
-                       sizeof(EBTKS_HOME_FALLBACK)-1U);
+  ebtksServeStaticHtml(request,
+      reinterpret_cast<const uint8_t *>(EBTKS_HOME_FALLBACK),
+      sizeof(EBTKS_HOME_FALLBACK)-1U,
+      EBTKS_HOME_GZIP,sizeof(EBTKS_HOME_GZIP),
+      "Home page response allocation failed");
 }
 
 inline void ebtksServeUpdater(AsyncWebServerRequest *request)
 {
-  if (SPIFFS.exists("/updater.html")) request->send(SPIFFS, "/updater.html", "text/html");
-  else ebtksServeFlashPage(request,EBTKS_UPDATER_FALLBACK,
-                            sizeof(EBTKS_UPDATER_FALLBACK)-1U);
+  // Existing SPIFFS updater remains the authoritative override.
+  // Its content is user-provided, so don't label it gzip unless it is.
+  if (SPIFFS.exists("/updater.html")) {
+    request->send(SPIFFS,"/updater.html","text/html");
+  } else {
+    ebtksServeStaticHtml(request,
+      reinterpret_cast<const uint8_t *>(EBTKS_UPDATER_FALLBACK),
+      sizeof(EBTKS_UPDATER_FALLBACK)-1U,
+      EBTKS_UPDATER_FALLBACK_GZIP,sizeof(EBTKS_UPDATER_FALLBACK_GZIP),
+      "Updater page response allocation failed");
+  }
 }
 
 inline void ebtksQueueWebSocketMessage(void *arg, uint8_t *data, size_t len)
