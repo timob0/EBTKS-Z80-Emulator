@@ -67,6 +67,14 @@ assert "spiTestRegister(ebtksServer)" in web
 assert "spiDiskRegister(ebtksServer)" in web
 assert "webTerminalCleanupClients();" in web
 assert "EBTKS_HOME_Z80_LINK" in web
+assert ')HTML" EBTKS_HOME_Z80_LINK R"HTML(' in web
+assert ')" EBTKS_HOME_Z80_LINK R"HTML(' not in web
+assert '"ebtks_static_pages.h"' in web
+assert '"Content-Encoding","gzip"' in (ROOT / "ebtks_static_pages.h").read_text()
+assert 'ebtksServeStaticHtml(request' in web
+assert 'ebtksServeStaticHtml(r' in (ROOT / "web_terminal_v2.h").read_text()
+assert 'ebtksServeStaticHtml(request' in media_page
+assert 'ebtksServeStaticHtml(request' in (ROOT / "crt_display_page.h").read_text()
 assert '"/api/system/health"' in web
 assert '"/updater"' in web
 assert "spiDiskSetEnabled(true)" in ino
@@ -229,7 +237,8 @@ assert "setTimeout(connect,1000)" not in web_terminal
 # Firmware identity is the exact compiled SHA. No startup hooks/heap needed.
 pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
 revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
-assert "extra_scripts = pre:tools/pio_git_revision.py" in pio
+assert "pre:tools/pio_git_revision.py" in pio
+assert "pre:tools/pio_gzip_pages.py" in pio
 assert 'git("rev-parse", "--verify", "HEAD")' in revision
 assert "EBTKS_BUILD_GIT_COMMIT" in revision
 assert "EBTKS_BUILD_GIT_DIRTY" not in revision
