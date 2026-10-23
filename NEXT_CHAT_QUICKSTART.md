@@ -1,5 +1,22 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**NEW STAGE B1 DEVELOPMENT (2026-10-23; NOT YET HARDWARE-ACCEPTED):**
+On ESP32-only branch `feature/cpm85-file-transfer-hpib-ui`, a bounded, read-only
+BDOS directory search was added behind the hardware-proven CCP safe-point gate.
+`POST /api/cpm/service/directory` arms it; a blank CP/M Return executes BDOS
+17/18 on the CPU worker, and `GET` on that endpoint retrieves up to 12
+directory *extents* for the current drive/user. It verifies native BDOS vector
+and default DMA, preserves CPU/TPA/DMA, and forces a Z80-only reset on an
+interrupted BDOS operation. Old non-BDOS probe is retained. New native
+`tests/cpm_directory_native.cpp` and both ESP32 CI builds are enabled on this
+branch; check the latest CI and local Mac TFT link before any flash.
+**No Teensy/HP changes, no writes, no transfer or management UI yet.**
+The full cautious procedure is in [CPM85_STAGE_B1_DIRECTORY.md](CPM85_STAGE_B1_DIRECTORY.md).
+`main`, `recovery/` and the previously hardware-tested baseline were not
+modified. The follow-on main commit `7b75be7` updates only user-maintained
+`recovery/firmware.bin` and is intentionally not brought onto this branch.
+
+
 **CURRENT HANDOFF — 23 October 2026, memory-optimized firmware now MERGED:** ESP32 `feature/cpm85-management-console` was merged into `main` through [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8), merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`, after the user completed local macOS builds, flash and a successful quick hardware test of the final consolidated TFT target. Full functionality was physically verified earlier: two MODEM/BBS cycles, correct Web Terminal ANSI/CP437, modem worker cleanup on return to CP/M, Media Manager recovering after both cycles, CP/M `DIR`/Multiplan, gzip pages and Home Page link. Final post-second-cycle hardware reading `modem_state=0`, `free_8bit=29452`, `largest_8bit=27636`, no modem task. Supported PlatformIO variants are ONLY `esp32dev` (full headless bundle) and `esp32dev-tft` (same plus ST7796), both with Telnet disabled by default; `-DEBTKS_TELNET_ENABLE=1` is an advanced compile-time option. Both use early IRAM32-only SPI read cache. See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md). **Next work:** start a separate new ESP32 feature branch from current `main` for CP/M file transfer, HPIB output and the management UI; design and coordinate any necessary Teensy/HP changes separately, and never overwrite user-maintained `recovery`. Earlier October 22 text below is chronological history, not current release status.
 
 **2026-10-22 Stage A local ESP32 TFT linker fix:** macOS ld failed on first safe-point build `e2e76c33`: `.dram0.bss region dram0_0_seg overflowed by 16 bytes` though GitHub CI had succeeded. New branch source has moved tiny CCP Gate out of static DRAM into normal heap allocated once by existing Z80 task, reused bridge.device instead of allocating redundant service context/state fields (no new Wi-Fi hooks or special EXEC allocators). CI confirms exactly 16-byte reduction in .dram0.bss / linked static DRAM: 124,552 -> 124,536, stable main reference 124,528. A new CI post-link check `tests/check_esp32_dram_budget.py` enforces <=124,544 static TFT DRAM. Re-pull and rebuild `pio run -e esp32dev-tft -t clean; pio run -e esp32dev-tft`; user must confirm Mac linker success before OTA. Stage A `GET /api/cpm/service/status`, `POST /api/cpm/service/probe` remains hardware-UNTESTED. No Teensy/HP changes, no merge, recovery unchanged.
