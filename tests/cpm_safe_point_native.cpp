@@ -254,11 +254,36 @@ static void testRealBridgeForwardsBdosAndBiosInputFetches() {
   autoFetchCpu=nullptr;
 }
 
+static void testBdosFailureForensicsSurviveZ80ColdRestart() {
+  Fixture f;
+  f.gate.operation.store(CpmSafePoint::DIRECTORY);
+  f.gate.directoryError.store(CpmSafePoint::DIR_BDOS_INTERRUPTED);
+  f.gate.checkpoint.store(CpmSafePoint::BDOS_ENTER);
+  f.gate.complete(false);
+  assert(f.gate.result.load()==CpmSafePoint::FAILED);
+  assert(f.gate.lastDirectoryResult.load()==CpmSafePoint::FAILED);
+  assert(f.gate.lastDirectoryError.load()==CpmSafePoint::DIR_BDOS_INTERRUPTED);
+  assert(f.gate.lastDirectoryCheckpoint.load()==CpmSafePoint::BDOS_FAIL);
+  // The CPU task sets this bit when it forces a Z80-only reset.
+  f.gate.lastDirectoryReset.store(true);
+  // Outer loop re-bootstrap must reset live state, NOT discard the failure.
+  f.gate.reset(f.mem,true);
+  assert(f.gate.result.load()==CpmSafePoint::NEVER);
+  assert(f.gate.directoryError.load()==CpmSafePoint::DIR_OK);
+  assert(f.gate.checkpoint.load()==CpmSafePoint::IDLE);
+  assert(f.gate.compatible.load());
+  assert(f.gate.lastDirectoryResult.load()==CpmSafePoint::FAILED);
+  assert(f.gate.lastDirectoryError.load()==CpmSafePoint::DIR_BDOS_INTERRUPTED);
+  assert(f.gate.lastDirectoryCheckpoint.load()==CpmSafePoint::BDOS_FAIL);
+  assert(f.gate.lastDirectoryReset.load());
+}
+
 int main(){
   testRejectAbsentAndBusy();
   testRejectWrongCcpOrMissingNative();
   testRealZ80TrapExecuteAndRestore();
   testDirectoryAutoReturnOnlyAtEmptyNativeLine();
   testRealBridgeForwardsBdosAndBiosInputFetches();
+  testBdosFailureForensicsSurviveZ80ColdRestart();
   std::puts("PASS: CCP gate, native BDOS/CBIOS opcode fetch, one-shot auto CR, Z80 probe and restoration");
 }
