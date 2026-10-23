@@ -85,6 +85,59 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 hardware follow-up — safe point PASS, Web/Modem RAM regression remains
+
+ESP32 `2fd4f856d9aeb95b8468183caad233e7b6735208` ran on physical HP-85/EBTKS/TFT hardware.
+Stage A native CCP safe-point accepted a POST with HTTP 202; pressing an empty
+Return yielded `probe=passed`. Arming then typing `DIR` yielded
+`cancelled_nonempty_command`. While `MODEM.COM` ran, `mode=busy`,
+`ccp_idle=false`, and POST refused with HTTP 409 / `accepted=false`.
+Exiting MODEM with Ctrl-X restored `ccp_idle=true`, `mode=ccp_input`.
+Thus Stage A safe-point functionality PASSED hardware tests, but the wider
+system regression has NOT passed and the branch must NOT merge.
+
+User observed that opening the Web Terminal sometimes did not respond;
+reopening it could freeze the ESP32 and disconnect Telnet. After reboot:
+
+| State | heap_free | free_8bit | largest_8bit |
+| --- | ---: | ---: | ---: |
+| Cold boot | 64,740 | 25,564 | 24,564 |
+| Telnet connected | 62,956 | 23,780 | 16,372 |
+| MODEM initialized | 55,476 | 16,300 | 11,252 |
+| Later after CPDIMGS | 54,552 | 15,376 | 11,252 |
+
+`min_free_8bit=1932` was a historical minimum, not current free RAM.
+Modem refuses dial because `largest_8bit=11252` falls below its existing
+`12288`-byte dial guard, even though `heap_free` exceeds 49,152.
+The user suspects reversed service startup order, which is plausible but
+not yet isolated as the definitive cause. Media Manager also failed
+to populate once with a browser parsing error in this low-memory state;
+do not infer corruption of SD/NVS from this message.
+
+**Remediation implemented on this feature branch after 2fd4f856:**
+`web_terminal_v2.h` rejects a new Web Terminal page with descriptive HTTP
+503 when total free heap is <56 KiB or largest free 8-bit block <14 KiB;
+the pinned ESPAsyncWebServer 3.6.0 `handleHandshake` hook applies the same
+guard *before* client allocation for direct WebSocket upgrades (its own
+reject response is HTTP 401). The browser performs at most three sequential
+connect attempts with 5/10-second backoff, then stops until manual Reconnect.
+New static/browser tests enforce these constraints. Existing modem startup
+and dial thresholds, 10-second WebSocket console flow-control timeout,
+partitioning, CP/M, Teensy/HP LOADBIN, and `recovery/` are unchanged.
+Thresholds are conservative initial values based on supplied hardware
+snapshots and require explicit hardware acceptance. Do not describe this as
+proven crash resolution before both startup orders are retested.
+
+**Next steps:** Wait for latest branch CI native+TFT success and `check_esp32_dram_budget.py`;
+then do a **local Mac `pio run -e esp32dev-tft -t clean && pio run -e esp32dev-tft`**
+before OTA. Verify running SHA from `/api/system/health`. Test modem-first
+then `/z80` (expect safe HTTP 503 or safe WebSocket rejection, not crash),
+and terminal-first then modem (expect modem dial guard if low). Reboot and
+check Web/Telnet/TFT responsiveness, `DIR`, `CPDIMGS`, `/cpmmedia`, actual
+dial if sufficient RAM; collect `/api/system/memory` after each step.
+Do not merge until overall regression is accepted.
+
+---
 ## Related documents
 
 - `NEXT_CHAT_QUICKSTART.md` — condensed historical development guide
