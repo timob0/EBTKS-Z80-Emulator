@@ -85,6 +85,48 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 mDNS latency proven; GUI low-memory failure confirmed
+
+After modem via Telnet, user opened the browser Media Manager: the
+UI remained at `Loading...` with empty drive/media tables and displayed
+`Media Manager unavailable: ESP32 memory low; close terminal or modem
+connection and retry`. This confirms that the 112-byte HTTP 503
+response truly was the explicit low-heap admission guard, and that
+the browser correctly displays the error without crashing.
+
+User ran the same GET to `/api/system/health` using curl timing
+metrics with mDNS hostname vs numeric IPv4:
+
+| Address | DNS (s) | TCP connect time (s) | First byte (s) | Total (s) |
+| --- | ---: | ---: | ---: | ---: |
+| esp32_ebtks.local | 5.005906 | 5.080385 | 5.097292 | 5.097528 |
+| 192.168.178.197 | 0.001506 | 0.101995 | 0.116745 | 0.116817 |
+
+Thus ~5.006 s was **macOS mDNS lookup latency**, NOT server HTTP
+handler/Teensy processing in this health test. Following connect,
+health endpoint first byte arrived in ~17 ms using `.local`, ~15 ms
+using numeric IP. Ping `esp32_ebtks.local` resolved to 192.168.178.197
+and received all four packets (33–92 ms). User also reported one
+Wi-Fi association failure that required reboot; not necessarily
+related to mDNS and not root-caused. Prefer using numeric IP for
+next test, or DHCP address reservation if persistent.
+
+Do not interpret previous ~5-6 s wall-clock curl totals as evidence
+of a ~6 s server-side Media Manager function; measure the individual
+`time_namelookup`, `time_connect`, `time_starttransfer` before
+making latency claims. A large file JSON build/Teensy SD query
+still needs performance measurement separately.
+
+Media listing under modem+Web/Telnet load is still deliberately
+unavailable because the small 8-bit memory reserve is exhausted.
+Testing outcome: safe rejection and browser rendering CONFIRMED;
+simultaneous full operation / modem memory pressure not solved.
+Do not merge Stage A yet. Avoid unnecessary code changes or more
+risky stress tests. Planned next phase remains the three compile-time
+firmware variants (TFT-only, WebTerm/headless, full), eventually
+complete file-transfer management console and optional FPGA variant.
+
+---
 ## 2026-10-23 asynchronous Media Manager hardware report — 202/200 and low-memory 503 WORK
 
 User flashed the feature branch version with `CpmMediaAsync` background job.
