@@ -129,6 +129,20 @@ assert 'v["wifi_rssi_dbm"]' not in web
 assert 'v["websocket_queue_wait_events"]' not in web
 assert 'v["telnet_write_stall_events"]' not in web
 
+# Protect Web Terminal BEFORE websocket client allocation, without relaxing
+# modem dial guards or introducing any new permanently allocated data.
+assert "inline bool webTerminalHasMemoryReserve()" in web_terminal
+assert "ESP.getFreeHeap() >= 56U * 1024U" in web_terminal
+assert "heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) >= 14U * 1024U" in web_terminal
+assert "z80WebSocket.handleHandshake(" in web_terminal
+assert "return webTerminalHasMemoryReserve();" in web_terminal
+assert web_terminal.index("z80WebSocket.handleHandshake(") < web_terminal.index("server.addHandler(&z80WebSocket)")
+assert web_terminal.index("if (!webTerminalHasMemoryReserve())") < web_terminal.index("reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE)")
+assert "r->send(503,\"text/plain\"" in web_terminal
+assert "if(++wsFailures<3)" in web_terminal
+assert "retryTerminalConnection()" in web_terminal
+assert "setTimeout(connect,1000)" not in web_terminal
+
 # Firmware identity is the exact compiled SHA. No startup hooks/heap needed.
 pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
 revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
