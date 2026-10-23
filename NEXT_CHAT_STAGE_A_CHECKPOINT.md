@@ -85,6 +85,51 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 ESP32 allocator pools after full-no-Telnet test: 47KiB IRAM-capable block remains
+
+User captured `/api/system/memory/pools` at uptime 509827ms
+after BBS logout and successful CP/M DIR/Multiplan in
+`esp32dev-tft-no-telnet` with SPI cache allocated in `dram8`.
+Rows overlap and must NOT be summed:
+
+| Capability | Free | Largest | Min free |
+| --- | ---: | ---: | ---: |
+| internal | 58944 | 47092 | 39652 |
+| byte_8bit | 11524 | 10740 | 476 |
+| internal_byte_8bit | 11488 | 10740 | 476 |
+| word_32bit | 58828 | 47092 | 39652 |
+| internal_word_32bit | 58792 | 47092 | 39652 |
+| executable | 58732 | 47092 | 39636 |
+| dma | 11328 | 10740 | 476 |
+
+At measurement time, a ~47KiB **contiguous 32-bit/executable**
+pool remains while only ~11.5KiB ordinary byte-addressable DRAM
+does. This is compatible with IRAM still being available for the
+8KiB SPI cache even though its **earlier allocation** fell back
+to DRAM8. However each row is a capability union; these are
+not direct measurements of
+`MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL`
+intersection at boot, so cannot yet assert why exact malloc
+failed or was rejected by `free8After>=free8Before` guard.
+Per Espressif docs ESP32 supports 32-bit-aligned accesses to IRAM
+and D/IRAM aliases; an allocation can affect both the 8bit and
+executable pools. Source `spi_disk_read.h::spiDiskEnsureCache()`
+already checks for 8bit drain and releases the speculative word
+cache before taking 8bit DRAM fallback.
+
+**Engineering recommendation**: instrument exact-cap intersection
+largest/free and free8 deltas at attempted word-cache allocation,
+and test reserving IRAM word cache *before* Web/Wi-Fi/task
+allocation. For fourth experimental target, avoid unexpected
+8KiB byte-DRAM fallback: if IRAM word cache cannot be secured,
+leave SPI read-ahead disabled and use existing UART fallback.
+Preserve alignment-only word-store/load implementation and do
+not touch actual Teensy disk operations. Verify cold boot
+`cache_storage=iram32`, free8 near prior TFT-only baseline,
+no CBIOS load failures, and controlled MODEM/BBS minimum
+before declaring success. Nothing merged to main.
+
+---
 ## 2026-10-23 full no-Telnet BBS successful logout, DIR/Multiplan pass; CRITICAL min free8 476B
 
 User completed no-Telnet TFT/HP keyboard BBS session in
