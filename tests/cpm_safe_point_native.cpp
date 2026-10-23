@@ -125,6 +125,9 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   assert(f.gate.request(CpmSafePoint::DIRECTORY,1));
   assert(!f.gate.takeAutomaticReturn());
   f.gate.observeLineCount(0);  // Z80 B=0 at BDOS D9EF
+  f.gate.observeFetchedOpcode(0xE863); // BIOS console OUTPUT status read
+  assert(!f.gate.takeAutomaticReturn());
+  f.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
   assert(f.gate.takeAutomaticReturn());
   assert(!f.gate.takeAutomaticReturn()); // one and only one virtual CR
   f.gate.onWarmBoot();
@@ -133,9 +136,11 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   typed.gate.fetch(CpmSafePoint::kCcpPrompt,typed.mem);
   typed.gate.fetch(CpmSafePoint::kCcpConsoleInput,typed.mem);
   typed.gate.observeLineCount(3);
+  typed.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollB);
   assert(!typed.gate.request(CpmSafePoint::DIRECTORY,1));
   assert(!typed.gate.takeAutomaticReturn());
   typed.gate.observeLineCount(0); // operator cleared the line
+  typed.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollB);
   assert(typed.gate.request(CpmSafePoint::DIRECTORY,2));
   assert(typed.gate.requestedDrive.load()==2);
   assert(typed.gate.takeAutomaticReturn());
