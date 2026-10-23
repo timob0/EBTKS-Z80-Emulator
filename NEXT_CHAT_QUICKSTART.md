@@ -1,5 +1,16 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**FINAL CPDCAT HARDWARE REGRESSIONS PASSED (2026-10-24):**
+After user approved the HP-85 two-column catalog layout, user confirmed
+"Multiplan and Media Manager work as expected." CP/M DIR, busy guard,
+native BDOS directory, correct HP CRT formatting and forced-reset
+safety are already passed. Two malformed files are known damage on
+test A: disk. 32-entry truncation remains documented.
+All requested CPDCAT acceptance gates have passed. ESP32 main has a
+separate recovery/firmware.bin-only update (feature is behind main one
+commit); preserve it when merging later. Feature branches currently
+unmerged; wait for explicit merge approval. Refer to CPDCAT_STAGE_B1.md.
+
 **CPDCAT HARDWARE DISPLAY ACCEPTED (2026-10-24):**
 Physical HP-85 retest of the two-column 8.3-aligned formatter succeeded:
 user says "This works nicely, the directory formatting is good."
