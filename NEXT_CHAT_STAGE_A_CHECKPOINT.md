@@ -85,6 +85,85 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23: Static HTML gzip + Home Page Z80 button repair
+
+User requested build-time compression of **all embedded static Web pages**,
+especially CP/M Media Manager, and repair of Home Z80 Terminal button
+which displayed the broken raw-string macro as literal text.
+Follow-up user asked whether ESPAsyncWebServer could allocate its
+HTTP response output buffer in **32-bit-only RAM**. Answer: not
+safely as drop-in replacement because the library passes the
+byte-oriented buffer to AsyncTCP/lwIP, which expects 8-bit
+accessible data; IRAM32 requires aligned 32-bit data access.
+Using MALLOC_CAP_32BIT | MALLOC_CAP_8BIT would still consume
+the same scarce 8-bit pool. Prefer gzip and, if needed later,
+a bounded-size 8-bit DRAM response implementation.
+
+**Feature branch implementation** (no main/recovery/Teensy/HP changes):
+
+- Corrected `EBTKS_HOME_FALLBACK` adjacent C++ raw-string
+  expression to use `)HTML\" EBTKS_HOME_Z80_LINK R\"HTML(`.
+  This expands the actual Z80 link button in browser-enabled
+  builds, or appropriate Telnet/TFT text in other variants.
+- New build pre-script `tools/pio_gzip_pages.py` generates a
+  `.pio/build/<env>/ebtks_static_pages_gzip.h` with gzip-compressed
+  bytes in PROGMEM for **Home**, **Updater fallback**,
+  **HP CRT**, **CP/M Media Manager**, **Z80 browser terminal**.
+  Home gzip is correctly conditional for Web/Telnet/TFT targets.
+  HTML markup and JS remain source-controlled/editable as
+  the original C++ raw literals; no runtime compressor.
+- New `ESP32_Z80_Emulator/ebtks_static_pages.h` serves
+  compressed flash bytes when HTTP `Accept-Encoding` allows
+  gzip, with `Content-Encoding:gzip` and
+  `Vary:Accept-Encoding`, otherwise preserves old identity
+  source as a compatibility fallback. `Cache-Control:no-store`
+  remains. OTA POST, SPIFFS updater override, JSON API and
+  `/ws` and `/z80ws` WebSockets left unchanged.
+- HTML routes `/`, `/updater` fallback, `/crt`, `/cpmmedia`,
+  `/z80` use shared gzip/identity helper; keep existing
+  Web Terminal low-memory handshake and HTTP guards.
+- New native regression `tests/check_html_gzip.py` runs in
+  CI, checks exact gzip roundtrip, all 3 Home variants,
+  corrected button and expected page APIs; other static
+  source tests updated. All 4 firmware static DRAM budgets
+  still stay below conservative 124544B ceiling in first
+  green CI run (new no-Telnet variant remained 124464B).
+
+Actual measured HTML gzip sizes from CI native test:
+
+| Page | Raw bytes | Gzip bytes |
+| --- | ---: | ---: |
+| Home Web | 936 | 546 |
+| Home Telnet | 934 | 558 |
+| Home TFT | 916 | 547 |
+| Updater fallback | 694 | 455 |
+| HP CRT | 10357 | 3680 |
+| Media Manager | 6841 | 2756 |
+| Z80 Terminal | 18581 | 6969 |
+
+**Crucial hardware A/B:** after flashing and coldboot, use
+`curl -sS --compressed -D - -o /dev/null
+http://192.168.178.197/z80` to request actual gzip.
+Old `curl -sS -o /dev/null URL` by default sends no
+`Accept-Encoding:gzip`, thus intentionally takes uncompressed
+identity path and may reproduce the former ~14KiB trough.
+Check `Content-Encoding: gzip` and `Vary: Accept-Encoding`,
+then `/api/system/memory` lifetime minimum. Repeat optionally
+for `/cpmmedia` and `/crt`; verify Home Page Z80 button
+navigates, Media Manager listing, CRT, WebTerminal rendering
+and HP/TFT, updater page accessibility. No BBS+active WebSocket
+concurrency until transient memory safety confirmed.
+
+**CI status at note time:** completed run 40011296447 green
+(4 ESP32 builds, DRAM guard, native, feature checks),
+source SHA a069c70bfdf7558245d199816a247d49d6b4bab2.
+A minor subsequent correctness improvement to gzip
+`Accept-Encoding` q=0 negotiation is at 540eea3...,
+plus docs. Before requesting user flash, verify the
+**LATEST branch head GitHub Actions green**. No user Mac
+build or physical test of gzip yet.
+
+---
 ## 2026-10-23 clean coldboot: HTTP-only `/z80` GET reproduces ~14KiB 8bit heap trough
 
 User rebooted early-IRAM TFT+Web/no-Telnet firmware.
