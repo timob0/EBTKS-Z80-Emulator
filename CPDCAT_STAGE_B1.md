@@ -7,6 +7,43 @@ Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
 
+## Post-error hardware evidence, running ESP32 SHA 74bb45f3 (2026-10-23)
+
+User read both endpoints after the HP error (without rearming the request):
+
+```json
+GET /api/cpm/service/status
+{"supported":true,"ccp_idle":true,"mode":"ccp_input","probe":"never","operation":"directory","git_commit":"74bb45f3a6554489670746b721b2df2b47d64cf0", ...}
+GET /api/cpm/service/directory
+{"supported":true,"operation":"directory","state":"never"}
+```
+
+**Interpretation:** `Gate::reset()` is invoked during a full Z80 cold
+rebootstrap in `ESP32_Z80_Emulator.ino`, and resets `result` to NEVER but
+does not reset `operation`. The reading is consistent with a Z80-only
+restart after the failed CPDCAT, and old firmware has already destroyed the
+useful last BDOS error by the time HTTP was read. `ccp_idle:true` only means
+CCP has become idle again after reboot. It does NOT prove the catalog ran.
+
+**Fix committed on ESP32 feature branch only:** add lastDirectoryResult,
+lastDirectoryError, lastDirectoryCheckpoint and lastDirectoryReset to the
+existing heap Gate. Store final error after BDOS service and record forced
+Z80 reset **before** setting RUN=false; leave sticky diagnostics unchanged
+across Gate::reset while resetting normal live state. Both HTTP endpoints
+now expose `last_directory_state`, `last_directory_error`,
+`last_directory_checkpoint`, `last_directory_forced_z80_reset`. Native
+regression simulates failed BDOS then a Z80-only cold boot and verifies
+retention. These sticky values do NOT survive an ESP32 MCU power cycle.
+
+**The underlying BDOS failure reason is not yet known.** Do not assert
+that the explicit A-drive FCB, the expanded 32-entry search, or an input
+race is the cause without a diagnostic result. First test from empty A>
+prompt, then inspect the sticky last_directory fields. If the HP catalog
+fails again, compare with the Web directory POST (current-drive selector
+0) to separate explicit drive selection from common BDOS traversal.
+Avoid new CP/M request until the last-directory diagnostics are recorded.
+No HP/Teensy firmware changes; main and recovery untouched.
+
 ## Second physical CPDCAT result: generic cancellation/failure (2026-10-23)
 
 After the ESP32 fetch-filter fix, the HP command no longer timed out.
