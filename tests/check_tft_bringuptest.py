@@ -9,7 +9,7 @@ terminal = (root / "ESP32_Z80_Emulator/ebtks_tft_terminal.h").read_text()
 ino = (root / "ESP32_Z80_Emulator/ESP32_Z80_Emulator.ino").read_text()
 cfg = (root / "platformio.ini").read_text()
 
-envs = re.findall(r"^\\[env:([^]]+)\\]", cfg, re.M)
+envs = re.findall(r"^\[env:([^]]+)\]", cfg, re.M)
 assert envs == ["esp32dev", "esp32dev-tft"], envs
 headless, display = cfg.split("[env:esp32dev-tft]")
 options = (root / "ESP32_Z80_Emulator/ebtks_firmware_options.h").read_text()
