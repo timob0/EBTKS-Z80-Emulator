@@ -85,6 +85,61 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 gzip-enabled `/z80` coldboot curl hardware experiment
+
+User built/flashed firmware with build-time gzip Home/Updater/CRT/Media
+Manager/Web Terminal, Home Page Z80 link fix, and early IRAM SPI read
+cache; tested `esp32dev-tft-no-telnet` on real ESP32.
+MODEM state=0, browser Web Terminal not connected.
+
+On cold boot at uptime=48198 ms:
+heap_free=67872, free_8bit=28696, largest_8bit=26612,
+min_heap_free=61624, min_free_8bit=22448, modem_state=0.
+Then ran curl HTTP-only gzip-request:
+
+```sh
+curl -sS --compressed -D - -o /dev/null http://192.168.178.197/z80
+```
+
+Received HTTP/1.1 200 OK; `Content-Encoding: gzip`,
+`Vary: Accept-Encoding`, `Cache-Control: no-store`,
+`content-length: 6969`, `text/html; charset=utf-8`.
+Thus compression and HTTP negotiation confirmed on physical device.
+
+After request at uptime=80458 ms: heap_free=68904,
+free_8bit=29728, largest_8bit=27636,
+min_heap_free=50212, min_free_8bit=11036, modem_state=0.
+Current free8 actually increased by 1032B across snapshots;
+no persistent allocation by gzip page fetch. Historical minimum
+fell **11412B** during the interval, so HTTP handling still
+imposes a significant transient pressure even for 6969B body.
+
+Compare earlier fresh-boot uncompressed HTML-only test:
+start min_free8=23948, final min_free8=9724,
+drop **14224B**. New gzip min delta **11412B**:
+observed improvement of **2812B (~20%)** in additional
+low-water drop despite compressed body shrinking by 62.5%.
+Different boot states/timing mean this is not a perfectly
+controlled attribution of all allocation differences.
+Post-request minimum itself is 1312B better than uncompressed
+(11036 vs 9724), but new pre-request minimum started 1500B
+lower (22448 vs 23948).
+
+**Next gates:** Confirm Home Page proper button visually and
+click `/z80`; browse `/cpmmedia` and `/crt` to test full
+UI functionality. Measure gzip headers/body and min_free8
+for Media Manager/CRT separately; reboot between tests
+because low-water marks are lifetime cumulative.
+If pursuing another optimization, make a separate small
+bounded **8-bit accessible** HTTP response staging experiment
+(not MALLOC_CAP_32BIT-only response byte buffers; AsyncTCP/lwIP
+need byte addressing), and test with same gzip-only curl
+protocol. No proof yet that WebSocket or modem concurrently
+safe under low 8bit reserve.
+
+No branch merge or source modification from this hardware result.
+
+---
 ## 2026-10-23: Static HTML gzip + Home Page Z80 button repair
 
 User requested build-time compression of **all embedded static Web pages**,
