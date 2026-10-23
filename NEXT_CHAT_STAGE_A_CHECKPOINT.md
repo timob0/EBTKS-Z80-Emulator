@@ -85,6 +85,47 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 full TFT + Web without Telnet: BBS connected but 1836B free8 minimum
+
+User continued the physical TFT + HP keyboard BBS experiment with
+`esp32dev-tft-no-telnet`, even though MODEM-start free8/largest8 were
+11944/10740. At uptime 291937 ms, BBS dialed and session in progress.
+HTTP memory endpoint still responsive; `telnet_enabled=false`,
+`telnet_listener_mode=disabled`, `telnet_connected=false`,
+`web_terminal_enabled=true`, `tft_terminal_enabled=true`,
+`modem_state=2`, `modem_dial_refused_low_heap=0`.
+
+Current heap_free=57952, free_8bit=10568, largest_8bit=8692,
+**min_free_8bit=1836**, min_heap_free=41012. Stack unused bytes
+console=1380, Web=2728, modem=3312, HP keyboard=2132, SPI=6324,
+TFT=2976, CPU=2656. This is a *very thin* transient memory
+reserve: no more load or concurrency should be added.
+
+Dial guard triggered at exact `before_tcp_connect` capture:
+heap=64216, free8=16832, largest8=12788. These numbers SATISFY
+thresholds 49152 total and 12288 largest8 even though prior
+snapshot had only 10740 largest8; allocations changed between
+samples. `after_tcp_connect` captured 63084 total, 15700 free8,
+largest8 12788. Do not claim dial guard was bypassed.
+
+SPI endpoint still reports enabled=true, cache_storage=dram8,
+cache_bytes=8192, batches=6, frames=96, spi_failures=0.
+Previous TFT-only no-Telnet BBS login was free8=17636,
+largest8=16372, min_free8=8108; new run has -7068 free8,
+-7680 largest, -6272 min. Fits 8KiB DRAM cache allocation
+penalty. Not proof of exact WebTerminal static/dynamic overhead.
+
+Boot debug still contains two EBTKS UART transaction timeouts
+and `FAILED` at cbios.rom; no new UART failure shown during
+this session. This remains a *boot integrity concern*.
+After session: recommend normal BBS logout; if healthy, capture
+`/api/system/memory` and `/api/system/memory/pools`,
+avoid opening `/z80` concurrently or any additional BBS dial.
+Prioritize deterministic SPI read-cache placement and investigation
+of CBIOS load timeout before another hardware stress trial.
+No firmware changes from these measurements; no merge.
+
+---
 ## Fourth build hardware check: DRAM cache fallback confirmed
 
 MODEM initialized without dialing. Current free8 11944, largest8
