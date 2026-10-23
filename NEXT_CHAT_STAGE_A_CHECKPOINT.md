@@ -85,6 +85,76 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 clean coldboot: HTTP-only `/z80` GET reproduces ~14KiB 8bit heap trough
+
+User rebooted early-IRAM TFT+Web/no-Telnet firmware.
+With MODEM never initialized (`modem_state=0`), captured memory
+at 36695ms, then used Mac curl `curl -sS -o /dev/null
+http://192.168.178.197/z80` to retrieve HTML with **no JS
+execution, WebSocket upgrade or BBS TCP connection**, then
+memory endpoint again at 68441ms.
+
+| Measurement | Cold boot | After HTTP GET /z80 |
+| --- | ---: | ---: |
+| heap_free | 68656 | 68656 |
+| free_8bit | 29480 | 29480 |
+| largest_8bit | 25588 | 25588 |
+| min_heap_free | 63124 | **48900** |
+| min_free_8bit | 23948 | **9724** |
+| modem_state | 0 | 0 |
+
+**Strong isolated finding:** HTML-only HTTP GET introduces
+at least **14224B additional transient 8bit heap pressure**,
+with **0B retained current heap cost** after request completes.
+Very similar to prior fresh-boot full browser Web Terminal
+causing 13016B drop (min8 22172->9156). Thus merely serving
+the HTML page can explain most/all of earlier transient trough;
+WebSocket is NOT required. Modem is NOT required either.
+Min values are lifetime lowest; do not assume any one malloc
+exactly equals 14224B, or that WebSocket cannot also add peaks.
+
+**Root-cause source inspection (ESP32Async/ESPAsyncWebServer
+pinned at 3.6.0, GitHub tag v3.6.0):**
+`src/WebRequest.cpp:755-756`: `beginResponse(int,const char*,
+const uint8_t*,size_t,..)` creates `AsyncProgmemResponse`;
+`src/WebResponses.cpp:775-791`: PROGMEM bytes copied via
+`memcpy_P` into a response staging buffer.
+`src/WebResponses.cpp:348-469` specifically
+`AsyncAbstractResponse::_ack` picks `outLen` based on
+TCP `client()->space()` and remaining response length
+(lines 369-410), invokes **`malloc(outLen + headLen)`**
+(line 413), fills PROGMEM content and writes to
+`client()->write` (lines 439-454), then `free(buf)`
+(line 464). This gives a direct plausible cause of a
+large *temporary* DRAM allocation when serving the
+~17KiB browser terminal page, without constructing a
+persistent heap String. Other AsyncTCP/lwIP allocations
+may overlap; exact allocation trace still unmeasured.
+
+**Most promising targeted code experiment** (not yet
+implemented or requested): gzip-compress terminal HTML
+at development/build time, store compressed bytes in
+flash/PROGMEM, serve with `Content-Encoding: gzip`,
+correct Content-Length and type text/html. This caps
+this AsyncWebServer response's staging allocation to
+compressed bytes (potentially far below ~17KiB),
+reduces TCP payload and may improve low-water headroom.
+A runtime gzip compressor would be counterproductive;
+do NOT compress at runtime. Verify Content-Encoding
+works with browser, no extra `.dram0.bss`, `curl -i`
+headers, content rendering, WebSocket handshake after
+page load, and same coldboot HTTP-only free8 minima.
+An alternative is a bounded-size custom response or
+switching to filesystem serving if proven to use smaller
+chunks; default `beginChunkedResponse` in same library
+also mallocs outLen based on TCP space, so is NOT
+automatically a bounded-memory fix.
+
+All previous BBS, physical TFT, Web Terminal, disk
+and OTA paths remain as before. No firmware change
+or main/recovery merge as part of these observations.
+
+---
 ## 2026-10-23 clean coldboot / browser terminal / leave: isolated transient heap use without MODEM
 
 User ran new clean-boot A/B on early IRAM-only
