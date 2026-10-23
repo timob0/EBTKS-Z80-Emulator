@@ -85,6 +85,52 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 full no-Telnet BBS successful logout, DIR/Multiplan pass; CRITICAL min free8 476B
+
+User completed no-Telnet TFT/HP keyboard BBS session in
+`esp32dev-tft-no-telnet`, logged off normally, returned to CP/M,
+and confirmed **DIR and Multiplan both work**.
+
+| Phase | uptime_ms | heap_free | free_8bit | largest_8bit | min_free_8bit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| MODEM started | 117444 | 59308 | 11944 | 10740 | 10852 |
+| BBS active | 291937 | 57952 | 10568 | 8692 | 1836 |
+| Logged off | 390137 | 60052 | 12668 | 11764 | **476** |
+| Back in CP/M | 449122 | 58728 | 11344 | 9716 | **476** |
+
+At logout all Telnet flags still disabled; Web Terminal=true, TFT=true,
+MODEM worker remains state=2. Lowest transient 8-bit RAM **476B**
+after BBS active (even worse than 644B when previous Telnet+BBS
+failed). This PROVES removing Telnet alone does not guarantee safe
+memory margin when SPI cache is in DRAM8. Runtime currently free8
+11344B and largest8 9716B, under current dial guard of 12288B.
+Do not repeat dial or open browser `/z80` WebSocket concurrently
+until cache placement issue fixed.
+
+From BBS active to logged out, free8 recovered +2100B and largest
++3072B. Logged off to back in CP/M free8 changed -1324B, largest
+-2048B; may be secondary allocations or fragmentation. No evidence
+of continuously growing leak from two observations alone.
+
+`/api/cpm/spireads` after CP/M: still `cache_storage=dram8`
+(8192B), enabled, 22 successful batches, 352 sectors,
+187 hits, 22 misses, zero SPI failures, zero UART fallback;
+cache_first=16 and cache_count=16. This substantiates continuing
+SPI functionality alongside DIR and Multiplan. Previous
+CBIOS load emitted **two Teensy UART timeouts and FAILED**;
+DIR and Multiplan functioning does not prove full pristine
+CBIOS image loaded at boot. Investigate boot integrity independently.
+
+For next firmware revision prioritize IRAM32 cache reservation
+early enough to avoid DRAM8 fallback; consider IRAM-only policy
+and UART read fallback if reservation fails to protect networking.
+Need `GET /api/system/memory/pools` to understand IRAM/EXEC
+allocator availability; that endpoint was requested but user
+provided SPI cache endpoint instead. Once documented, controlled
+short BBS test after cache change, not on current image.
+No firmware source changes or main/recovery merge from this data.
+
+---
 ## 2026-10-23 full TFT + Web without Telnet: BBS connected but 1836B free8 minimum
 
 User continued the physical TFT + HP keyboard BBS experiment with
