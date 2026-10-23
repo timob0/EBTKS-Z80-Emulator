@@ -6,9 +6,12 @@ CI runs this only after rebuilding esp32dev and esp32dev-tft with
 Default binaries were tested with Telnet off earlier in the workflow.
 """
 from pathlib import Path
+import sys
 
 root=Path(__file__).resolve().parents[1]
-for target in ("esp32dev","esp32dev-tft"):
+targets=sys.argv[1:] or ("esp32dev", "esp32dev-tft")
+assert all(t in ("esp32dev","esp32dev-tft") for t in targets)
+for target in targets:
     image=(root/".pio"/"build"/target/"firmware.bin").read_bytes()
     for symbol in (b"Telnet port 23 listener started",
                    b"New Telnet client @",
