@@ -68,9 +68,15 @@ void serialTask(void *parameter) {
 
     // Reclaim buffered Telnet data when its peer disconnects. Do NOT carry
     // unsent CP/M bytes into a subsequent client session.
-    if (!serverClient.connected() && telnetTx) {
-      free(telnetTx);telnetTx=nullptr;
-      telnetStart=telnetEnd=0;
+    if (!serverClient.connected()) {
+      if (telnetTx) {
+        free(telnetTx);telnetTx=nullptr;
+        telnetStart=telnetEnd=0;
+      }
+      // Telnet IAC negotiation is per-connection; a disconnected client
+      // must never leave an unfinished escape sequence for the next peer.
+      telState=TEL_DATA;
+      telnetAfterCr=false;
     }
 
     if (n) {
