@@ -75,6 +75,13 @@ The `esp32dev-tft-no-telnet` environment additionally defines
 SPI read-ahead word cache **after Teensy UART initialization but
 before Wi-Fi/Web service startup**, using the same existing
 `MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL` request.
+The endpoint `GET /api/cpm/spireads` includes `early_iram_only=true` and
+`early_cache_allocator` containing `accepted`, `free8_before`,
+`free8_after`, `exec32_free_before`, `exec32_free_after`,
+`exec32_largest_before`, and `exec32_largest_after`. The
+diagnostic is stored on a very small heap allocation after the cache
+reservation and survives the 2KiB rolling debug-log buffer.
+
 Boot debug `/z80debug` now logs
 `CP/M SPI early IRAM32 reserve: iram32` or `unavailable`,
 with the free-8bit and exact intersection of executable/32-bit
