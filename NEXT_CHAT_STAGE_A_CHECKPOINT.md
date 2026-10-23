@@ -85,6 +85,57 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 Fourth-target experimental fix: reserve IRAM cache before Web/Wi-Fi
+
+Hardware baseline: full TFT+Web **without Telnet** previously used
+8192-byte `dram8` SPI cache, left just 10568B current free8 while
+BBS connected and 476B historical free8 minimum by logout.
+CBIOS `/cpm/cbios.rom` boot also emitted two EBTKS UART timeouts
+and `FAILED`, although subsequent DIR/Multiplan ran.
+User requested next experiment to move SPI cache into early IRAM.
+
+Changes on feature branch only, no main/recovery/Teensy/HP changes:
+
+- New flag **`EBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1`** only in
+  `esp32dev-tft-no-telnet` PlatformIO environment. Other three
+  configurations retain their original cache/telnet behavior.
+- Before Wi-Fi/Web startup, directly after `ebtksLinkBegin()`,
+  `setup()` calls `spiDiskReserveCacheEarly()`.
+- Attempts the existing 8192B cache from exact capabilities
+  `MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL`, and
+  rejects/reclaims it if free8 drops; does **not** initialize SPI
+  DMA or its disk worker at this stage.
+- New compile-time early-IRAM-only branch in `spiDiskEnsureCache()`
+  **returns false before `MALLOC_CAP_8BIT` fallback**. On failure,
+  marks SPI boot disabled with informative last_error and leaves
+  all CP/M disk reads on existing Teensy UART transport; writes
+  always UART. Runtime Media Manager cannot bypass this boot guard.
+- Logs early exact-cap free/largest and 8bit before/after.
+  Because `/z80debug` is a 2KiB rolling log, preserves those
+  numbers in `GET /api/cpm/spireads` under `early_cache_allocator`:
+  accepted, free8_before/after, exec32_free_before/after,
+  exec32_largest_before/after. Uses one small dynamically
+  allocated diagnostic object, no 8KiB static DRAM array.
+- Extends native source regression tests to ensure exact variant
+  flag, earliest boot placement, sticky UART fallback,
+  and durable diagnostics; `FIRMWARE_VARIANTS.md` has new
+  boot/hardware-gate instructions.
+
+**Post-flash hardware acceptance order:** coldboot with no open
+Web Terminal or Telnet; collect `/api/cpm/spireads` and
+`/api/system/memory` first. Should show cache_storage=`iram32`
+and accepted=true, with free8_after>=free8_before. If none,
+UART mode is intended safe fallback; **dram8 never acceptable**
+in this new build. Verify `/z80debug` CBIOS load `Done` rather
+than prior `FAILED` before MODEM/BBS. If CBIOS fails, stop
+BBS test and investigate Teensy UART. If boot clean, compare
+coldboot and MODEM-start memory with prior TFT-only control;
+only if safe margin, later consider one short TFT/HP BBS dial
+without opening `/z80` WebSocket. User expects explicit
+pull/build instructions after green CI. No claim of hardware
+success before testing.
+
+---
 ## 2026-10-23 ESP32 allocator pools after full-no-Telnet test: 47KiB IRAM-capable block remains
 
 User captured `/api/system/memory/pools` at uptime 509827ms
