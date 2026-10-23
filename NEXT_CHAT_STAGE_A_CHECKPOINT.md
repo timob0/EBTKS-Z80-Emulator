@@ -85,6 +85,40 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 Four firmware configurations: successful GitHub CI, ready for Mac/hardware testing
+
+Fourth target implemented and CI **GREEN** at source commit
+`e355175d59587014936fb2977320615698404b23`,
+run: https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/39994629516.
+Both jobs passed: native Z80/bridge regressions and four linked
+ESP32 PlatformIO firmware images, plus firmware feature isolation
+(no Telnet listener, no Telnet console TX path in new binary),
+exact embedded SHA and Mac-derived static DRAM guard.
+Linked TFT static DRAM: full 124536 bytes, TFT-only 124432,
+**TFT + Web without Telnet 124464**, below conservative guard
+124544. New target static DRAM is 72B lower than full;
+this does **not** guarantee comparable runtime heap reduction.
+An initial CI failure from the guard around shared serialTask
+`if (n)` scope was fixed before green run. No additional source
+changes since green run.
+
+Build on Mac: `git fetch origin && git switch feature/cpm85-management-console
+&& git pull --ff-only`; `pio run -e esp32dev-tft-no-telnet -t clean`
+then `pio run -e esp32dev-tft-no-telnet`; flash
+`.pio/build/esp32dev-tft-no-telnet/firmware.bin` by ESP32 `/updater`.
+After boot memory endpoint must show `telnet_enabled=false`,
+`telnet_listener_mode="disabled"`, `telnet_connected=false`,
+`web_terminal_enabled=true`, `tft_terminal_enabled=true`.
+TCP/23 should refuse connections. Initially use **only**
+`/api/system/memory`, physical TFT+HP keyboard, and MODEM BBS
+to compare to previous TFT-only/no-Telnet control; log cold boot,
+MODEM initialized, BBS logged in, logged off, back in CP/M.
+After this, optionally open `/z80` WebSocket as second socket
+and cautiously observe memory, if system remains healthy.
+**Hardware NOT yet tested.** No Teensy/HP LOADBIN changes;
+main/recovery untouched, do not merge without user approval.
+
+---
 ## 2026-10-23 four firmware target experiment: full Web + TFT, Telnet compiled OUT
 
 User confirms that during no-Telnet physical TFT/HP-only BBS session
