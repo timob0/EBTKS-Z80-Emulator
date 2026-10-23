@@ -51,8 +51,21 @@ void serialTask(void *parameter) {
       if (serverClient.connected()) {
         // WiFiClient::write() may accept less than the requested length.
         // Do not discard the tail of a CP/M output burst if that happens.
+        // Under TCP/8-bit heap pressure, connected() may remain true even
+        // while write() accepts no bytes. Never let a slow Telnet peer stall
+        // the shared ConsoleTask (TFT, Web terminal, and HP keyboard router).
+        // Give each 256-byte chunk a bounded retry window, then shed only
+        // the failing Telnet client; CP/M and other outputs keep running.
+        const TickType_t telnetStart = xTaskGetTickCount();
         size_t sent = 0;
         while (sent < n && serverClient.connected()) {
+          if ((TickType_t)(xTaskGetTickCount() - telnetStart) >=
+              pdMS_TO_TICKS(2000)) {
+            EbtksDebugSerial.println(
+                "Telnet TX stalled for 2 s; disconnecting slow client");
+            serverClient.stop();
+            break;
+          }
           size_t wrote = serverClient.write(chunk + sent, n - sent);
           if (wrote == 0) {
             vTaskDelay(1);
