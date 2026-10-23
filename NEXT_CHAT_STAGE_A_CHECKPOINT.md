@@ -85,6 +85,67 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 clean coldboot / browser terminal / leave: isolated transient heap use without MODEM
+
+User ran new clean-boot A/B on early IRAM-only
+`esp32dev-tft-no-telnet` firmware, MODEM never started
+(`modem_state=0` in all snapshots), Telnet disabled,
+Web Terminal+TFT compiled in:
+
+| Phase | uptime_ms | heap_free | free_8bit | largest_8bit | min_heap_free | min_free_8bit |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| CP/M cold boot | 22482 | 69100 | 29924 | 28660 | 61348 | 22172 |
+| Browser `/z80` open/in use | 63052 | 66816 | 27640 | 25588 | 48332 | **9156** |
+| Navigated away | 95399 | 68712 | 29536 | 27636 | 48332 | **9156** |
+
+Web Terminal session steady delta from boot: -2284B in free8;
+after browser leaves, +1896B free8 is reclaimed,
+leaving just -388B from initial coldboot and -1024B in
+largest8. No substantial sustained heap leak detected in
+this single browser cycle.
+
+**Critical evidence**: lifetime min_free8 fell **13016B**
+from 22172B to 9156B after Web Terminal opened and used.
+min_heap_free fell exactly 13016B. This happens with
+`modem_state=0` and no previous BBS connection, so the
+earlier BBS session is NOT a prerequisite for transient
+pressure. The 2436B minimum in the prior WebTerminal-after-BBS
+test is plausibly combined resident MODEM heap plus similar
+browser load, but timing, workloads differ: do not attribute
+precise cause to one allocation or claim exact 13KiB websocket
+allocation. Current firmware serves `/z80` terminal HTML directly
+from PROGMEM (~17KiB, no intermediary heap String), and
+WebSocket handshake occurs on `/z80ws`; TCP send buffering
+and AsyncWebSocket's per-frame queue are plausible contributors.
+Min values are whole-system cumulative, so not event-specific.
+
+Source review: `web_terminal_v2.h`
+`webTerminalRegister()` uses `beginResponse(200, ... const
+uint8_t* EBTKS_TERM_PAGE, length)` for HTML, not String,
+and memory guards HTTP GET and websocket upgrade;
+`webTerminalWrite()` queues websocket binary frames and
+waits for queue capacity, `z80WebSocket.cleanupClients()`
+is run periodically by web worker in `ebtks_web.h`.
+
+Suggested **code-free next isolation** if desired: cold boot,
+capture `/api/system/memory`, then retrieve page using
+`curl -sS -o /dev/null http://192.168.178.197/z80`
+(HTTP HTML only, curl does NOT execute JavaScript or open WS),
+then capture memory endpoint again. This isolates the HTTP
+page delivery's peak from the full browser+WebSocket path.
+Follow with controlled actual browser test on a **separate
+fresh boot** for comparable lifetime min baseline. Do NOT
+run active Web Terminal concurrently with BBS yet, as combined
+peak may again leave only ~2KiB 8bit heap available.
+Next source change only if requested: tiny staged heap samples
+around `/z80` GET and WS accept/output paths, and then
+targeted allocation optimization. Do not increase static DRAM
+because strict linker ceiling 124544B.
+
+No ESP32 firmware source changes or main/recovery merge
+resulted from this diagnostic run.
+
+---
 ## 2026-10-23 active browser Web Terminal disconnected: full heap recovery
 
 User **navigated away** from browser Web Terminal `/z80`,
