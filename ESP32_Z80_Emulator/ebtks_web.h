@@ -134,9 +134,17 @@ inline void ebtksWebBackgroundTask(void *parameter)
     ebtksWebSocket.cleanupClients();
     webTerminalCleanupClients();
 
-    // Preserve idle UI memory: no modem socket, FIFOs or task until a
-    // CP/M program actually polls the virtual serial port at 88h-8Fh.
-    // Allocations are guarded by a free-heap and largest-block reserve.
+    // MODEM stays available after ATH/carrier loss for another dial. Once
+    // the verified native CP/M CCP is accepting a new command, however,
+    // MODEM has exited: release its worker, stack, FIFO and socket resources.
+    // Never infer guest program termination from a TCP disconnect alone.
+    if (CpmSafePoint::Gate* gate=cpmSafeGatePtr()) {
+      if (gate->compatible.load(std::memory_order_acquire) &&
+          gate->mode.load(std::memory_order_acquire)==CpmSafePoint::CCP_INPUT)
+        CpmWifiModem::requestReleaseAtCcp();
+    }
+    // Create the modem only upon a guest UART-port access; also safely
+    // reap its suspended worker after returning to the CCP.
     CpmWifiModem::service();
 
     // Process at most one requested media listing in THIS background worker,
