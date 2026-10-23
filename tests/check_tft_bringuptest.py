@@ -20,6 +20,9 @@ assert "-DEBTKS_WEB_TERMINAL_ENABLE=0" in reduced
 assert "extends = env:esp32dev-tft" in reduced
 assert "extends = env:esp32dev-tft" in no_telnet
 assert "-DEBTKS_TELNET_ENABLE=0" in no_telnet
+assert "-DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1" in no_telnet
+for other in (headless, display, reduced):
+    assert "-DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1" not in other
 assert "-DEBTKS_WEB_TERMINAL_ENABLE=1" in no_telnet
 assert "lovyan03/LovyanGFX" not in headless
 assert "EBTKS_TFT_ENABLE=1" not in headless
