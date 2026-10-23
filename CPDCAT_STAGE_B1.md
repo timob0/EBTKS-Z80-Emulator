@@ -7,6 +7,35 @@ Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
 
+## Physical CP/M DIR accepted; literal backslash-n in HP catalog fixed (2026-10-24)
+
+User confirmed CP/M `DIR` still works after a successful `CPDCAT`
+directory request and confirmed **two empty names on A:** are existing
+damage from earlier test writes, not a new BDOS decoder problem.
+Accepted state remains `state:"passed"`, 30 good entries, 2 skipped,
+`truncated:true`, and zero forced Z80 resets.
+
+New HP CRT defect: the catalog printed literal `\\n` glyphs instead
+of line breaks. Source inspection confirmed **four** doubly escaped
+C++ literals in `Cpm85DriveControl::catalog()`: the header, each entry,
+the extent/truncation footer and malformed-name footer. Fixed the four
+strings from C++ `"\\\\n"` to `"\\n"`. This sends ASCII LF (10
+decimal) through the existing mailbox. HP `CPM85` v0.04c's tested
+`CPREAD` already handles ASCII LF using native CRT `OUTSTR` newline;
+there is **no need to change or rebuild HP or Teensy**.
+
+Added a `tests/check_cpm85_bridge.py` regression which parses the
+actual C/C++ format string literals and asserts that the decoded values
+end with ASCII LF instead of printable backslash-n. An initial test
+pattern was itself over-escaped and failed CI; corrected its matcher
+before considering the new build for flashing.
+
+**Only ESP32 feature branch changed, no main or recovery merge.** Await
+native + both firmware CI and local Mac TFT link before ESP32 flash.
+Retest `CPDCAT "A:"` HP output for one line per filename and footer,
+then CP/M `DIR` again. Don't modify the known-damaged disk entries
+unless user explicitly wants to repair disk.
+
 ## HW root cause isolated: invalid directory filename, Z80 reset policy corrected (2026-10-24)
 
 After running `CPDCAT "A:"` under diagnostic ESP32 firmware
