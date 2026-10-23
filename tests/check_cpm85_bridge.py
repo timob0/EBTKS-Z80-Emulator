@@ -93,7 +93,7 @@ assert 'snapshot.truncated' in control
 # the presence of a backslash before 'n' in the source.
 import ast
 catalog=control.split("inline void catalog(",1)[1].split("inline void execute(",1)[0]
-cpp_strings=re.findall(r'"(?:\\\\.|[^"\\\\])*"', catalog)
+cpp_strings=re.findall(r'"(?:\\.|[^"\\])*"', catalog)
 expected_lines=(
     "CP/M %c: DIRECTORY", "%-12.12s EX%u",
     "%u EXTENTS%s", "%u BAD NAME(S) SKIPPED",
