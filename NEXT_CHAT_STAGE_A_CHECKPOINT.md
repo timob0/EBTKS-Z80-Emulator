@@ -130,6 +130,16 @@ Web Terminal handshake guard cannot prevent memory dips from an
 *already connected* client amid BBS bursts. `min_free_8bit` is
 a cumulative minimum and should not be confused with current free.
 
+**Follow-up source change, hardware UNTESTED:** Added a bounded 2-second
+retry window around ConsoleTask Telnet output in `serial.h`; if a
+connected TCP client fails to accept a 256-byte chunk within that window,
+only its Telnet connection is closed so the console task can continue
+forwarding output to TFT and Web Terminal and servicing HP input.
+No modem dial thresholds or TCP API were changed; separate static
+regression guard added to `tests/check_web_ui_cleanup.py`.
+This may prevent one plausible ConsoleTask hang but does **not** prove or
+repair the independent HTTP/server freeze due to the 388-byte historical
+8-bit heap minimum. Await CI, Mac TFT link, and careful physical testing.
 **Next:** Freeze feature merge and keep known-good recovery image;
 isolate Telnet write boundedness and dynamic socket memory pressure.
 Prefer a small separately verifiable liveness fix and safer dial
