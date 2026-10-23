@@ -228,7 +228,7 @@ inline void catalog(const char *arg) {
     // HP CRT is 32 columns wide. Use actual line feeds, not a literal
     // backslash+n sequence. Keep room for all mandatory warning footers.
     const int n=snprintf(lastText,kTextMax,
-                         "CP/M %c: DIRECTORY\\n",char('A'+drive));
+                         "CP/M %c: DIRECTORY\n",char('A'+drive));
     formatted=n>0 && size_t(n)<kTextMax;
     if(formatted)used=size_t(n);
   }
@@ -241,12 +241,12 @@ inline void catalog(const char *arg) {
     }
     const CpmSafePoint::DirectoryEntry &e=snapshot.entries[i];
     const int n=snprintf(lastText+used,kTextMax-used,
-                         "%-12.12s EX%u\\n",e.name,(unsigned)e.extent);
+                         "%-12.12s EX%u\n",e.name,(unsigned)e.extent);
     formatted=n>0 && size_t(n)<kTextMax-used;
     if(formatted)used+=size_t(n);
   }
   if(formatted) {
-    const int n=snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\\n",
+    const int n=snprintf(lastText+used,kTextMax-used,"%u EXTENTS%s\n",
                          (unsigned)snapshot.count,
                          (snapshot.truncated||outputTruncated)?
                            " (MORE NOT SHOWN)":"");
@@ -256,7 +256,7 @@ inline void catalog(const char *arg) {
   if(formatted && snapshot.skipped) {
     // Malformed on-disk entries were skipped, not invented or rewritten.
     const int n=snprintf(lastText+used,kTextMax-used,
-                         "%u BAD NAME(S) SKIPPED\\n",
+                         "%u BAD NAME(S) SKIPPED\n",
                          (unsigned)snapshot.skipped);
     formatted=n>0 && size_t(n)<kTextMax-used;
   }
