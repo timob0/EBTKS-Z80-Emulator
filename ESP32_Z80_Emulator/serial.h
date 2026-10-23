@@ -20,6 +20,7 @@ void serialTask(void *parameter) {
   uint8_t *telnetTx=nullptr;
   size_t telnetEnd=0,telnetStart=0;
   TickType_t telnetLastProgress=0;
+  int telnetSocketFd=-1; // detect client replacement even without an idle gap
   auto dropSlowTelnet = [&](const char *reason) {
     EbtksDebugSerial.printf("Telnet TX %s; dropping client (queued=%u, free8=%lu, largest8=%lu)\n",
                            reason,(unsigned)(telnetEnd-telnetStart),
@@ -28,6 +29,7 @@ void serialTask(void *parameter) {
     serverClient.stop();
     free(telnetTx);telnetTx=nullptr;
     telnetEnd=telnetStart=0;
+    telnetSocketFd=-1;
   };
 
   // One allocation-free virtual terminal probe shared by TFT and Web.
@@ -68,13 +70,14 @@ void serialTask(void *parameter) {
 
     // Reclaim buffered Telnet data when its peer disconnects. Do NOT carry
     // unsent CP/M bytes into a subsequent client session.
-    if (!serverClient.connected()) {
-      if (telnetTx) {
-        free(telnetTx);telnetTx=nullptr;
-        telnetStart=telnetEnd=0;
-      }
-      // Telnet IAC negotiation is per-connection; a disconnected client
-      // must never leave an unfinished escape sequence for the next peer.
+    // A newly accepted client may replace a disconnected one before
+    // ConsoleTask observes an idle loop. Detect by socket descriptor,
+    // discarding any previous client's pending bytes and parser state.
+    const int currentTelnetFd=serverClient.connected()?serverClient.fd():-1;
+    if (currentTelnetFd!=telnetSocketFd) {
+      free(telnetTx);telnetTx=nullptr;
+      telnetStart=telnetEnd=0;
+      telnetSocketFd=currentTelnetFd;
       telState=TEL_DATA;
       telnetAfterCr=false;
     }
