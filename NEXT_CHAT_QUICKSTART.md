@@ -1,5 +1,43 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+## CURRENT BASELINE — CPDCAT integrated into all three mains (2026-10-24)
+
+User explicitly approved merging all three validated CPDCAT feature branches.
+All three GitHub pull requests merged and resulting main SHAs were verified:
+
+| Repository | Merged PR | Integration commit |
+| --- | --- | --- |
+| ESP32 `timob0/EBTKS-Z80-Emulator` | #9 | `72a12d7989ddde578daf33db07f956be0e4de71c` |
+| Teensy `timob0/ebtks-alt-firmware` | #4 | `680b3e0eb4985e4acb6c1446f8193480d276f6b1` |
+| HP `timob0/HP85-Option-Roms` | #2 | `33200112bcce7eb2ccbaa7497dea166deac9aa60` |
+
+ESP32 `main` recovery directory tree hash was the same before/after merge:
+`dcc23902cef631d9ce77f2a21a10c45072d4e476`.
+This preserves the independent `recovery/firmware.bin` update already on main;
+the feature branch had diverged only by that one recovery-only commit.
+
+**Hardware acceptance:** HP `CPDCAT "A:"` lists aligned two-column 8.3
+fields with real linefeeds on the 32-column CRT. CP/M `DIR`, Multiplan,
+Media Manager and busy-state protection all passed. Successful BDOS catalog
+did not cause Z80 restart. Two bad A: filenames were confirmed as old
+disk-test corruption, skipped with diagnostics. Limit remains 32 BDOS
+search results (visible `truncated` flag); entries are raw directory
+extents, not deduplicated logical files. No disk image contents modified.
+
+**CI:** ESP32 feature head `d768030300a3b993e8d2df970301fb88b5d00733`
+passed native and full firmware GitHub Actions run `40037583205`.
+Teensy feature CI `40026407406` and HP feature CI `40026388153` passed.
+
+**NEXT:** Treat all three `main` branches as the new accepted CP/M catalog
+integration baseline. Pull `main` in local repositories before new work.
+Reflashing is not needed solely because of Git merge if the validated
+firmware is already installed. For CP/M file transfer, HPIB output,
+management UI or catalog pagination, start NEW feature branches.
+All historical "unmerged" and "hardware test pending" notes below are
+superseded by this current baseline entry.
+
+---
+
 **FINAL CPDCAT HARDWARE REGRESSIONS PASSED (2026-10-24):**
 After user approved the HP-85 two-column catalog layout, user confirmed
 "Multiplan and Media Manager work as expected." CP/M DIR, busy guard,
