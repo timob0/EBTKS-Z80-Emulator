@@ -115,6 +115,17 @@ static volatile uint32_t spiDiskTotalReadUs = 0;
 static volatile uint32_t spiDiskLastBatchUs = 0;
 static volatile uint32_t spiDiskLastBatchFrames = 0;
 static volatile uint32_t spiDiskCacheInvalidations = 0;
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY
+// Heap-allocated after the actual early reserve; no extra static DRAM
+// except one pointer, and no dependence on the 2KiB rolling boot log.
+struct SpiDiskEarlyCacheDiagnostic {
+  uint32_t free8Before,free8After;
+  uint32_t exactCapsFreeBefore,exactCapsFreeAfter;
+  uint32_t exactCapsLargestBefore,exactCapsLargestAfter;
+  uint32_t accepted;
+};
+static SpiDiskEarlyCacheDiagnostic *spiDiskEarlyDiag=nullptr;
+#endif
 
 // Allocate only when the operator enables SPI reads. With the original
 // static 8192-byte array, dram0_0_seg overflowed by 6728 bytes at link.
@@ -184,6 +195,19 @@ inline bool spiDiskReserveCacheEarly()
                 (unsigned)free8Before,(unsigned)free8After,
                 (unsigned)iramFreeBefore,(unsigned)iramFreeAfter,
                 (unsigned)iramLargestBefore,(unsigned)iramLargestAfter);
+  // Retain the before/after results for /api/cpm/spireads, since the
+  // early log line may roll off /z80debug during CP/M startup.
+  spiDiskEarlyDiag=static_cast<SpiDiskEarlyCacheDiagnostic*>(
+      heap_caps_malloc(sizeof(SpiDiskEarlyCacheDiagnostic),MALLOC_CAP_8BIT));
+  if (spiDiskEarlyDiag) {
+    spiDiskEarlyDiag->free8Before=(uint32_t)free8Before;
+    spiDiskEarlyDiag->free8After=(uint32_t)free8After;
+    spiDiskEarlyDiag->exactCapsFreeBefore=(uint32_t)iramFreeBefore;
+    spiDiskEarlyDiag->exactCapsFreeAfter=(uint32_t)iramFreeAfter;
+    spiDiskEarlyDiag->exactCapsLargestBefore=(uint32_t)iramLargestBefore;
+    spiDiskEarlyDiag->exactCapsLargestAfter=(uint32_t)iramLargestAfter;
+    spiDiskEarlyDiag->accepted=(uint32_t)allocated;
+  }
   if (!allocated) {
     // Sticky for this boot: a later allocation must not silently fall
     // back to 8-bit RAM or change the isolation experiment mid-flight.
@@ -520,6 +544,16 @@ inline void spiDiskRegister(AsyncWebServer &server)
     doc["cache_storage"] = spiDiskCacheStorage();
 #if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY
     doc["early_iram_only"] = true;
+    if (spiDiskEarlyDiag) {
+      JsonObject early=doc["early_cache_allocator"].to<JsonObject>();
+      early["accepted"]=(bool)spiDiskEarlyDiag->accepted;
+      early["free8_before"]=spiDiskEarlyDiag->free8Before;
+      early["free8_after"]=spiDiskEarlyDiag->free8After;
+      early["exec32_free_before"]=spiDiskEarlyDiag->exactCapsFreeBefore;
+      early["exec32_free_after"]=spiDiskEarlyDiag->exactCapsFreeAfter;
+      early["exec32_largest_before"]=spiDiskEarlyDiag->exactCapsLargestBefore;
+      early["exec32_largest_after"]=spiDiskEarlyDiag->exactCapsLargestAfter;
+    }
 #endif
     doc["word_cache_default"] = (bool)EBTKS_SPI_CACHE_WORD32;
     doc["cache_bytes"] = spiDiskCacheAllocated() ? (uint32_t)SPI_DISK_CACHE_BYTES : 0U;
