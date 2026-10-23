@@ -218,6 +218,10 @@ inline bool ebtksWebBegin()
       v["probe"]=CpmSafePoint::resultText(result);
       v["operation"]=CpmSafePoint::operationText(
           gate?gate->operation.load(std::memory_order_acquire):CpmSafePoint::PROBE);
+      v["checkpoint"]=CpmSafePoint::checkpointText(
+          gate?gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["directory_error"]=CpmSafePoint::directoryErrorText(
+          gate?gate->directoryError.load(std::memory_order_acquire):CpmSafePoint::DIR_OK);
       v["git_commit"]=EBTKS_BUILD_GIT_COMMIT;
       v["web_terminal_enabled"]=(bool)EBTKS_WEB_TERMINAL_ENABLE;
       v["tft_terminal_enabled"]=(bool)EBTKS_TFT_TERMINAL_MIRROR;
@@ -279,6 +283,10 @@ inline bool ebtksWebBegin()
       v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
       v["operation"]=correctOperation?"directory":"none";
       v["state"]=correctOperation?CpmSafePoint::resultText(state):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(
+          gate?gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["directory_error"]=CpmSafePoint::directoryErrorText(
+          gate?gate->directoryError.load(std::memory_order_acquire):CpmSafePoint::DIR_OK);
       if(correctOperation && state==CpmSafePoint::PASSED) {
         CpmSafePoint::Directory snapshot;
         if(!gate->copyDirectory(snapshot)) {
