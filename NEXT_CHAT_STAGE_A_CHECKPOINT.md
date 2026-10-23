@@ -85,6 +85,28 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## Fourth build hardware check: DRAM cache fallback confirmed
+
+MODEM initialized without dialing. Current free8 11944, largest8
+10740, heap_free 59308, min_free8 10852, modem_state 2.
+Telnet disabled; browser and TFT terminal enabled. Largest free8
+is below the 12288-byte dial guard. Do not dial on this boot.
+
+User's SPI endpoint reported cache_storage=dram8, cache_bytes=8192,
+word_cache_default=true, enabled=true, 6 successful SPI batches,
+no failures. This confirms the 8KiB free8 loss at SPI cache setup:
+the IRAM32 allocation preference fell back to normal DRAM.
+Determine why IRAM32 was unavailable with memory/pools diagnostics
+before changing allocations.
+
+Boot log also reports two Teensy UART transaction timeouts and FAILED
+during /cpm/cbios.rom loading, despite later Starting Z80 and MODEM
+initialization. Investigate this independent boot reliability concern.
+Do not assume the CBIOS image loaded properly on this boot.
+
+No firmware source changes. Stage A remains unmerged.
+
+---
 ## 2026-10-23 20:00 Berlin — Fourth build cold boot: suspect 8KiB SPI cache DRAM fallback
 
 User flashed full TFT+Web without Telnet (`esp32dev-tft-no-telnet`).
