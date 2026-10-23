@@ -85,6 +85,53 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 ~18:30 Europe/Berlin — debug CONFIRMS slow-Telnet watchdog; targeted TX redesign
+
+User retrieved `/z80debug` from real `esp32dev-tft-only` firmware
+after failed Telnet/MODEM initialization. Log showed:
+  `New Telnet client @ 192.168.178.52`
+  `CP/M modem: virtual UART 88h-8Fh online`
+  `Telnet TX stalled for 2 s; disconnecting slow client`
+
+The last line proves the **ConsoleTask Telnet-output retry watchdog**
+intentionally stopped the Telnet connection. It does NOT establish
+why the socket could not accept writes (backpressure, lwIP, memory,
+peer state). The modem worker did start; BBS wasn't dialed.
+
+Source review of pinned Arduino-ESP32 framework **2.0.17**
+(`espressif32@7.1.3`) found `WiFiClient::write()` itself loops
+up to `WIFI_CLIENT_MAX_WRITE_RETRY=10` with
+`WIFI_CLIENT_SELECT_TIMEOUT_US=1000000` per retry, doing a
+`send(...,MSG_DONTWAIT)` only when select says writable. Thus
+the old surrounding 2-second ConsoleTask retry check cannot
+interrupt a single library call and may lead to prolonged stalls.
+
+**New experimental firmware change, hardware NOT tested**:
+`ESP32_Z80_Emulator/serial.h` now routes data to TFT, ANSI device
+probe and browser terminal BEFORE Telnet transport, then uses a
+single lwIP `::send(..., MSG_DONTWAIT)` per ConsoleTask iteration
+with exact partial-write accounting, a per-connection **1024-byte
+heap** output queue (not static BSS or new task), reset on Telnet
+socket FD change, and buffer-full/2-second no-progress/socket-error
+client shedding instead of blocking ConsoleTask. `/z80debug`
+now logs exact cause + queued bytes, free8 and largest8 at drop.
+Active slow Telnet peers can still disconnect after buffer pressure;
+this patch prioritizes CP/M/TFT/HTTP liveness, not yet guaranteed
+lossless Telnet sessions under network congestion. Native
+`tests/check_web_ui_cleanup.py` enforces nonblocking calls and
+correct routing order. Three firmware variants stay unchanged;
+do not merge into main. User must not flash until source-version
+CI is green and Mac local clean TFT-only link succeeds.
+
+**Next physical test:** compile/flash *only* TFT-only variant, use
+numeric IP for health/heap, coldboot verify DIR/Multiplan and
+Telnet input/output. Then launch MODEM (no BBS dial yet); confirm
+HTTP, TFT/HP CP/M and Telnet remain responsive and inspect
+`/z80debug`. If Telnet drops, log now distinguishes buffer full,
+socket error, or 2s zero progress; capture memory again. Do not
+repeat BBS load until MODEM startup passes. Preserve recovery/main.
+
+---
 ## 2026-10-23 ~18:25 Europe/Berlin — TFT-only hardware MODEM START stalls Telnet (FAILED)
 
 User built/flashed new **esp32dev-tft-only** variant, confirmed
