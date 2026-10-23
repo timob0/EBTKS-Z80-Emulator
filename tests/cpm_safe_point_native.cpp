@@ -151,6 +151,26 @@ static void testDirectoryAutoReturnOnlyAtEmptyNativeLine() {
   typed.gate.complete(true);
   assert(!typed.gate.takeAutomaticReturn());
 
+  Fixture cancelled;
+  cancelled.gate.fetch(CpmSafePoint::kCcpPrompt,cancelled.mem);
+  cancelled.gate.fetch(CpmSafePoint::kCcpConsoleInput,cancelled.mem);
+  cancelled.gate.observeLineCount(0);
+  assert(cancelled.gate.request(CpmSafePoint::DIRECTORY,1));
+  cancelled.gate.observeLineCount(1);  // user typed before automatic CR
+  assert(cancelled.gate.result.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  cancelled.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
+  assert(!cancelled.gate.takeAutomaticReturn());
+  assert(!cancelled.gate.cancelPending());
+
+  Fixture timedOut;
+  timedOut.gate.fetch(CpmSafePoint::kCcpPrompt,timedOut.mem);
+  timedOut.gate.fetch(CpmSafePoint::kCcpConsoleInput,timedOut.mem);
+  assert(timedOut.gate.request(CpmSafePoint::DIRECTORY,1));
+  assert(timedOut.gate.cancelPending());
+  timedOut.gate.observeLineCount(0);
+  timedOut.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
+  assert(!timedOut.gate.takeAutomaticReturn());
+
   Fixture app;
   assert(!app.gate.request(CpmSafePoint::DIRECTORY,1));
   app.gate.observeLineCount(0);
