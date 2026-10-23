@@ -42,7 +42,7 @@ for target in ("esp32dev-tft", "esp32dev-tft-only"):
     report = subprocess.check_output([str(size), "-A", str(elf)], text=True)
     sections = {}
     for line in report.splitlines():
-        m = re.match(r"^\\s*(\\.dram0\\.(?:data|bss))\\s+(\\d+)\\s+", line)
+        m = re.match(r"^\s*(\.dram0\.(?:data|bss))\s+(\d+)\s+", line)
         if m:
             sections[m.group(1)] = int(m.group(2))
     if set(sections) != {".dram0.data", ".dram0.bss"}:
