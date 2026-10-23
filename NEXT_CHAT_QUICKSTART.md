@@ -1,5 +1,21 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT ROOT CAUSE / ESP32 FIX (2026-10-24; hardware test pending):**
+User's last physical `CPDCAT "A:"` under SHA `cc574613a870...`
+produced `last_directory_state:"failed"`,
+`last_directory_error:"invalid_directory_filename"`,
+`last_directory_forced_z80_reset:true`. Exact invalid byte not yet known.
+Source bug: host filename parser rejection erroneously forced a Z80 restart
+despite completed native BDOS. ESP32 feature branch now skips malformed
+8.3 directory entries, records first bad index/offset/byte and skip
+count in web directory GET, returns success-with-warning, and restarts
+only on unsafe BDOS interruption or DMA change. HP catalog output now
+uses real newline escapes and warning footer. Native regression covers
+safe bad-name and unsafe interrupted-BDOS cases. Require branch-tip CI
+and Mac TFT linker before ESP32-only flash, then verify CPDCAT, Web
+GET and CP/M DIR; regression Multiplan/Media Manager. No merge or
+HP/Teensy change. Full details in [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md).
+
 **CPDCAT POST-ERROR WEB FORENSICS:** The user read
 `/api/cpm/service/status` and `/api/cpm/service/directory` on running
 ESP SHA `74bb45f3a655...`. CCP idle=true but service state/probe=never
