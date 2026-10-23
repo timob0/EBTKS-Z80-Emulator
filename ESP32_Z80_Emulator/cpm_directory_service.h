@@ -88,11 +88,15 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
   memset(ram+kFcb+1,'?',11); // 8.3 wildcard, current user area
   bool ok=true;
   bool completed=false;
+  bool bdosUnsafe=false;
   for(unsigned index=0;index<=CpmSafePoint::kDirectoryMax;++index) {
     // First/next are BDOS calls 17 and 18; NO BDOS filesystem writes.
     // The BDOS internal directory search state persists between calls.
-    needReset=true;
     if(!invoke(bridge,index==0?17:18,yieldCpu)) {
+      // A BDOS invocation that never returned to the trampoline could have
+      // left the guest inside its non-reentrant BDOS; only this failure
+      // requires a Z80-only reset. Malformed disk metadata does NOT.
+      bdosUnsafe=true;
       result.error=CpmSafePoint::DIR_BDOS_INTERRUPTED;
       ok=false;break;
     }
@@ -106,34 +110,56 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
     }
     const uint8_t *entry=ram+kDma+(uint16_t)found*32;
     if(entry[0]>15) {result.error=CpmSafePoint::DIR_INVALID_USER;ok=false;break;}
-    CpmSafePoint::DirectoryEntry &dst=result.entries[index];
+
+    // Directory filesystems can contain non-canonical raw 8.3 entries.
+    // A bad filename byte is NOT proof of an interrupted BDOS execution.
+    // Never fabricate a name: skip that one entry, finish the search and
+    // report the exact first offending on-disk byte for diagnosis.
+    CpmSafePoint::DirectoryEntry &dst=result.entries[result.count];
     dst.user=entry[0];
     dst.extent=entry[12];
     dst.records=entry[15];
     unsigned pos=0;
+    unsigned badOffset=0xFF;
     for(unsigned j=0;j<8;++j) {
-      const char ch=char(entry[1+j]&0x7F);
+      const uint8_t ch=entry[1+j]&0x7F; // CP/M high-bit attributes
       if(ch!=' ') {
-        if(ch<33 || ch>126){result.error=CpmSafePoint::DIR_INVALID_NAME;ok=false;break;}
-        dst.name[pos++]=ch;
+        if(ch<33 || ch>126) {badOffset=1+j;break;}
+        dst.name[pos++]=char(ch);
       }
     }
-    if(!ok || pos==0) {result.error=CpmSafePoint::DIR_INVALID_NAME;ok=false;break;}
-    unsigned suffixEnd=3;
-    while(suffixEnd && (entry[9+suffixEnd-1]&0x7F)==' ')--suffixEnd;
-    if(suffixEnd)dst.name[pos++]='.';
-    for(unsigned j=0;j<suffixEnd;++j) {
-      const char ch=char(entry[9+j]&0x7F);
-      if(ch<33 || ch>126){result.error=CpmSafePoint::DIR_INVALID_NAME;ok=false;break;}
-      dst.name[pos++]=ch;
+    if(badOffset==0xFF && pos==0)badOffset=1; // missing basename
+    if(badOffset==0xFF) {
+      unsigned suffixEnd=3;
+      while(suffixEnd && (entry[9+suffixEnd-1]&0x7F)==' ')--suffixEnd;
+      if(suffixEnd)dst.name[pos++]='.';
+      for(unsigned j=0;j<suffixEnd;++j) {
+        const uint8_t ch=entry[9+j]&0x7F;
+        if(ch<33 || ch>126) {badOffset=9+j;break;}
+        dst.name[pos++]=char(ch);
+      }
     }
-    if(!ok)break;
+    if(badOffset!=0xFF) {
+      if(result.skipped==0) {
+        result.firstBadIndex=uint8_t(index);
+        result.firstBadOffset=uint8_t(badOffset);
+        result.firstBadByte=entry[badOffset]; // raw byte, before attribute mask
+      }
+      ++result.skipped;
+      // Successful completion with DIR_INVALID_NAME means the listing is
+      // usable but contains a non-fatal, explicitly disclosed omission.
+      result.error=CpmSafePoint::DIR_INVALID_NAME;
+      dst=CpmSafePoint::DirectoryEntry{};
+      continue;
+    }
     dst.name[pos]=0;
     ++result.count;
   }
 
   // A successful read must leave the BDOS DMA pointer unchanged.
-  if(ram[kBdosDmaVariable]!=0x80 || ram[kBdosDmaVariable+1]!=0x00) {
+  const bool dmaChanged=ram[kBdosDmaVariable]!=0x80 ||
+                        ram[kBdosDmaVariable+1]!=0x00;
+  if(dmaChanged) {
     result.error=CpmSafePoint::DIR_DMA_CHANGED;
     ok=false;
   }
@@ -146,8 +172,10 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
   bridge->service_fetch=oldServiceFetch;
   bridge->stop_reason=oldStop;
   bridge->stopped_at=oldStoppedAt;
-  // Unfinished BDOS may have left internal state invalid. Force Z80 reset.
-  needReset=!(ok && completed);
-  return !needReset;
+  // Only genuinely unsafe guest execution (or an unexpectedly modified
+  // BDOS DMA pointer) justifies a forced restart. Never reboot the Z80
+  // because an on-disk filename failed host-side formatting validation.
+  needReset=bdosUnsafe || dmaChanged;
+  return ok && completed;
 }
 } // namespace CpmDirectoryService
