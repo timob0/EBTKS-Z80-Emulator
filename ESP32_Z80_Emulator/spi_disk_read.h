@@ -39,6 +39,18 @@
 #if EBTKS_SPI_CACHE_WORD32 != 0 && EBTKS_SPI_CACHE_WORD32 != 1
 #error "EBTKS_SPI_CACHE_WORD32 must be 0 or 1"
 #endif
+// Fourth-target isolation experiment: reserve 8 KiB IRAM32 BEFORE Wi-Fi/Web.
+// Refuse ordinary DRAM fallback in this target; UART disk reads remain safe.
+// All existing configurations keep the previous late IRAM/DRAM behavior.
+#ifndef EBTKS_SPI_CACHE_EARLY_IRAM_ONLY
+#define EBTKS_SPI_CACHE_EARLY_IRAM_ONLY 0
+#endif
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY != 0 && EBTKS_SPI_CACHE_EARLY_IRAM_ONLY != 1
+#error "EBTKS_SPI_CACHE_EARLY_IRAM_ONLY must be 0 or 1"
+#endif
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY && !EBTKS_SPI_CACHE_WORD32
+#error "Early IRAM-only SPI cache requires 32-bit word storage"
+#endif
 static_assert(EbtksStream::PAYLOAD_BYTES==EbtksSpiCache::kSectorBytes,
               "SPI cache word transfer must match 512-byte sectors");
 
@@ -132,6 +144,12 @@ inline bool spiDiskEnsureCache()
     heap_caps_free(wordBuffer);
   }
 #endif
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY
+  // Never consume 8 KiB of MALLOC_CAP_8BIT for read-ahead in the
+  // memory-isolation experiment. A failed early IRAM reservation leaves
+  // the existing UART read transport operational (and all writes on UART).
+  return false;
+#endif
   // Safe fallback to the proven DRAM cache if IRAM cannot be allocated.
   const size_t reserveAfterAlloc = 32768;
   const size_t minLargestBlock = SPI_DISK_CACHE_BYTES + 4096;
@@ -148,6 +166,35 @@ inline bool spiDiskEnsureCache()
   return true;
 }
 
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY
+// Called from setup() before Wi-Fi and Web initialization and before the
+// normal SPI-enable stage. Never starts SPI DMA or a worker task.
+inline bool spiDiskReserveCacheEarly()
+{
+  const uint32_t caps=MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL;
+  const size_t free8Before=heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  const size_t iramFreeBefore=heap_caps_get_free_size(caps);
+  const size_t iramLargestBefore=heap_caps_get_largest_free_block(caps);
+  const bool allocated=spiDiskEnsureCache();
+  const size_t free8After=heap_caps_get_free_size(MALLOC_CAP_8BIT);
+  const size_t iramFreeAfter=heap_caps_get_free_size(caps);
+  const size_t iramLargestAfter=heap_caps_get_largest_free_block(caps);
+  Serial.printf("CP/M SPI early IRAM32 reserve: %s; free8=%u->%u; exec32=%u->%u; exec32_largest=%u->%u\n",
+                allocated?"iram32":"unavailable",
+                (unsigned)free8Before,(unsigned)free8After,
+                (unsigned)iramFreeBefore,(unsigned)iramFreeAfter,
+                (unsigned)iramLargestBefore,(unsigned)iramLargestAfter);
+  if (!allocated) {
+    // Sticky for this boot: a later allocation must not silently fall
+    // back to 8-bit RAM or change the isolation experiment mid-flight.
+    spiDiskBootDisabled=true;
+    strlcpy(spiDiskLastError,
+            "Early IRAM32 cache unavailable; UART disk reads only",
+            sizeof(spiDiskLastError));
+  }
+  return allocated;
+}
+#endif
 inline void spiDiskInvalidateCache()
 {
   spiDiskCacheValid = false;
@@ -471,6 +518,9 @@ inline void spiDiskRegister(AsyncWebServer &server)
     doc["cache_valid"] = (bool)spiDiskCacheValid;
     doc["cache_allocated"] = spiDiskCacheAllocated();
     doc["cache_storage"] = spiDiskCacheStorage();
+#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY
+    doc["early_iram_only"] = true;
+#endif
     doc["word_cache_default"] = (bool)EBTKS_SPI_CACHE_WORD32;
     doc["cache_bytes"] = spiDiskCacheAllocated() ? (uint32_t)SPI_DISK_CACHE_BYTES : 0U;
     doc["cache_first"] = (uint32_t)spiDiskCacheFirst;
