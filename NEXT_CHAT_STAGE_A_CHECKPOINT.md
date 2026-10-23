@@ -85,6 +85,56 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 early-IRAM fourth target: BBS logout and return to CP/M complete
+
+User continued single BBS session on physical TFT and HP keyboard using
+`esp32dev-tft-no-telnet` with early 8192-byte SPI cache in `iram32`,
+browser Web Terminal compiled in but not actively connected and Telnet disabled.
+Successfully **logged off the BBS and returned to CP/M without reset**.
+User has not yet explicitly repeated DIR/Multiplan for this session.
+
+| Phase | uptime_ms | heap_free | free_8bit | largest_8bit | min_free_8bit |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| MODEM ready | 232449 | 60408 | 21232 | 18420 | 20120 |
+| BBS active | 404483 | 60024 | 20848 | 17396 | 8860 |
+| Logged off | 457229 | 61152 | 21976 | 19444 | 8860 |
+| Back in CP/M | 503310 | 60140 | 20964 | 17396 | 8860 |
+
+Post-CP/M vs MODEM-ready free8 **-268 bytes**, heap_free **-268**
+and largest8 -1024; **no indication of substantial retained
+per-session heap loss**. Historical min remained 8860B between
+BBS, logout and CP/M snapshots, unlike prior dram8 test dropping
+from 1836B to 476B on logout. `modem_state=2` remains resident;
+`tcp_closed` stage captured total62604/free8=23428/largest8=14836
+at TCP closure; these stage values are not synchronized with later
+HTTP snapshots. Web/TFT flags true, all Telnet flags disabled.
+Console unused stack 1280B and modem 3320B remain stable.
+
+Old full-minus-Telnet **dram8** cache test after CP/M:
+free8=11344, largest8=9716, historical min=476.
+New early IRAM result after CP/M: **+9620 free8**,
+**+7680 largest8**, **+8384 in min_free8**. Earlier TFT-only
+(WebTerm compiled OUT, Telnet disconnected) after CP/M:
+free8=20752, largest8=19444, historical min=4212;
+new full early-IRAM after CP/M has +212 free8, -2048 largest8,
+historical min +4648. These are single-run, workload-dependent.
+
+**Conclusion:** first full physical TFT/HP BBS cycle with full
+browser-terminal firmware compiled IN and Telnet disabled passes
+login, logout, CP/M return, and memory recovery. Idle WebTerminal
+not materially costly under this test. Concurrent **active**
+browser Z80 WebSocket plus BBS remains UNTESTED, as do long repeated
+sessions. Previous CBIOS ROM timeout did not reproduce on early
+IRAM coldboot; continue to monitor. Suggested next cautious gate:
+DIR and Multiplan after return to CP/M, then optionally open
+`/z80` browser terminal in **CP/M idle**, one client only, compare
+memory before/open/after close, test shared ANSI/keys/TFT with
+no concurrent BBS; stop if heap becomes tight. Only later consider
+active browser+BBS concurrency, with explicit memory headroom.
+
+No firmware changes from these results, no main or recovery merge.
+
+---
 ## 2026-10-23 early-IRAM full TFT/Web no Telnet: BBS connected with improved heap margin
 
 User dialed BBS on physical TFT+HP keyboard with early IRAM-only
