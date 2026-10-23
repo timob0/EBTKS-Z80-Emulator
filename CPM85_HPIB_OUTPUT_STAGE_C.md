@@ -2,6 +2,143 @@
 
 **Status 2026-10-24:** design/branch setup ONLY. No printer routing code implemented or hardware tested in this stage. Created three fresh `feature/cpm85-hpib-output` branches at the current accepted `main` of ESP32, Teensy and HP Option ROM repositories. Do not merge before complete physical HP-85 acceptance.
 
+## Updated end-state architecture: foreground CPM85 management console
+
+**Design direction (2026-10-24):** the user wants this to become the
+full integrated system's local management console, not a printer-only
+background patch. There must be a **main processing loop** to receive
+events, update the HP-85 CRT/menu, manage disk/printer/device settings
+and operate CP/M keyboard forwarding and printer reception. An explicit
+mode switch pauses **both** forwarding and printer reception while
+interacting with the management UI.
+
+This design supersedes the earlier preference for a resident background
+printer hook below. It is a proposal, not yet implemented/verified on HP
+hardware. Preserve the old working CPM85 command until a replacement is
+physically tested.
+
+### Modes and visible behavior
+
+| Mode | HP keyboard | CP/M output to LST: | HP display |
+| --- | --- | --- | --- |
+| UI / MANAGEMENT | Owned by HP console, **not forwarded** | **Not ready**; do not receive a new print chunk | Drive/device/media/status pages |
+| CONTROL / CP/M | Forwarded to CP/M, except local mode/exit keys | Ready only when the printer can accept data and transport has credit | Compact attached/target/status indication as appropriate; Z80 screen stays on TFT/Web |
+| PAUSING / TRANSITION | Local only, no forwarding | Not ready while the existing in-flight chunk is resolved | Enter/leave status |
+| ERROR / PRINTER OFFLINE | Local controls available | Not ready; explicit recovery/cancel | Error/status guidance |
+| EXIT | Returned to ordinary HP BASIC | Not ready; discard session credits, never replay stale chunks | HP BASIC restored |
+
+A freshly entered `CPM` could open the management menu and switch into
+Control on an explicit menu action; to preserve the existing convenient
+workflow, allowing `CPM` to enter Control directly is another option.
+Exact entry/default selection and which function keys toggle the mode
+must be settled with physical UX tests. **Existing K8 exit behavior
+must not silently change.** A K4/K8 PREV/NEXT menu convention is
+available from PRINTER85, but it conflicts with K8 exit if reused
+unconditionally; key assignments are provisional.
+
+### Foreground service loop (HP-85)
+
+Illustrative pseudo-code (not HP assembly syntax):
+
+```
+CPM [optional printer device]
+    save HP CRT / keyboard / printer context as needed
+    choose initial local UI or CP/M Control mode
+    session_generation += 1
+    while console_active:
+        scan_or_receive_keyboard_events()    // source must be hardware-proven
+        process_local_ui_keys_or_forward_cp_m_keys()
+        if mode == CONTROL:
+            inspect_printer_readiness_and_link_health()
+            receive_at_most_one_bounded_LST_chunk()
+            send_bytes_using_native_HP_printer_service()
+            acknowledge_bytes_only_after_safe_acceptance()
+        update_UI_or_status_if_changed()
+        service_HP_runtime_without_starving_other_firmware()
+    set_ready(false)
+    close_and_invalidate_session()
+    restore_HP_context()
+    return_to_HP_BASIC
+```
+
+The ongoing CPU activity exists on the **HP-85 side**; the ESP32 Z80
+and Teensy are independent and continue executing in both modes.
+The existing keyboard hook is *not* a printer service context. We must
+prove a suitable native keyboard polling/event API for the foreground
+program before replacing the accepted CHIDLE-only flow; CHIDLE may be
+tied to the BASIC editor idle path and cannot be assumed to run while
+the command is blocking. Input handling must not require extra keypresses
+to advance printing. Never invoke blocking printer output from a
+keyboard ISR or HP bus ISR.
+
+### Mode transitions and correct ready semantics
+
+- **On UI entry:** withdraw LST readiness *before* stopping receiver
+  consumption and before reassigning HP keyboard ownership. Resolve the
+  one already granted frame: either finish and acknowledge, or retain
+  it unacknowledged within its current session for later retry. Never
+  acknowledge a byte merely because it reached the Teensy or HP bus.
+- **On Control entry:** verify real printer selection, working HP-side
+  output, receiver capacity, fresh transport state and matching session
+  generation. Only then advertise readiness. If validation fails,
+  keep Control keyboard handling usable but show printer offline.
+- **Printer unavailable:** withdraw readiness, preserve undelivered
+  buffered bytes, and let operator retry or explicitly cancel. Do not
+  block the *whole console UI* indefinitely on a missing printer.
+- **K8 / CPOFF / RESET / ROM unload:** revoke readiness, close the
+  session, restore HP state, discard stale credits and de-duplicate
+  retransmissions. Any intentionally discarded print data must be
+  acknowledged as cancelled, not as printed.
+- **Guest BIOS LIST vs LISTST:** LISTST returning not ready is useful
+  for programs that check it, but an application may call LIST without
+  checking. A finite FIFO with bounded backpressure/cancel behavior
+  is required for correctness and recoverable UX. Do not silently
+  drop bytes or block the HP bus ISR.
+
+### Printer destination and system UI
+
+- `CPM` defaults to whatever printer the HP-85's `PRINTER IS`
+  configuration already selects. Printing runs through the native HP
+  printer output API, not a duplicated ESP32 IEEE-488 controller.
+- `CPM 705` proposes an explicit per-session printer device override;
+  validate numeric parser and native device-selection semantics before
+  promising this syntax. Save/restore any affected global printer
+  selection and use native error status where supported.
+- A future management screen will include **Drives**, **Devices**
+  (printer/target, readiness and mapping), and **System / terminal**.
+  File-transfer controls can be a later page. Only the selected mode
+  owns HP keyboard focus and printer drain.
+- Avoid taking ownership of PRINTER85's CHIDLE or KEY LABEL resources
+  without a conflict/restore policy; use its proven page/save-restore
+  patterns if suitable. The ultimate console is a **single owner** of
+  local UI keys and session state.
+
+### Implementation sequence adjusted for the end-state console
+
+1. Build a minimal foreground HP console loop with local key handling,
+   mode switching, visible UI, clean K8 exit, no printer traffic and
+   no changes to ESP32 or Teensy. Verify no loss of current HP BASIC,
+   CRT, keyboard, or PRINTER85 behavior.
+2. Add explicit HP/Teensy/ESP32 mode and heartbeat/credit status; test
+   local UI == LISTST not ready and Control == potentially ready while
+   CP/M and TFT remain independent.
+3. Add read-only synthetic LST data frames and native HP printer
+   output, controlled by the foreground loop; validate byte order,
+   CR/LF/FF, error propagation and cancellation.
+4. Intercept actual CP/M BIOS LIST/LISTST (without disturbing console
+   UART), then use existing HP printer destination, and only afterward
+   the optional `CPM 705` override.
+5. Extend UI pages to disk/device management; add file-transfer panel
+   and BDOS file operations later, after separate safety regression.
+
+**Unverified HP firmware details to investigate:** correct nonblocking
+foreground keyboard input; invoking the native printer API while a
+LOADBIN BASIC statement is active; printer ready/offline/error reporting;
+whether printer destination selection can be overridden and restored
+without changing the BASIC user's `PRINTER IS`; KEY LABEL ownership
+and refresh while in a foreground assembly routine. These are
+implementation gates, not assumptions.
+
 ## Agreed user direction
 
 - Reuse HP-85 native `PRINTER IS` / printer output facilities rather than reimplement HP-IB protocol on ESP32 or Teensy.
