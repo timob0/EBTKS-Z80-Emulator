@@ -7,6 +7,19 @@ Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
 
+## Physical HP-85 acceptance: two-column CPDCAT display PASSED (2026-10-24)
+
+User tested the ESP32 feature branch on physical HP-85 and reported:
+**"This works nicely, the directory formatting is good."**
+Mark the actual two-column, 8.3-aligned CRT output and proper newlines
+as **hardware-accepted**. Prior CP/M `DIR` regression also passed.
+Native BDOS directory `state:"passed"`, no forced Z80 reset, two known
+corrupted A: directory entries skipped. The 32-search limit and
+`truncated` warning are accepted known scope, not an infinite listing.
+**Outstanding before merging**: final Multiplan and Media Manager
+regressions after updated ESP32 TFT flash. No main/recovery merge yet,
+and no HP/Teensy firmware changes.
+
 ## HP BASIC CPDCAT: fixed-width 8.3 columns (2026-10-24)
 
 Following physical verification of `CPDCAT "A:"` and native CP/M `DIR`,
