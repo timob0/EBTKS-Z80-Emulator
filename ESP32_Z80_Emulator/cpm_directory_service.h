@@ -51,13 +51,21 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
   needReset=false;
   result=CpmSafePoint::Directory{};
   if(!bridge || !bridge->memory || drive>16 ||
-     (bridge->running && !*bridge->running))return false;
+     (bridge->running && !*bridge->running)) {
+    result.error=CpmSafePoint::DIR_NOT_RUNNING;
+    return false;
+  }
   uint8_t *ram=bridge->memory;
   // Fail closed on other CP/M variants, corrupted page-zero vector or
   // unexpected DMA. CCP is expected to have installed standard DMA 0080.
-  if(ram[5]!=0xC3 || ram[6]!=0x06 || ram[7]!=0xD8 ||
-     ram[kBdosDmaVariable]!=0x80 || ram[kBdosDmaVariable+1]!=0x00)
+  if(ram[5]!=0xC3 || ram[6]!=0x06 || ram[7]!=0xD8) {
+    result.error=CpmSafePoint::DIR_BAD_VECTOR;
     return false;
+  }
+  if(ram[kBdosDmaVariable]!=0x80 || ram[kBdosDmaVariable+1]!=0x00) {
+    result.error=CpmSafePoint::DIR_BAD_DMA;
+    return false;
+  }
 
   // C000-C0FF holds the trampoline, search FCB and a short temporary stack.
   // A CP/M search deposits a 128-byte directory record at default DMA 0080.
@@ -84,17 +92,20 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
     // First/next are BDOS calls 17 and 18; NO BDOS filesystem writes.
     // The BDOS internal directory search state persists between calls.
     needReset=true;
-    if(!invoke(bridge,index==0?17:18,yieldCpu)) {ok=false;break;}
+    if(!invoke(bridge,index==0?17:18,yieldCpu)) {
+      result.error=CpmSafePoint::DIR_BDOS_INTERRUPTED;
+      ok=false;break;
+    }
     const uint8_t found=Z80_A(bridge->cpu);
     if(found==0xFF) {completed=true;break;}
-    if(found>3) {ok=false;break;}
+    if(found>3) {result.error=CpmSafePoint::DIR_INVALID_SLOT;ok=false;break;}
     if(index==CpmSafePoint::kDirectoryMax) {
       result.truncated=true;
       completed=true;
       break;
     }
     const uint8_t *entry=ram+kDma+(uint16_t)found*32;
-    if(entry[0]>15) {ok=false;break;}
+    if(entry[0]>15) {result.error=CpmSafePoint::DIR_INVALID_USER;ok=false;break;}
     CpmSafePoint::DirectoryEntry &dst=result.entries[index];
     dst.user=entry[0];
     dst.extent=entry[12];
@@ -103,17 +114,17 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
     for(unsigned j=0;j<8;++j) {
       const char ch=char(entry[1+j]&0x7F);
       if(ch!=' ') {
-        if(ch<33 || ch>126){ok=false;break;}
+        if(ch<33 || ch>126){result.error=CpmSafePoint::DIR_INVALID_NAME;ok=false;break;}
         dst.name[pos++]=ch;
       }
     }
-    if(!ok || pos==0) {ok=false;break;}
+    if(!ok || pos==0) {result.error=CpmSafePoint::DIR_INVALID_NAME;ok=false;break;}
     unsigned suffixEnd=3;
     while(suffixEnd && (entry[9+suffixEnd-1]&0x7F)==' ')--suffixEnd;
     if(suffixEnd)dst.name[pos++]='.';
     for(unsigned j=0;j<suffixEnd;++j) {
       const char ch=char(entry[9+j]&0x7F);
-      if(ch<33 || ch>126){ok=false;break;}
+      if(ch<33 || ch>126){result.error=CpmSafePoint::DIR_INVALID_NAME;ok=false;break;}
       dst.name[pos++]=ch;
     }
     if(!ok)break;
@@ -122,8 +133,10 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Directory &result,
   }
 
   // A successful read must leave the BDOS DMA pointer unchanged.
-  if(ram[kBdosDmaVariable]!=0x80 || ram[kBdosDmaVariable+1]!=0x00)
+  if(ram[kBdosDmaVariable]!=0x80 || ram[kBdosDmaVariable+1]!=0x00) {
+    result.error=CpmSafePoint::DIR_DMA_CHANGED;
     ok=false;
+  }
   memcpy(ram+kDma,dma,sizeof(dma));
   memcpy(ram+kProgram,scratch,sizeof(scratch));
   bridge->cpu=savedCpu;
