@@ -20,6 +20,47 @@ enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
 enum Operation : uint8_t { PROBE=0, DIRECTORY=1 };
+// Read-only observability; checkpoints never authorize guest-side operations.
+enum Checkpoint : uint8_t {
+  IDLE=0, ARMED=1, EMPTY_LINE=2, NONEMPTY_LINE=3,
+  AUTO_CR=4, CCP_EMPTY_RETURN=5, CCP_NONEMPTY_RETURN=6,
+  BDOS_ENTER=7, BDOS_OK=8, BDOS_FAIL=9,
+  CANCEL_ON_WBOOT=10, CANCEL_ON_TIMEOUT=11
+};
+inline const char *checkpointText(uint8_t p) {
+  switch(p) {
+    case ARMED:return "armed";
+    case EMPTY_LINE:return "bdos_input_empty";
+    case NONEMPTY_LINE:return "bdos_input_nonempty";
+    case AUTO_CR:return "automatic_return_sent";
+    case CCP_EMPTY_RETURN:return "ccp_blank_return_verified";
+    case CCP_NONEMPTY_RETURN:return "ccp_return_nonempty";
+    case BDOS_ENTER:return "bdos_search_entered";
+    case BDOS_OK:return "bdos_search_completed";
+    case BDOS_FAIL:return "bdos_search_failed";
+    case CANCEL_ON_WBOOT:return "warm_boot_cancelled";
+    case CANCEL_ON_TIMEOUT:return "request_timeout_cancelled";
+    default:return "idle";
+  }
+}
+enum DirectoryError : uint8_t {
+  DIR_OK=0, DIR_NOT_RUNNING=1, DIR_BAD_VECTOR=2, DIR_BAD_DMA=3,
+  DIR_BDOS_INTERRUPTED=4, DIR_INVALID_SLOT=5, DIR_INVALID_USER=6,
+  DIR_INVALID_NAME=7, DIR_DMA_CHANGED=8
+};
+inline const char *directoryErrorText(uint8_t e) {
+  switch(e) {
+    case DIR_NOT_RUNNING:return "guest_not_running_or_drive_out_of_range";
+    case DIR_BAD_VECTOR:return "native_bdos_vector_mismatch";
+    case DIR_BAD_DMA:return "unexpected_bdos_dma_pointer";
+    case DIR_BDOS_INTERRUPTED:return "bdos_trampoline_did_not_return";
+    case DIR_INVALID_SLOT:return "bdos_invalid_directory_slot";
+    case DIR_INVALID_USER:return "invalid_directory_user";
+    case DIR_INVALID_NAME:return "invalid_directory_filename";
+    case DIR_DMA_CHANGED:return "bdos_dma_pointer_changed";
+    default:return "none";
+  }
+}
 static constexpr uint8_t kDirectoryMax=32;
 // Directory entries are raw CP/M directory extents, not logical files/sizes.
 struct DirectoryEntry {
@@ -31,6 +72,7 @@ struct DirectoryEntry {
 struct Directory {
   uint8_t count=0;
   bool truncated=false;
+  uint8_t error=DIR_OK;
   char drive='?';
   DirectoryEntry entries[kDirectoryMax]{};
 };
@@ -54,6 +96,8 @@ public:
   std::atomic<uint8_t> operation{PROBE};
   // 0=current drive, 1..16=explicit A:..P: FCB drive selector.
   std::atomic<uint8_t> requestedDrive{0};
+  std::atomic<uint8_t> checkpoint{IDLE};
+  std::atomic<uint8_t> directoryError{DIR_OK};
   std::atomic<bool> ccpLineKnown{false};
   std::atomic<bool> ccpLineEmpty{false};
   bool autoReturnSent=false; // CPU-only, one synthetic CR per request
@@ -101,6 +145,8 @@ public:
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
     mode.store(UNKNOWN,std::memory_order_release);
     result.store(NEVER,std::memory_order_release);
+    checkpoint.store(IDLE,std::memory_order_release);
+    directoryError.store(DIR_OK,std::memory_order_release);
     compatible.store(nativeCpm && signature(ram),std::memory_order_release);
   }
 
@@ -113,8 +159,10 @@ public:
     biosConinPoll=false;
     mode.store(BUSY,std::memory_order_release);
     inputGeneration.fetch_add(1,std::memory_order_acq_rel);
-    if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE)
+    if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
       result.store(INVALIDATED,std::memory_order_release);
+      checkpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
+    }
   }
 
   // Called from the CPU fetch callback at native BDOS's RDBUF1 entry.
@@ -125,6 +173,9 @@ public:
 
   void observeLineCount(uint8_t count) {
     if(mode.load(std::memory_order_acquire)!=CCP_INPUT)return;
+    if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE &&
+       operation.load(std::memory_order_acquire)==DIRECTORY)
+      checkpoint.store(count==0?EMPTY_LINE:NONEMPTY_LINE,std::memory_order_release);
     ccpLineEmpty.store(count==0,std::memory_order_release);
     ccpLineKnown.store(true,std::memory_order_release);
     // Never leave an automatic directory request queued behind a typed line.
@@ -148,6 +199,7 @@ public:
        !ccpLineKnown.load(std::memory_order_acquire) ||
        !ccpLineEmpty.load(std::memory_order_acquire))return false;
     autoReturnSent=true;
+    checkpoint.store(AUTO_CR,std::memory_order_release);
     return true;
   }
 
@@ -175,8 +227,14 @@ public:
       inputGeneration.fetch_add(1,std::memory_order_acq_rel);
       blankInputReturned=false;
       if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
-        if(ram[kCcpInputLength]==0)blankInputReturned=true;
-        else result.store(INPUT_NOT_EMPTY,std::memory_order_release);
+        if(ram[kCcpInputLength]==0) {
+          blankInputReturned=true;
+          if(operation.load(std::memory_order_acquire)==DIRECTORY)
+            checkpoint.store(CCP_EMPTY_RETURN,std::memory_order_release);
+        } else {
+          result.store(INPUT_NOT_EMPTY,std::memory_order_release);
+          checkpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
+        }
       }
       return false;
     }
@@ -195,6 +253,8 @@ public:
          result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
         blankInputReturned=false;
         result.store(RUNNING,std::memory_order_release);
+        if(operation.load(std::memory_order_acquire)==DIRECTORY)
+          checkpoint.store(BDOS_ENTER,std::memory_order_release);
         mode.store(PROBE_RUNNING,std::memory_order_release);
         return true;
       }
@@ -225,6 +285,8 @@ public:
     }
     requestedDrive.store(drive,std::memory_order_release);
     operation.store(requested,std::memory_order_release);
+    checkpoint.store(ARMED,std::memory_order_release);
+    directoryError.store(DIR_OK,std::memory_order_release);
     // Only one request can be pending. A completed one may be re-armed.
     while(previous!=WAIT_EMPTY_LINE && previous!=RUNNING) {
       if(result.compare_exchange_weak(previous,WAIT_EMPTY_LINE,
@@ -252,14 +314,18 @@ public:
   // never interrupted. Also stops any later blank line from triggering it.
   bool cancelPending() {
     uint8_t expected=WAIT_EMPTY_LINE;
-    return result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
-                                          std::memory_order_acq_rel);
+    const bool cancelled=result.compare_exchange_strong(
+        expected,INPUT_NOT_EMPTY,std::memory_order_acq_rel);
+    if(cancelled)checkpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
+    return cancelled;
   }
 
   void complete(bool passed) {
     // The original CCP instruction will now execute; it must reach the
     // console input marker before a new management operation is accepted.
     mode.store(BUSY,std::memory_order_release);
+    if(operation.load(std::memory_order_acquire)==DIRECTORY)
+      checkpoint.store(passed?BDOS_OK:BDOS_FAIL,std::memory_order_release);
     result.store(passed?PASSED:FAILED,std::memory_order_release);
   }
 };
