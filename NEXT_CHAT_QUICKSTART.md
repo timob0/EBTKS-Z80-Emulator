@@ -1,6 +1,6 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
-**NEW STAGE B1 DEVELOPMENT (2026-10-23; NOT YET HARDWARE-ACCEPTED):**
+**NEW STAGE B1 DEVELOPMENT (2026-10-23; FIRST BDOS DIRECTORY HARDWARE PROBE PASS, REGRESSION PENDING):**
 On ESP32-only branch `feature/cpm85-file-transfer-hpib-ui`, a bounded, read-only
 BDOS directory search was added behind the hardware-proven CCP safe-point gate.
 `POST /api/cpm/service/directory` arms it; a blank CP/M Return executes BDOS
@@ -15,6 +15,21 @@ The full cautious procedure is in [CPM85_STAGE_B1_DIRECTORY.md](CPM85_STAGE_B1_D
 `main`, `recovery/` and the previously hardware-tested baseline were not
 modified. The follow-on main commit `7b75be7` updates only user-maintained
 `recovery/firmware.bin` and is intentionally not brought onto this branch.
+
+**2026-10-23 Stage B1 first hardware result (user-reported):** The operator sent
+`POST /api/cpm/service/directory` and received HTTP **202**, with
+`accepted=true`, `supported=true`, `state=waiting_for_empty_return`.
+After blank Return, GET returned `state=passed`, `count=12`,
+`truncated=true`, `scope=current_drive_current_user`, and 12 plausible
+native BDOS directory extents including `DOWNLOAD.COM`, `STAT.COM`,
+`PIP.COM`, `ASM.COM` and `MBASIC.COM` (extent=1), all user 0.
+The 12-entry limit is intentional; this is not file aggregation.
+The latest GitHub CI run for source SHA `55a7c0803ba4b66106e5637317af8f90c0057078`
+passed: https://github.com/timob0/EBTKS-Z80-Emulator/actions/runs/40024339445 .
+**Not yet evidenced:** post-service `DIR`, Multiplan, HP/TFT/Web/Media
+Manager regression, nonempty cancellation, MODEM busy rejection, alternate
+current-drive/empty-directory testing, and exact running SHA (no health
+reading furnished). No merge, no Teensy/HP firmware changes.
 
 
 **CURRENT HANDOFF — 23 October 2026, memory-optimized firmware now MERGED:** ESP32 `feature/cpm85-management-console` was merged into `main` through [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8), merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`, after the user completed local macOS builds, flash and a successful quick hardware test of the final consolidated TFT target. Full functionality was physically verified earlier: two MODEM/BBS cycles, correct Web Terminal ANSI/CP437, modem worker cleanup on return to CP/M, Media Manager recovering after both cycles, CP/M `DIR`/Multiplan, gzip pages and Home Page link. Final post-second-cycle hardware reading `modem_state=0`, `free_8bit=29452`, `largest_8bit=27636`, no modem task. Supported PlatformIO variants are ONLY `esp32dev` (full headless bundle) and `esp32dev-tft` (same plus ST7796), both with Telnet disabled by default; `-DEBTKS_TELNET_ENABLE=1` is an advanced compile-time option. Both use early IRAM32-only SPI read cache. See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md). **Next work:** start a separate new ESP32 feature branch from current `main` for CP/M file transfer, HPIB output and the management UI; design and coordinate any necessary Teensy/HP changes separately, and never overwrite user-maintained `recovery`. Earlier October 22 text below is chronological history, not current release status.
