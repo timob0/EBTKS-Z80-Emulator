@@ -85,6 +85,45 @@ If build links, keep the known-working recovery binary on hand, flash the local 
 
 **Further design after Stage A acceptance:** implement CPFPUT and CPFGET through a small firmware-bundled Z80 service that calls the existing **non-reentrant BDOS** only from a CCP safe point, initially single-file transfers without overwrite, then wildcard preflight/batch. Later allow hot mount/unmount using carefully ordered CBIOS dirty-cache flush, mount-table update, ESP32 SPI-cache invalidation and BDOS function 37 selective drive logoff. Future HP management console is paged using PRINTER85 KEY LABEL save/restore and PREV/NEXT logic: disk page, file transfer page, device mappings page. No source for these later stages has yet been implemented.
 
+## 2026-10-23 Physical TFT-only BBS logged in with no Telnet: substantial heap improvement
+
+Follow-up to cold-boot baseline. Physical HP keyboard + TFT CP/M MODEM COM
+logged into BBS **without any Telnet client**. User has not yet reported
+subjective GUI responsiveness, long-session stability, or successful hangup.
+
+| Snapshot | uptime_ms | heap_free | free_8bit | largest_8bit | min_free_8bit | telnet | modem |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Cold boot | 35636 | 67984 | 28808 | 27636 | 21280 | 0 | 0 |
+| MODEM initialized / user says not dialed | 96286 | 60044 | 20868 | 18420 | 13040 | 0 | 2 |
+| Logged into BBS | 155720 | 56812 | 17636 | 16372 | 8108 | 0 | 2 |
+
+**Hardware comparison** with earlier TFT-only *simultaneous*
+BBS+Telnet session at login: heap/free8 48072/8896 then vs
+56812/17636 now = **+8740 B free8**, largest8 7924 vs 16372
+= **+8448 B**, min_free_8bit 644 vs 8108 = **+7464 B**.
+This strongly suggests a concurrent Telnet TCP stream greatly contributes
+to resource pressure; differences in traffic/rendering and sampling
+mean it does NOT precisely measure Telnet socket's sole incremental cost.
+Current console stack unused 1480B, modem 3312B, web 2556B,
+TFT 2980B. No dial refused, modem state=2, telnet_connected=0.
+
+**Notable inconsistency to follow up only if needed:** user's first
+'MODEM initialized, not dialed yet' sample already contains valid
+`before_tcp_connect` and `after_tcp_connect` stage captures
+(64096 free heap/24920 free8/21492 largest then
+62380/23204/21492); in `ebtks_modem.h::handleHayes` those are
+recorded only on a DIAL event. So a DIAL event had in fact been
+processed before that sample; do not treat it as a guaranteed
+never-dialed control sample. At login stage samples were refreshed:
+before 63824/24648/21492, after 61852/22676/21492.
+
+Still current free8=17636 < Media Manager 24KiB read admission,
+so a controlled 503 is expected even in TFT-only BBS session.
+Next: ask how TFT responsiveness/colors and Web UI behave during BBS;
+if healthy, log out normally and capture memory afterward. Stop on
+unresponsiveness. Do NOT claim Stage A accepted or merge main.
+
+---
 ## 2026-10-23 physical TFT + HP keyboard, no-Telnet control test: cold-boot baseline
 
 User initiated controlled comparison without Telnet to isolate the
