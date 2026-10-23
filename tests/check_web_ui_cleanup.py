@@ -106,10 +106,15 @@ assert "EBTKS_TELNET_SHARED_WORKER" in telnet
 assert "inline void telnetPoll()" in telnet
 assert "inline void telnetBegin()" in telnet
 assert "telnetPoll();" in web
+assert '#if EBTKS_TELNET_ENABLE && EBTKS_TELNET_SHARED_WORKER' in web
+assert 'doc["telnet_enabled"]=(bool)EBTKS_TELNET_ENABLE;' in web
+assert 'doc["telnet_listener_mode"]="disabled";' in web
+assert 'doc["telnet_connected"]=false;' in web
+assert '#if EBTKS_TELNET_ENABLE' in telnet
 assert "telnetBegin();" in web
 assert '"free_8bit"' in web
 assert '"telnet_listener_mode"' in web
-assert "#if !EBTKS_TELNET_SHARED_WORKER" in ino
+assert "#if EBTKS_TELNET_ENABLE && !EBTKS_TELNET_SHARED_WORKER" in ino
 assert "ESP32 Prog" not in telnet
 assert '"/api/system/memory/pools"' in web
 assert 'EbtksMemory::appendHeapPools(doc)' in web
@@ -162,6 +167,8 @@ assert 'cpmMediaRegister(server);' in web_terminal
 assert 'serverClient.write(chunk + sent, n - sent)' not in console
 assert '::send(fd,telnetTx+telnetStart,telnetEnd-telnetStart,MSG_DONTWAIT)' in console
 assert 'kTelnetTxCapacity=1024' in console
+assert "#if EBTKS_TELNET_ENABLE" in console
+assert "#if EBTKS_TELNET_ENABLE" in (ROOT / "globals.h").read_text()
 assert 'malloc(kTelnetTxCapacity)' in console
 assert 'free(telnetTx)' in console
 assert 'telnetEnd+n>kTelnetTxCapacity' in console
