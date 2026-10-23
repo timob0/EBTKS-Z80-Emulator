@@ -82,7 +82,8 @@ jobs:
       - name: Optional Telnet compile switch smoke build (both targets)
         run: |
           PLATFORMIO_BUILD_FLAGS="-DEBTKS_CPM85_KEYBOARD_ENABLE=1 -DEBTKS_WEB_TERMINAL_ENABLE=1 -DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1 -DEBTKS_TELNET_ENABLE=1" pio run -e esp32dev
+          python3 tests/check_telnet_optin.py esp32dev
           PLATFORMIO_BUILD_FLAGS="-DEBTKS_CPM85_KEYBOARD_ENABLE=1 -DEBTKS_WEB_TERMINAL_ENABLE=1 -DEBTKS_SPI_CACHE_EARLY_IRAM_ONLY=1 -DEBTKS_TELNET_ENABLE=1 -DEBTKS_TFT_ENABLE=1 -DEBTKS_TFT_TERMINAL_MIRROR=1 -DEBTKS_TFT_VT100=1" pio run -e esp32dev-tft
-          python3 tests/check_telnet_optin.py
+          python3 tests/check_telnet_optin.py esp32dev-tft
           python3 tests/check_esp32_dram_budget.py
 
