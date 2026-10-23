@@ -6,6 +6,27 @@ user-tested on real hardware, followed by successful DIR, Multiplan and Media
 Manager tests. These new automatic-return / HP catalog changes have NOT yet
 been flashed or regression-tested physically.
 
+## First hardware CPDCAT timeout and corrective fix (2026-10-23)
+
+User reported: `CPDCAT` printed **TIMEOUT; CHECK CP/M SERVICE STATUS**.
+Root cause identified by source inspection: `z80BridgeOpcode()` filtered
+`service_fetch` at only four original CCP PCs (D19C/D1A4/D382/D398).
+The new line-input observer at **D9EF** and BIOS CONIN poll observer at
+**E826/E831** were therefore **never invoked** by the actual redcode CPU.
+The synthetic CR could never be generated and the HP worker timed out.
+This was a bug in the **ESP32** firmware, not evidence of a Teensy or HP
+mailbox error.
+
+Fix: forward those three precise native PCs in
+`ESP32_Z80_Emulator/z80_bridge.h`, while retaining the four original
+CCP locations and avoiding ordinary BIOS console-OUTPUT polling at E863.
+Added native regression **testRealBridgeForwardsBdosAndBiosInputFetches**
+that executes real redcode Z80 code at D9EF / E826 and checks an
+injected one-shot CR; separate test ensures E863 cannot trigger it.
+**Do not flash before the corrected ESP32 CI and local macOS TFT build
+both pass.** HP and Teensy feature branches are unchanged. New hardware
+acceptance of automatic CPDCAT remains pending.
+
 ## Source branches (do not merge or touch recovery)
 
 - ESP32: `timob0/EBTKS-Z80-Emulator`, `feature/cpm85-file-transfer-hpib-ui`
