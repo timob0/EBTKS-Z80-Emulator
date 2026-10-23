@@ -1,6 +1,8 @@
 #pragma once
 #include "globals.h"
 
+#if EBTKS_TELNET_ENABLE
+
 // Preserve the legacy dedicated TelnetTask path for controlled A/B testing.
 // Default: the existing EBTKSWebTask accepts incoming clients, keeping the
 // TCP port 23 listener available WITHOUT allocating an extra 3072-byte task
@@ -49,3 +51,5 @@ inline void TelnetTask(void*){
   }
 }
 #endif
+
+#endif // EBTKS_TELNET_ENABLE
