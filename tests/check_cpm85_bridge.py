@@ -66,7 +66,7 @@ admitted=re.search(r'if\s*\(\s*op\s*<\s*1\s*\|\|\s*op\s*>\s*(\d+)\s*\|\|',contro
 assert admitted, "missing command validator"
 max_op=int(admitted.group(1))
 dispatched=[int(op) for op in re.findall(r'if\s*\(\s*op\s*==\s*(\d+)\s*\)',control)]
-assert dispatched and max_op==max(dispatched)==6, (max_op,dispatched)
+assert dispatched and max_op==max(dispatched)==7, (max_op,dispatched)
 assert 'setResult(false,"INVALID CP/M REQUEST")' in control
 assert 'request["cpm_image"]["op"] = "begin"' in control
 assert 'statusReq["cpm_image"]["op"] = "status"' in control
@@ -80,3 +80,9 @@ assert "if (name[0] == '.') continue;" in control
 assert control.index("if (name[0] == '.') continue;") < control.index("const char *dot = strrchr(name, '.');")
 assert "memset(" not in control
 print("PASS: CPDIMGS/CPDMK image commands use bounded directory/status messages")
+
+# Opcode 7 returns read-only CP/M directory extents through the safe-point.
+assert 'if(op==7){catalog(args);return;}' in control
+assert 'gate->request(CpmSafePoint::DIRECTORY,drive+1)' in control
+assert 'CPDCAT: CP/M BUSY OR COMMAND LINE NOT EMPTY' in control
+assert 'snapshot.truncated' in control
