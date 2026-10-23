@@ -1,5 +1,17 @@
 # SIMON85 / EBTKS — start here in the next ChatGPT conversation
 
+**CPDCAT POST-ERROR WEB FORENSICS:** The user read
+`/api/cpm/service/status` and `/api/cpm/service/directory` on running
+ESP SHA `74bb45f3a655...`. CCP idle=true but service state/probe=never
+while operation=directory. This points to a Z80 rebootstrap clearing the
+Gate's live outcome, potentially after failed BDOS directory execution.
+ESP32 feature branch now preserves sticky `last_directory_*` fields
+and a forced-Z80-reset flag across Gate::reset, exposed by both GET
+endpoints, with regression. Reflash only after CI + Mac TFT local build
+pass, then inspect these fields immediately after failed CPDCAT before
+a new request. The exact cause of underlying BDOS failure is UNKNOWN.
+See [CPDCAT_STAGE_B1.md](CPDCAT_STAGE_B1.md).
+
 **CPDCAT SECOND HARDWARE RESULT (2026-10-23; NOT RESOLVED):**
 The user reported `CPDCAT: CANCELLED OR DIRECTORY READ FAILED` at an
 apparently idle CP/M prompt after the auto-Return bridge fix. Unlike
