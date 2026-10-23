@@ -6,6 +6,7 @@
 #include "crt_display_page.h"
 #include "cpm_media_page.h"
 #include "ebtks_firmware_options.h"
+#include "ebtks_static_pages.h"
 
 // Z80 browser terminal.  Telnet remains a raw byte stream; browser terminal
 // emulation is deliberately client-side so CP/M and BIOS console behaviour are
@@ -195,18 +196,13 @@ inline void webTerminalRegister(AsyncWebServer &server){
               "Exit MODEM or close other sessions, then reload.");
       return;
     }
-    // This page is ~17 KiB. Never materialize it as a heap String, which
-    // becomes fragile when live SPI read-ahead retains its cache and worker.
-    AsyncWebServerResponse *response=r->beginResponse(
-      200,"text/html; charset=utf-8",
-      reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE),
-      sizeof(EBTKS_TERM_PAGE)-1U);
-    if(!response) {
-      r->send(503,"text/plain","Terminal page response allocation failed");
-      return;
-    }
-    response->addHeader("Cache-Control","no-store");
-    r->send(response);
+    // Gzip is generated at build time from the editable HTML in this
+    // header; use flash-backed identity only for clients without gzip.
+    ebtksServeStaticHtml(r,
+        reinterpret_cast<const uint8_t *>(EBTKS_TERM_PAGE),
+        sizeof(EBTKS_TERM_PAGE)-1U,
+        EBTKS_TERM_PAGE_GZIP,sizeof(EBTKS_TERM_PAGE_GZIP),
+        "Terminal page response allocation failed");
   });
 #endif // EBTKS_WEB_TERMINAL_ENABLE
   // HP CRT, Media Manager, Z80 control and diagnostics are always present.
