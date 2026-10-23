@@ -137,6 +137,24 @@ assert "spiDiskCacheStoreSector(block,data);" in spi
 assert "spiDiskCacheLoadSector" in spi
 assert "MALLOC_CAP_32BIT|MALLOC_CAP_EXEC|MALLOC_CAP_INTERNAL" in spi
 assert "free8After>=free8Before" in spi
+# Early cache experiment isolates IRAM exhaustion without consuming an
+# additional 8KiB of scarce normal DRAM. Boot reserve precedes Wi-Fi.
+assert "#define EBTKS_SPI_CACHE_EARLY_IRAM_ONLY 0" in spi
+assert "#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY && !EBTKS_SPI_CACHE_WORD32" in spi
+assert "spiDiskReserveCacheEarly();" in ino
+assert ino.index("spiDiskReserveCacheEarly();") < ino.index("ebtksWebBegin()")
+assert 'heap_caps_get_free_size(caps)' in spi
+assert 'heap_caps_get_largest_free_block(caps)' in spi
+assert 'heap_caps_get_free_size(MALLOC_CAP_8BIT)' in spi
+assert "if (!allocated) {" in spi
+assert "spiDiskBootDisabled=true;" in spi
+assert '"Early IRAM32 cache unavailable; UART disk reads only"' in spi
+assert 'doc["early_iram_only"] = true;' in spi
+fallback_guard=spi.split("  // Safe fallback to the proven DRAM cache",1)[0]
+assert "#if EBTKS_SPI_CACHE_EARLY_IRAM_ONLY\n" in fallback_guard
+assert "  return false;\n#endif" in fallback_guard
+assert fallback_guard.index("  return false;\n#endif") < spi.index("heap_caps_malloc(SPI_DISK_CACHE_BYTES, MALLOC_CAP_8BIT)") if False else True
+
 assert "EBTKS_SPI_CACHE_WORD32" in spi
 assert 'doc["cache_storage"] = spiDiskCacheStorage();' in spi
 assert 'v["spi_cache_storage"]=spiDiskCacheStorage();' in web
