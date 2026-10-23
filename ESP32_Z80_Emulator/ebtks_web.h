@@ -10,6 +10,7 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include "ebtks_build_revision.h" // generated at firmware build
+#include "ebtks_firmware_options.h"
 
 // Shared EBTKS web server. /ws remains the original Teensy JSON bridge.
 // The Z80 terminal has its own independent websocket endpoint.
@@ -24,13 +25,19 @@ struct EBTKSBrowserRequest {
 };
 QueueHandle_t ebtksBrowserRequestQueue = nullptr;
 
+#if EBTKS_WEB_TERMINAL_ENABLE
+#define EBTKS_HOME_Z80_LINK "<button onclick=\"location.href='/z80'\">Z80 / CP/M Terminal</button>"
+#else
+#define EBTKS_HOME_Z80_LINK "<p class=\"small\">CP/M console: physical TFT or Telnet port 23</p>"
+#endif
+
 static const char EBTKS_HOME_FALLBACK[] PROGMEM = R"HTML(
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ESP32-EBTKS</title><style>
 body{font-family:Verdana,sans-serif;text-align:center;background:#252525;color:#eaeaea}main{max-width:420px;margin:3rem auto}button{border:0;border-radius:.3rem;background:#1fa3ec;color:white;line-height:2.4rem;font-size:1.1rem;width:100%;margin:.45rem 0;cursor:pointer}button:hover{background:#0e70a4}.small{font-size:.85rem;color:#aaa}
 </style></head><body><main><h2>EBTKS</h2><p>ESP32 services</p>
 <button onclick="location.href='/crt'">HP-80 Remote Display</button>
-<button onclick="location.href='/z80'">Z80 / CP/M Terminal</button>
+)" EBTKS_HOME_Z80_LINK R"HTML(
 <button onclick="location.href='/cpmmedia'">CP/M Media Manager</button>
 <button onclick="location.href='/updater'">Firmware Updater</button>
 <p class="small">The original EBTKS websocket service remains available at /ws.</p>
@@ -123,7 +130,7 @@ inline void ebtksWebBackgroundTask(void *parameter)
     }
 
     ebtksWebSocket.cleanupClients();
-    z80WebSocket.cleanupClients();
+    webTerminalCleanupClients();
 
     // Preserve idle UI memory: no modem socket, FIFOs or task until a
     // CP/M program actually polls the virtual serial port at 88h-8Fh.
@@ -200,6 +207,8 @@ inline bool ebtksWebBegin()
       v["mode"]=CpmSafePoint::modeText(mode);
       v["probe"]=CpmSafePoint::resultText(result);
       v["git_commit"]=EBTKS_BUILD_GIT_COMMIT;
+      v["web_terminal_enabled"]=(bool)EBTKS_WEB_TERMINAL_ENABLE;
+      v["tft_terminal_enabled"]=(bool)EBTKS_TFT_TERMINAL_MIRROR;
       String body;serializeJson(v,body);
       r->send(200,"application/json",body);
     });
@@ -292,6 +301,8 @@ inline bool ebtksWebBegin()
       doc["largest_8bit"]=(uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
       doc["telnet_listener_mode"]=EBTKS_TELNET_SHARED_WORKER?"shared_web_task":"dedicated_task";
       doc["telnet_connected"]=serverClient.connected();
+      doc["web_terminal_enabled"]=(bool)EBTKS_WEB_TERMINAL_ENABLE;
+      doc["tft_terminal_enabled"]=(bool)EBTKS_TFT_TERMINAL_MIRROR;
       doc["min_heap_free"]=(uint32_t)ESP.getMinFreeHeap();
       doc["min_free_8bit"]=(uint32_t)
           heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);

@@ -5,10 +5,12 @@
 #include "z80_debug.h"
 #include "crt_display_page.h"
 #include "cpm_media_page.h"
+#include "ebtks_firmware_options.h"
 
 // Z80 browser terminal.  Telnet remains a raw byte stream; browser terminal
 // emulation is deliberately client-side so CP/M and BIOS console behaviour are
 // unchanged.
+#if EBTKS_WEB_TERMINAL_ENABLE
 AsyncWebSocket z80WebSocket("/z80ws");
 
 // Reserve contiguous 8-bit RAM for AsyncTCP/Wi-Fi and existing clients.
@@ -134,7 +136,10 @@ const hpKey={ArrowLeft:0x9F,ArrowRight:0xAA,ArrowUp:0xA3,ArrowDown:0xA4,Delete:0
 term.addEventListener('keydown',e=>{if(!ws||ws.readyState!==WebSocket.OPEN)return;let s=null,a=null;if(e.key==='Enter')a=[13];else if(e.key==='Backspace')a=[8];else if(e.key==='Tab')a=[9];else if(e.key==='Escape')a=[27];else if(mode==='hp86'&&hpKey[e.key]!==undefined)a=[hpKey[e.key]];else if(mode!=='hp86'&&e.key==='ArrowUp')s='\x1b[A';else if(mode!=='hp86'&&e.key==='ArrowDown')s='\x1b[B';else if(mode!=='hp86'&&e.key==='ArrowRight')s='\x1b[C';else if(mode!=='hp86'&&e.key==='ArrowLeft')s='\x1b[D';else if(mode!=='hp86'&&e.key==='Home')s='\x1b[H';else if(mode!=='hp86'&&e.key==='Delete')s='\x1b[3~';else if(e.ctrlKey&&!e.altKey&&e.key.length===1){const c=e.key.toUpperCase().charCodeAt(0);if(c>=64&&c<=95)a=[c&31]}else if(e.key.length===1)a=[e.key.charCodeAt(0)&255];if(s!==null){sendText(s);e.preventDefault()}else if(a){sendBytes(a);e.preventDefault()}});document.addEventListener('click',e=>{if(e.target===term)term.focus()});modeSel.value=mode;resetModel(true);render();connect();
 </script></body></html>)HTML";
 
+#endif // EBTKS_WEB_TERMINAL_ENABLE: discard browser HTML and websocket
+
 inline void consoleRxEnqueue(uint8_t c){uint16_t next=rxInPtr+1;if(next>=sizeof(rxBuf))next=0;if(next==rxOutPtr)return;rxBuf[rxInPtr]=c;rxInPtr=next;}
+#if EBTKS_WEB_TERMINAL_ENABLE
 inline void webTerminalWrite(const uint8_t *data, size_t len) {
   if (!len) return;
 
@@ -161,7 +166,18 @@ inline void webTerminalWrite(const uint8_t *data, size_t len) {
     vTaskDelay(1);
   }
 }
+#else
+inline void webTerminalWrite(const uint8_t*,size_t) {}
+#endif
+
+inline void webTerminalCleanupClients(){
+#if EBTKS_WEB_TERMINAL_ENABLE
+  z80WebSocket.cleanupClients();
+#endif
+}
+
 inline void webTerminalRegister(AsyncWebServer &server){
+#if EBTKS_WEB_TERMINAL_ENABLE
   // ESPAsyncWebServer 3.6.0 checks this before allocating a socket client.
   // Its API returns HTTP 401 for a rejected upgrade (no new WebSocket).
   z80WebSocket.handleHandshake([](AsyncWebServerRequest*) {
@@ -192,10 +208,15 @@ inline void webTerminalRegister(AsyncWebServer &server){
     response->addHeader("Cache-Control","no-store");
     r->send(response);
   });
+#endif // EBTKS_WEB_TERMINAL_ENABLE
+  // HP CRT, Media Manager, Z80 control and diagnostics are always present.
   server.on("/crt",HTTP_GET,ebtksServeCrtDisplay);
   server.on("/z80/reset",HTTP_POST,[](AsyncWebServerRequest *r){RUN=false;r->send(200,"application/json","{\"ok\":true}");});
   server.on("/z80debug",HTTP_GET,[](AsyncWebServerRequest *r){r->send(200,"text/plain",z80DebugSnapshot());});
   server.on("/z80debug-clear",HTTP_POST,[](AsyncWebServerRequest *r){z80DebugClear();r->send(200,"application/json","{\"ok\":true}");});
   server.on("/z80/status",HTTP_GET,[](AsyncWebServerRequest *r){String s="{\"target\":\"ESP32-D0WD-V3\",\"milestone\":2,\"z80_running\":";s+=RUN?"true":"false";s+=",\"teensy_storage\":";s+=sdfound?"true":"false";s+="}";r->send(200,"application/json",s);});
-  cpmMediaRegister(server);server.addHandler(&z80WebSocket);
+  cpmMediaRegister(server);
+#if EBTKS_WEB_TERMINAL_ENABLE
+  server.addHandler(&z80WebSocket);
+#endif
 }
