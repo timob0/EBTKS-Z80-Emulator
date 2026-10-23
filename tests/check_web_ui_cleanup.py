@@ -26,23 +26,34 @@ assert "m.name.startsWith('.')" in media_page
 assert "const supported=visibleMedia.filter(m=>m.supported)" in media_page
 assert "for(const m of visibleMedia)" in media_page
 
-# Media Manager must not allocate/copy its entire 16-drive JSON response
-# twice through AsyncBasicResponse under modem TCP pressure. A 200/0-byte
-# response is invalid; error paths must be explicit and any partial body
-# discarded before sending a separate 503.
+# Large media listing must never run the up-to-8-second Teensy query in
+# AsyncTCP's callback. Instead queue it to the existing web background task,
+# returning 202, later 200 JSON, or explicit 503 when memory is insufficient.
 store = (ROOT / "cpm_mount_store.h").read_text(encoding="utf-8")
 assert 'inline bool cpmStoreBuildMediaStatusJson(Print &out)' in store
 assert 'if (result.overflowed()) return false;' in store
 assert 'const size_t expected = measureJson(result);' in store
 assert 'return serializeJson(result, out) == expected;' in store
 assert 'Teensy directory/listing heap released before response serialization' in store
-assert 'AsyncResponseStream *response' in media_page
-assert 'request->beginResponseStream("application/json", 512)' in media_page
-assert 'if (!cpmStoreBuildMediaStatusJson(*response))' in media_page
-assert 'delete response;' in media_page
-assert 'request->send(503, "application/json"' in media_page
-assert 'heap_caps_get_largest_free_block(MALLOC_CAP_8BIT) < 8U * 1024U' in media_page
+assert 'AsyncResponseStream* response=' in media_page
+assert 'new (std::nothrow) AsyncResponseStream("application/json",512)' in media_page
+assert 'if(!response || !cpmStoreBuildMediaStatusJson(*response))' in media_page
+assert 'CpmMediaAsync::init();' in media_page
+assert 'CpmMediaAsync::service();' in web
+assert 'compare_exchange_strong(queued,2' in media_page
+assert 'compare_exchange_strong(ready,5' in media_page
+assert 'response.exchange(nullptr' in media_page
+assert 'request->send(202,"application/json"' in media_page
+assert 'request->send(503,"application/json"' in media_page
+assert 'if(r.status===202)' in media_page
+assert 'Media Manager unavailable: ESP32 memory low' in media_page
+assert 'return ESP.getFreeHeap() >= 56U*1024U' in media_page
+assert 'heap_caps_get_free_size(MALLOC_CAP_8BIT) >= 24U*1024U' in media_page
 assert 'request->send(200, "application/json", reply);' not in media_page
+handler=media_page[media_page.index('server.on("/api/cpm/media"'):media_page.index('server.on("/api/cpm/mount"')]
+assert 'cpmStoreBuildMediaStatusJson' not in handler
+assert 'cpmStoreFetchDiskDirectory' not in handler
+assert 'ebtksStorageExchange' not in handler
 
 # The retired /sdtest page has no residual entry point.
 assert not (ROOT / "sd_test_page.h").exists()
