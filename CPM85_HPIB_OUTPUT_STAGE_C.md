@@ -9,6 +9,35 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## Stage C1 implemented — native CPUI renderer and mode state (2026-10-24)
+
+HP ROM repo `feature/cpm85-hpib-output` now has an isolated
+`CPM85 v0.05a` **experimental LOADBIN** extension,
+`src/cpm85.asm` keyword `CPUI <numeric-keycode>`.
+`CPUI 0` initializes the console; K1-K3 (128-130) navigate
+Drives/Devices/System, K4 (131) changes Management/Control **simulation**,
+and K8 (135) terminates its native UI session. Every page/heading is
+rendered by native HP firmware `OUTSTR`, never BASIC `PRINT`,
+`PRINTER IS` or new HP-IB controller code. No printer data nor
+keyboard forwarding is activated; no peripheral ready advertised.
+
+Native keyboard polling is *still unverified* for a foreground LOADBIN
+statement. The C1 key-event pump `tests/CPMCONSOLE_C1.bas` uses the
+previously verified AUXROM `KBDBUFFER/KBDISKEY/KBDKEY` service and
+passes keycodes to native `CPUI`. This is a deliberate **hybrid
+intermediate implementation**: it proves native menu state/output but
+does not replace the polling loop entirely in machine code. Full
+native foreground loop is the remaining C2/input-service feasibility
+gate, not something proven by C1.
+
+HP repo docs `docs/CPM85_CONSOLE_C1.md` include local assembly and
+HP-85 hardware test procedure. Native parser follows tested PRINTER85
+`NUMVP/ONER/CONINT` ABI. Original `CPM`, K8, `CPDCAT`,
+Teensy and ESP32 remain unchanged. Latest HP feature CI run
+`40133075200` completed **success** including CAPASM 1.0.1,
+CAPLIF packaging and static tests. **Physical C1 acceptance pending**.
+Old C0 physical acceptance remains passed.
+
 ## Stage C0 implemented: HP BASIC foreground-loop hardware probe (2026-10-24)
 
 The **first testable console skeleton** is now on the HP Option ROM
