@@ -9,7 +9,48 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
-## Stage C2 implemented: bounded native keyboard hardware probe (2026-10-24)
+## **CRITICAL Stage C2 crash — C2 NOT ACCEPTED; recovery done (2026-10-24)**
+
+User reports **physical HP-85 crash when invoking `CPKTEST`**
+from experimental CPM85 v0.05b. Do **not** recommend rerunning that
+binary. This overrides the earlier C2 CI/static-test success.
+C0 and C1 are still the last accepted physical console milestones.
+
+Source review found **`JSB =K2KEY` used for a relocatable local
+LOADBIN function**. Proven local call convention is
+`JSB X14,K2KEY` with the BINTAB relocation base. This is a concrete
+possible crash mechanism when the first `KEYHIT` value changed.
+Separately, a `KEYHIT` busy spin without a verified HP firmware
+event-pumping contract is unsafe and could starve native services;
+the CPU-counter timeout was not an independent wall-clock watchdog.
+Actual physical root cause remains unconfirmed.
+
+**Containment completed on HP ROM `feature/cpm85-hpib-output`:**
+version **CPM85 v0.05c C2 DISABLED** removed native C2 poll/dispatch
+routines and turned `CPKTEST` into a notice-and-return command:
+`CPKTEST DISABLED - SEE C2 DOC`. The keyword table retains
+`CPKCOUNT` and `CPKLAST` as zero-valued compatibility diagnostics.
+C1 `CPUI` and original proven `CPM` source path are preserved;
+Teensy and ESP32 code not changed. CAPASM/CAPLIF and source regression
+on the quarantined code **passed** at
+`c3f070931136133ad7f78697b3d38e37b052b87c`,
+run `40136810621`. The subsequent document-only build is redundant.
+No `main` branches modified. v0.05c hardware validation NOT claimed.
+
+**Safe tested rollback:** HP ROM GitHub commit
+`13655f2d8bd0889b91aa4d0a47c8936bcb429d0c` holds the
+physically accepted C1 source (v0.05a). Rebuild/LOADBIN that revision
+or use the last successfully loaded C1 image after power-cycle/reset.
+See `HP85-Option-Roms/docs/CPM85_CONSOLE_C2.md` for safety guidance.
+
+**C2 next design:** discover/verify a documented native HP keyboard
+event or cooperative interpreter entry, or keep the proven C1 BASIC
+foreground key pump. Do NOT start another `KEYHIT` native tight
+loop on physical hardware without a hardware-safe interrupt-aware
+design and early exits. No printer ready, CP/M LIST or HPIB output
+work has started.
+
+## Stage C2 historical v0.05b prototype: retired native keyboard hardware probe (2026-10-24)
 
 The next HP ROM experiment is committed on
 `timob0/HP85-Option-Roms`, branch `feature/cpm85-hpib-output`
