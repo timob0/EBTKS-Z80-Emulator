@@ -9,6 +9,39 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## Stage C2 implemented: bounded native keyboard hardware probe (2026-10-24)
+
+The next HP ROM experiment is committed on
+`timob0/HP85-Option-Roms`, branch `feature/cpm85-hpib-output`
+as **CPM85 v0.05b**, with no ESP32 or Teensy source changes.
+The isolated new `CPKTEST` command executes a fully **native HP
+foreground loop**, reading the HP keyboard's `KEYHIT` memory location
+(octal `100671`), and shows native Drives/Devices/System pages and
+simulated Management/Control mode on changes to K1-K4. A K8 event exits;
+an inactivity timeout forces return to HP BASIC if no input occurs.
+`CPKCOUNT` and `CPKLAST` numeric diagnostics reveal how many
+different key values were seen and which code was last recorded.
+This does **not** interfere with the accepted `CPM` keyboard hook or
+C1 `CPUI`; no printer ready, HPIB, disk or transport changes.
+
+**Critical unverified assumption:** KEYHIT is proven in the existing
+CHIDLE handler but may NOT update while a foreground LOADBIN command
+runs. Identical consecutive keys cannot be reliably recognized by a
+change-only scheme. Therefore this is a **hardware feasibility test,
+NOT a claim that C2 native keyboard input works**. Its timeout avoids
+an indefinitely stuck HP BASIC session when no events arrive.
+Please test per `HP85-Option-Roms/docs/CPM85_CONSOLE_C2.md`.
+If key detection fails, research a documented native keyboard queue
+entry point or consider a small HP/Teensy event mailbox; do not wire
+live CP/M keyboard/printer traffic into this raw sample scheme.
+
+The HP feature-branch CAPASM/CAPLIF CI and static guards passed
+at `af4691288f4ef2c9cc52f70efe4c6d5baad201a9`,
+run `40135165957`. The later documentation-only build is
+pending. Previous C0 and C1 stages passed physical HP-85 testing;
+C2 physical acceptance is pending. All repository `main` baselines
+remain untouched.
+
 ## Stage C1 hardware accepted (2026-10-24)
 
 User confirmed physical HP-85 validation of C1: **"Tested and works."**
