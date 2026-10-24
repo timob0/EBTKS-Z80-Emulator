@@ -1,6 +1,13 @@
 # Stage C proposal — CP/M LST: to HP-85-configured printer
 
-**Status 2026-10-24:** design/branch setup ONLY. No printer routing code implemented or hardware tested in this stage. Created three fresh `feature/cpm85-hpib-output` branches at the current accepted `main` of ESP32, Teensy and HP Option ROM repositories. Do not merge before complete physical HP-85 acceptance.
+**Status 2026-10-24:** **Stage C0 physical HP-85 test PASSED.** The user
+confirmed the standalone `tests/CPMCONSOLE.bas` foreground management
+console prototype works. It uses AUXROM keyboard buffering and HP CRT
+`DISP`, with K1-K3 management pages, K4 simulated Control/UI toggle,
+and K8 exit/cleanup. No actual printer data or CP/M forwarding is
+implemented by C0. All three `feature/cpm85-hpib-output` branches were
+created from the accepted `main` baselines. ESP32/Teensy code remains
+unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
 ## Stage C0 implemented: HP BASIC foreground-loop hardware probe (2026-10-24)
 
