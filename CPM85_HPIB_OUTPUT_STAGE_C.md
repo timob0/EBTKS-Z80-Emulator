@@ -2,6 +2,34 @@
 
 **Status 2026-10-24:** design/branch setup ONLY. No printer routing code implemented or hardware tested in this stage. Created three fresh `feature/cpm85-hpib-output` branches at the current accepted `main` of ESP32, Teensy and HP Option ROM repositories. Do not merge before complete physical HP-85 acceptance.
 
+## Stage C0 implemented: HP BASIC foreground-loop hardware probe (2026-10-24)
+
+The **first testable console skeleton** is now on the HP Option ROM
+repository's `feature/cpm85-hpib-output` branch:
+
+- Source: `tests/CPMCONSOLE.bas`
+- Hardware guide: `docs/CPM85_CONSOLE_SKELETON.md`
+- Static regression: `tests/check_cpm_console_skeleton.py`
+- HP branch GitHub Actions builds old CPM85 LOADBIN unchanged and runs
+  the new regression.
+
+This is a **standalone RUN-ning HP BASIC prototype**, intentionally
+using the *previously physically tested* EBTKS AUXROM keyboard-buffer
+functions `KBDBUFFER`, `KBDISKEY` and `KBDKEY` as a proof of the
+foreground event loop. K1/K2/K3 choose placeholder pages, K4 toggles
+UI vs **simulated** CP/M Control, K8 exits and disables the buffer.
+It uses **DISP exclusively**, since on HP-85 BASIC `PRINT` follows
+`PRINTER IS` and would otherwise send menu text to the selected
+printer. Leave `CRT IS 1` for the test.
+
+**No CP/M key forwarding, no actual LST or printer output, no EBTKS
+I/O writes and no change to the working CPM85 command**. The user
+needs to verify real keyboard polling, mode toggle, and K8 exit on
+hardware; then we can implement a native foreground LOADBIN console
+with a real multiline CRT renderer. Do not treat C0 as the finished
+console or advertise ready status. The ESP32 and Teensy feature branches
+are unchanged apart from this design document; all mains untouched.
+
 ## Updated end-state architecture: foreground CPM85 management console
 
 **Design direction (2026-10-24):** the user wants this to become the
