@@ -9,6 +9,40 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## C2 crash clarification and revised next step (2026-10-24)
+
+Follow-up from physical HP-85 testing: `CPKTEST` **printed its
+initial heading**, then **did not respond to any keys**, then after
+a short delay the HP CRT became **blank with a cursor**, visually like
+RESET. No confirmed machine reset cause was measured.
+
+This suggests that `KEYHIT` was not delivering usable events while
+the native LOADBIN foreground command was running. The incorrect
+indirect `JSB =K2KEY` is a proven source defect but is only invoked
+after a detected change, making it **less convincing as the specific
+trigger** of the reported failure than originally believed. The
+tight firmware-unaware spin, counter expiry and return path remain
+possible contributors; root cause is **not conclusively identified**.
+The unsafe native C2 experiment stays quarantined in v0.05c,
+with C1 v0.05a the last physically accepted source baseline.
+
+**Recommended architecture:** retain C1's **verified BASIC
+`KBDBUFFER/KBDISKEY/KBDKEY` foreground event pump**, with **native
+`CPUI` handling UI state and CRT rendering**. Extend it with a
+short, bounded, promptly returning **native service/poll operation
+`CPUPOLL`** callable from the BASIC loop even when no key arrives.
+This provides an execution context for later HP-native printer
+operations and mode/readiness handling while avoiding unproven
+`KEYHIT` busy polling. The user-facing console remains modal,
+and CP/M keeps running independently. In Management mode both
+keyboard forwarding and LST receiver pause; only Control mode may
+eventually advertise LST readiness after real target/backpressure
+checks. First CPUPOLL prototype should avoid all peripheral output.
+
+No new implementation in this follow-up: this records the diagnosis
+and route forward. See `HP85-Option-Roms/docs/CPM85_CONSOLE_C2.md`
+for the detailed physical sequence.
+
 ## **CRITICAL Stage C2 crash — C2 NOT ACCEPTED; recovery done (2026-10-24)**
 
 User reports **physical HP-85 crash when invoking `CPKTEST`**
@@ -19,8 +53,8 @@ C0 and C1 are still the last accepted physical console milestones.
 Source review found **`JSB =K2KEY` used for a relocatable local
 LOADBIN function**. Proven local call convention is
 `JSB X14,K2KEY` with the BINTAB relocation base. This is a concrete
-possible crash mechanism when the first `KEYHIT` value changed.
-Separately, a `KEYHIT` busy spin without a verified HP firmware
+unsafe instruction, although it is not established to have executed
+on the observed heading-then-no-keys path. Separately, a `KEYHIT` busy spin without a verified HP firmware
 event-pumping contract is unsafe and could starve native services;
 the CPU-counter timeout was not an independent wall-clock watchdog.
 Actual physical root cause remains unconfirmed.
