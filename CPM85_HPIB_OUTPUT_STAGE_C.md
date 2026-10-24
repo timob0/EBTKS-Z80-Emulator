@@ -9,6 +9,24 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## Stage C1 hardware accepted (2026-10-24)
+
+User confirmed physical HP-85 validation of C1: **"Tested and works."**
+The independent `CPUI` native CRT renderer and native management/
+simulated-Control mode/page state work with the foreground BASIC
+`KBDBUFFER/KBDISKEY/KBDKEY` keycode pump
+(`HP85-Option-Roms/tests/CPMCONSOLE_C1.bas`).
+The prior HP feature-head build passed CI: `d2a02e9a6ebe78b0e67fb6b3c5c0a681b7caf201`,
+run `40133163983`.
+
+**Important distinction:** C1 is accepted only as the **hybrid native
+UI + BASIC foreground input loop**. Neither all-native input, CP/M
+keyboard forwarding from `CPUI`, nor HPIB/`LST:` printer reception is
+implemented/tested in C1. Continue on `feature/cpm85-hpib-output`;
+all three repository main branches stay unchanged. **Next: C2 native
+foreground input integration**, then mode/session-ready signaling
+before real printer byte routing.
+
 ## Stage C1 implemented — native CPUI renderer and mode state (2026-10-24)
 
 HP ROM repo `feature/cpm85-hpib-output` now has an isolated
