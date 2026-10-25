@@ -1,11 +1,19 @@
 # Stage B2c — read an SD transfer into a new native CP/M file
 
-**Status 2026-10-25: development implementation committed; CI, Mac
-builds, and physical tests are NOT YET accepted.** First B2b forward-copy
-milestone was physically demonstrated for A:STAT.COM (42 × 128 bytes,
-SD CRC readback, one A>), while the user's additional B2b negative-file
-test and independent Mac/SD byte comparison were still in progress.
-Do not conflate B2b acceptance with B2c.
+**Status 2026-10-26: B2b hardware and regression checks ACCEPTED by the user;
+B2c source is ready for renewed build/CI and hardware validation.**
+The previously accepted B2b export of A:STAT.COM produced 42 × 128 bytes,
+5376 bytes with CRC-16/CCITT-FALSE 54346. CPREBOOT has also passed on the
+physical HP-85 (CPM85 v0.04d), with its Teensy code already consolidated
+in the active B2c branch. The B2c import itself has **not** yet passed
+a physical SD->CP/M run; do not conflate those milestones.
+
+B2c maintenance: repaired malformed concatenated g++ commands in
+`tests/run_z80_core_native.sh`; the native suite now compiles and runs
+both the B2a file-read and B2c file-write tests separately, one time each.
+The Teensy native SD import suite additionally tests a complete 42-record
+source (all record bytes and per-record/cumulative CRCs).
+These source/test changes still need full CI and local build validation.
 
 ## Feature branches (no main/HP ROM changes)
 
@@ -13,7 +21,9 @@ Do not conflate B2b acceptance with B2c.
   from the physical-test B2b branch `feature/cpm-file-transfer-b2a`.
 - Teensy `timob0/ebtks-alt-firmware`: `feature/cpm-file-transfer-b2c`
   from `feature/cpm-file-transfer-b2b-sd`.
-- HP Option ROM/LOADBIN: unchanged. No RMIDLE or C2/C2b console work.
+- HP Option ROM/LOADBIN: CPM85 v0.04d CPREBOOT is **physically accepted** on
+  its existing `feature/cpm85-esp-reboot` branch. No B2c-specific HP changes.
+  No RMIDLE or C2/C2b console work.
 - Preserve known-good flashed B2b ESP32 and Teensy images until both new
   PlatformIO builds and all CI regression jobs pass.
 
@@ -59,7 +69,7 @@ failure, and is preserved in `last_import_partial_possible` across a
 Z80-only reset. Do NOT run the partially created executable. A separate,
 explicitly confirmed cleanup procedure is future work.
 
-## Builds — wait for green CI and local linking before any flash
+## Builds — verify native/firmware CI and local linking before any flash
 
 Teensy:
 ```bash
@@ -86,8 +96,8 @@ firmware and recovery path.
 
 ## First physical test — on backup of writable disk image
 
-**Only after the user confirms the remaining B2b checks and both new
-builds are green.** Make a backup of the Teensy SD and A: .DSK with
+**B2b is accepted.** Proceed when native/firmware builds pass and a
+writable A: disk image is backed up. Make a backup of the Teensy SD and A: .DSK with
 the system safely stopped; use a disposable/test CP/M mounted disk if
 possible. At CP/M `A>`, run `DIR A:` and confirm `IMPTST.COM` does
 NOT exist. Do not run Multiplan, MODEM or another CP/M command
