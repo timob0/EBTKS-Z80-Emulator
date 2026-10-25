@@ -1,3 +1,5 @@
+> **CURRENT 2026-10-25 B2c:** Read [NEXT_CHAT_B2C_HANDOFF.md](NEXT_CHAT_B2C_HANDOFF.md) and [CPM_FILE_TRANSFER_B2C_IMPORT.md](CPM_FILE_TRANSFER_B2C_IMPORT.md) first. New B2c code is on separate ESP32/Teensy feature branches, **not yet CI/build/hardware accepted**. The user is finishing B2b checks in parallel. All production main, HP Option ROMs and recovery images are unchanged.
+
 # CURRENT PROJECT CHECKPOINT — B2a FILE TRANSFER (2026-10-25)
 
 **READ FIRST: [NEXT_CHAT_B2A_HANDOFF.md](NEXT_CHAT_B2A_HANDOFF.md).**
