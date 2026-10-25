@@ -19,7 +19,7 @@ enum Mode : uint8_t { UNKNOWN=0, BUSY=1, CCP_INPUT=2, PROBE_RUNNING=3 };
 enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
-enum Operation : uint8_t { PROBE=0, DIRECTORY=1, READ_RECORD=2, EXPORT_SD=3 };
+enum Operation : uint8_t { PROBE=0, DIRECTORY=1, READ_RECORD=2, EXPORT_SD=3, IMPORT_SD=4 };
 // Read-only observability; checkpoints never authorize guest-side operations.
 enum Checkpoint : uint8_t {
   IDLE=0, ARMED=1, EMPTY_LINE=2, NONEMPTY_LINE=3,
@@ -48,7 +48,10 @@ enum FileError : uint8_t {
   FILE_BAD_REQUEST=4, FILE_OPEN_NOT_FOUND=5, FILE_BDOS_INTERRUPTED=6,
   READ_RECORD_ERROR=7, FILE_CLOSE_ERROR=8, FILE_DMA_CHANGED=9,
   FILE_SD_STAGE_FAILED=10, FILE_SD_WRITE_FAILED=11,
-  FILE_SD_COMMIT_FAILED=12, FILE_EXPORT_LIMIT=13
+  FILE_SD_COMMIT_FAILED=12, FILE_EXPORT_LIMIT=13,
+  FILE_TARGET_EXISTS=14, FILE_MAKE_FAILED=15, FILE_WRITE_RECORD_FAILED=16,
+  FILE_IMPORT_VERIFY_FAILED=17, FILE_IMPORT_CRC_MISMATCH=18,
+  FILE_SD_SOURCE_FAILED=19
 };
 inline const char *fileErrorText(uint8_t e) {
   switch(e) {
@@ -65,6 +68,12 @@ inline const char *fileErrorText(uint8_t e) {
     case FILE_SD_WRITE_FAILED:return "teensy_sd_write_failed";
     case FILE_SD_COMMIT_FAILED:return "teensy_sd_commit_unconfirmed";
     case FILE_EXPORT_LIMIT:return "export_requires_eof_within_64_records";
+    case FILE_TARGET_EXISTS:return "cpm_destination_exists";
+    case FILE_MAKE_FAILED:return "cpm_make_failed";
+    case FILE_WRITE_RECORD_FAILED:return "cpm_sequential_write_failed";
+    case FILE_IMPORT_VERIFY_FAILED:return "cpm_readback_mismatch";
+    case FILE_IMPORT_CRC_MISMATCH:return "source_crc_mismatch";
+    case FILE_SD_SOURCE_FAILED:return "teensy_sd_source_failed";
     default:return "none";
   }
 }
@@ -147,6 +156,10 @@ public:
   // Published before WAIT_EMPTY_LINE; only pinned CPU task reads this.
   std::atomic<uint8_t> requestedFile[11]{};
   std::atomic<uint16_t> requestedRecord{0};
+  // B2c SD source name is independent of the destination FCB.
+  std::atomic<uint8_t> requestedSourceDrive{0};
+  std::atomic<uint8_t> requestedSourceFile[11]{};
+  std::atomic<bool> importPartialPossible{false};
   std::atomic<uint8_t> fileError{FILE_OK};
   // End-to-end SD export progress: published by pinned CPU task only.
   std::atomic<uint16_t> exportRecords{0};
@@ -230,6 +243,7 @@ public:
     fileError.store(FILE_OK,std::memory_order_release);
     exportRecords.store(0,std::memory_order_release);
     exportCrc.store(0xFFFF,std::memory_order_release);
+    importPartialPossible.store(false,std::memory_order_release);
     compatible.store(nativeCpm && signature(ram),std::memory_order_release);
   }
 
@@ -249,7 +263,8 @@ public:
         lastDirectoryCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
         lastDirectoryResult.store(INVALIDATED,std::memory_order_release);
       } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
-                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
+                 operation.load(std::memory_order_acquire)==EXPORT_SD ||
+                 operation.load(std::memory_order_acquire)==IMPORT_SD)) {
         lastFileCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
         lastFileResult.store(INVALIDATED,std::memory_order_release);
       }
@@ -279,7 +294,8 @@ public:
           lastDirectoryCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
           lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
         } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
-                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
+                 operation.load(std::memory_order_acquire)==EXPORT_SD ||
+                 operation.load(std::memory_order_acquire)==IMPORT_SD)) {
           lastFileCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
           lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
         }
@@ -338,7 +354,8 @@ public:
             lastDirectoryCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
             lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
           } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
-                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
+                 operation.load(std::memory_order_acquire)==EXPORT_SD ||
+                 operation.load(std::memory_order_acquire)==IMPORT_SD)) {
             lastFileCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
             lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
           }
@@ -372,7 +389,8 @@ public:
   }
 
   bool request(Operation requested=PROBE,uint8_t drive=0,
-               const uint8_t* fcbName=nullptr,uint16_t record=0) {
+               const uint8_t* fcbName=nullptr,uint16_t record=0,
+               const uint8_t* sourceName=nullptr,uint8_t sourceDrive=0) {
     if(requestBusy.test_and_set(std::memory_order_acquire))return false;
     const uint32_t generation=inputGeneration.load(std::memory_order_acquire);
     if(!compatible.load(std::memory_order_acquire) ||
@@ -386,8 +404,11 @@ public:
       requestBusy.clear(std::memory_order_release);
       return false;
     }
-    if(drive>16 || ((requested==READ_RECORD || requested==EXPORT_SD) &&
-        (!fcbName || (requested==READ_RECORD && record>63))) ||
+    if(drive>16 || ((requested==READ_RECORD || requested==EXPORT_SD ||
+                   requested==IMPORT_SD) &&
+        (!fcbName || (requested==READ_RECORD && record>63) ||
+         (requested==IMPORT_SD && (!sourceName || sourceDrive<1 ||
+                                    sourceDrive>16)))) ||
        (requested!=PROBE &&
        ccpLineKnown.load(std::memory_order_acquire) &&
        !ccpLineEmpty.load(std::memory_order_acquire))) {
@@ -395,13 +416,19 @@ public:
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
-    if(requested==READ_RECORD || requested==EXPORT_SD) {
+    if(requested==READ_RECORD || requested==EXPORT_SD || requested==IMPORT_SD) {
       for(unsigned i=0;i<11;++i)
         requestedFile[i].store(fcbName[i],std::memory_order_relaxed);
       requestedRecord.store(record,std::memory_order_relaxed);
+      if(requested==IMPORT_SD) {
+        requestedSourceDrive.store(sourceDrive,std::memory_order_relaxed);
+        for(unsigned i=0;i<11;++i)
+          requestedSourceFile[i].store(sourceName[i],std::memory_order_relaxed);
+      }
       fileError.store(FILE_OK,std::memory_order_release);
     exportRecords.store(0,std::memory_order_release);
     exportCrc.store(0xFFFF,std::memory_order_release);
+    importPartialPossible.store(false,std::memory_order_release);
     }
     operation.store(requested,std::memory_order_release);
     checkpoint.store(ARMED,std::memory_order_release);
@@ -441,7 +468,8 @@ public:
         lastDirectoryCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
         lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
       } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
-                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
+                 operation.load(std::memory_order_acquire)==EXPORT_SD ||
+                 operation.load(std::memory_order_acquire)==IMPORT_SD)) {
         lastFileCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
         lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
       }
@@ -463,7 +491,8 @@ public:
       // Store this result LAST for a coherent postmortem snapshot.
       lastDirectoryResult.store(passed?PASSED:FAILED,std::memory_order_release);
     } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
-                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
+                 operation.load(std::memory_order_acquire)==EXPORT_SD ||
+                 operation.load(std::memory_order_acquire)==IMPORT_SD)) {
       const uint8_t finalCheckpoint=passed?BDOS_OK:BDOS_FAIL;
       checkpoint.store(finalCheckpoint,std::memory_order_release);
       lastFileCheckpoint.store(finalCheckpoint,std::memory_order_release);
@@ -477,7 +506,7 @@ public:
 };
 inline const char *operationText(uint8_t o) {
   return o==DIRECTORY?"directory":o==READ_RECORD?"file_read":
-         o==EXPORT_SD?"sd_export":"probe";
+         o==EXPORT_SD?"sd_export":o==IMPORT_SD?"sd_import":"probe";
 }
 inline const char *modeText(uint8_t m) {
   switch(m) {
