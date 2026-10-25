@@ -11,6 +11,10 @@ g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
 g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
   tests/cpm_directory_native.cpp "$BUILD_DIR/z80_redcode.o" \
   -o "$BUILD_DIR/cpm_directory_test"
+g++ -std=c++17 -O2 -Wall -Wextra -Werror -pedantic \
+  tests/cpm_file_read_native.cpp "$BUILD_DIR/z80_redcode.o" \
+  -o "$BUILD_DIR/cpm_file_read_test"
 "$BUILD_DIR/cpm_safe_point_test"
 "$BUILD_DIR/cpm_directory_test"
+"$BUILD_DIR/cpm_file_read_test"
 "$BUILD_DIR/z80_test"
