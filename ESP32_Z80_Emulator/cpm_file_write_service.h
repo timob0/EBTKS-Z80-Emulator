@@ -35,7 +35,8 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
                     uint8_t drive,uint16_t totalRecords,uint16_t expectedCrc,
                     ReadSource readSource,void *sourceContext,
                     Outcome &out,bool &needReset,
-                    void (*yieldCpu)()=nullptr) {
+                    void (*yieldCpu)()=nullptr,
+                    CpmSafePoint::Gate *progressGate=nullptr) {
   out=Outcome{};
   needReset=false;
   if(!bridge || !bridge->memory ||
@@ -111,6 +112,10 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
         }
         out.crc=extendCrc(out.crc,bytes,sizeof(bytes));
         ++out.written;
+        if(progressGate) {
+          progressGate->exportRecords.store(out.written,std::memory_order_release);
+          progressGate->exportCrc.store(out.crc,std::memory_order_release);
+        }
       }
       if(allGood && out.crc!=expectedCrc) {
         out.error=CpmSafePoint::FILE_IMPORT_CRC_MISMATCH;
