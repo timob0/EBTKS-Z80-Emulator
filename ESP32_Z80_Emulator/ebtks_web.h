@@ -340,6 +340,98 @@ inline bool ebtksWebBegin()
       r->send(200,"application/json",body);
     });
 
+  // Stage B2a, read-only CP/M single-record diagnostic. NEVER access
+  // guest memory or call BDOS from an AsyncTCP callback. Accept only a
+  // strict A:..P: 8.3 name; user area is the current CP/M user.
+  // E.g. POST /api/cpm/service/file?name=A%3ASTAT.COM&record=0
+  ebtksServer.on("/api/cpm/service/file",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("name") || !r->hasParam("record")) {
+        r->send(400,"application/json","{\"error\":\"name_and_record_required\"}");
+        return;
+      }
+      const String spec=r->getParam("name")->value();
+      const String index=r->getParam("record")->value();
+      uint8_t drive=0, fcb[11]{};
+      if(!CpmFileReadService::parseName(spec.c_str(),drive,fcb) ||
+         index.length()==0 || index.length()>2) {
+        r->send(400,"application/json","{\"error\":\"invalid_8_3_or_record\"}");
+        return;
+      }
+      uint16_t record=0;
+      for(size_t i=0;i<index.length();++i) {
+        if(index[i]<'0' || index[i]>'9') {
+          r->send(400,"application/json","{\"error\":\"invalid_record\"}");
+          return;
+        }
+        record=uint16_t(record*10+index[i]-'0');
+      }
+      if(record>CpmFileReadService::kMaxRecord) {
+        r->send(400,"application/json","{\"error\":\"record_limit_63\"}");
+        return;
+      }
+      CpmSafePoint::Gate* gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+           gate->request(CpmSafePoint::FILE_READ,drive,fcb,record);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["supported"]=supported;
+      v["operation"]="file_read";
+      v["name"]=spec;
+      v["record"]=record;
+      v["state"]=CpmSafePoint::resultText(gate?
+          gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+          "Automatic empty CCP return; read runs only at verified D382 boundary":
+          "CCP not ready, running application, incompatible image, or request pending";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/file",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate* gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+          gate->operation.load(std::memory_order_acquire)==CpmSafePoint::FILE_READ;
+      const uint8_t state=gate?gate->result.load(std::memory_order_acquire):
+          CpmSafePoint::NEVER;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correct?"file_read":"none";
+      v["state"]=correct?CpmSafePoint::resultText(state):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(
+          gate?gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["file_error"]=CpmSafePoint::fileErrorText(
+          gate?gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["record_max"]=CpmFileReadService::kMaxRecord;
+      if(correct && state==CpmSafePoint::PASSED) {
+        CpmSafePoint::FileRecord data;
+        if(!gate->copyFile(data)) {
+          r->send(503,"application/json","{\"error\":\"file_snapshot_busy\"}");
+          return;
+        }
+        v["record"]=data.record;
+        v["has_data"]=data.hasData;
+        v["eof"]=data.eof;
+        v["length"]=data.hasData?128:0;
+        if(data.hasData) {
+          // Hex is lossless: 0x00, 0x1A and 0xE5 are NOT filtered.
+          char hex[257];
+          static const char digits[]="0123456789ABCDEF";
+          for(unsigned i=0;i<128;++i) {
+            hex[i*2]=digits[data.data[i]>>4];
+            hex[i*2+1]=digits[data.data[i]&15];
+          }
+          hex[256]='\0';
+          v["encoding"]="hex";
+          v["crc16_ccitt_false"]=data.crc16;
+          v["data"]=hex;
+        }
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
   // RAM-only liveness and reset forensics, no SPI/UART/SD work.
   // Read BEFORE and AFTER enabling 4MHz read-ahead from Media Manager.
   // If the ESP resets, its next boot retains the hardware reset reason.
