@@ -34,6 +34,7 @@
 // after the existing Wi-Fi stack is up and from the existing CPU worker.
 // No new permanent DRAM/BSS is consumed on the constrained ST7796 build.
 #include "cpm_safe_point.h"
+#include "cpm_file_read_service.h" // read-only B2a name parser/record schema for web
 CpmSafePoint::Gate *cpmSafeGatePtr();
 #include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
 #include "ebtks_web.h"
