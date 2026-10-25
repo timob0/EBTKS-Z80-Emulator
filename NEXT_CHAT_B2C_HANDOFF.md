@@ -5,6 +5,42 @@ first. This is the current checkpoint. Historical `NEXT_CHAT_HANDOFF.md`,
 `NEXT_CHAT_B2A_HANDOFF.md`, and `NEXT_CHAT_B2B_SD_HANDOFF.md`
 are retained for recovery baselines and previous milestones.
 
+## B2c resumed (2026-10-26)
+
+User explicitly confirmed **all remaining B2b regressions passed**.
+Do not ask for B2b retesting as a prerequisite. CPREBOOT is working,
+so the Wi-Fi loss/reassociation workaround is now available.
+
+Active feature branches **unchanged**:
+ESP32 and Teensy `feature/cpm-file-transfer-b2c`;
+HP ROM `feature/cpm85-esp-reboot` (v0.04d, already hardware accepted).
+No new branches, no merges to `main`.
+
+B2c code review found a definite native CI blocker in ESP32
+`tests/run_z80_core_native.sh`: the g++ file-read and file-write
+commands were inadvertently concatenated, with a duplicate file-read
+execution. Fixed and committed in ESP32 branch `e59fab5790ddbe9c7d5f559077cdab1f8fc6f0c8`.
+Teensy native `test/cpm85_sd_import_native.cpp` was expanded with
+a full **42 × 128-byte** test source, verifying records, CRC and clean
+completion, commit `833ac458a1845cfabee1b5ab186fd8e3a6bb8b83`.
+No known transfer-path code changes were needed after current review.
+
+**Still not verified:** current GitHub Actions run (connector exposes only
+PR-triggered runs), Mac local PlatformIO builds (Teensy, ESP32 headless
+and TFT), or B2c physical transfer. Do not claim those succeeded.
+Do not flash B2c until local builds and native regression jobs pass.
+
+**First B2c physical test after local build gate:** preserve/backup
+writable A: .DSK, ensure `A:IMPTST.COM` does NOT exist, use native
+CCP `A>` idle; POST
+`/api/cpm/service/import?source=A%3ASTAT.COM&name=A%3AIMPTST.COM&confirm=CREATE_NEW`.
+GET the same route to poll; expect `passed`, 42 records,
+5376 bytes, CRC 54346, no partial file and no reset. Then `DIR A:`,
+B2b-export `A:IMPTST.COM` to `A_IMPTST.COM` and compare against
+original `A_STAT.COM` with `cmp` on Mac. Never execute the copied
+COM binary as a first integrity test. Do not merge before hardware
+verification.
+
 ## CPREBOOT acceptance and branch consolidation (2026-10-26)
 
 **Completed and physically confirmed:** The user reports HP-85 `CPVER`
@@ -46,9 +82,8 @@ B2b direct CP/M->Teensy SD export `/cpm/transfers/A_STAT.COM`
 **physically PASSED**: 42 records, 5376 logical bytes, cumulative CRC16
 54346 (0xD44A), SD readback and commit, only one extra A> prompt,
 normal SDCAT visibility, and duplicate-destination failure with
-`teensy_sd_stage_failed` and no reset. User is still finishing two
-remaining B2b acceptance checks: missing-source negative test and
-independent SD-versus-Mac byte comparison.
+`teensy_sd_stage_failed` and no reset. User subsequently confirmed all
+remaining B2b acceptance checks passed (2026-10-26).
 
 ## New B2c work — committed, NOT YET build/CI or hardware validated
 
@@ -91,7 +126,7 @@ Native real-Z80 fixture tests BDOS operations, overwrite rejection,
 source failure, write failure, corrupt readback and interruption;
 CI now triggers B2c branch.
 
-**CRITICAL NOT YET DONE**: Verify GitHub Actions jobs (GitHub
+**B2c BUILD/TEST GATE NOT YET DONE**: Verify GitHub Actions jobs (GitHub
 connector `fetch_commit_workflow_runs` only returns PR-triggered
 runs; no positive CI result was available in this session). Run Mac
 `pio run -e teensy41`, `pio run -e esp32dev`, and
