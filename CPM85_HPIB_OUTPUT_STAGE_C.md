@@ -1,3 +1,49 @@
+## CURRENT CORRECTION (2026-10-25): native-only HP console, erroneous C2a retracted
+
+The user correctly rejected Teensy-side RMIDLE instrumentation,
+Teensy CRT DMA drawing and any use of EBTKS `screenEmu` for the
+HP-85 management console. **Only HP-85 native LOADBIN code is
+responsible for keyboard events, RMIDLE service count and CRT
+rendering.** The Teensy and ESP32 remain unchanged transport and
+CP/M peripherals for this stage.
+
+The mislayered C2a hardware test `CMENU` showed no counter or
+K1–K4 response, although K8 exited and preserved the current HP
+BASIC program. The absence of a count was caused by the fact that
+the EBTKS CRT probe deliberately returned immediately when the
+optional `screenEmu` setting was false. This is **not evidence**
+that HP's RMIDLE stopped running.
+
+**Source recovery complete:**
+- `timob0/ebtks-alt-firmware`
+  `feature/cpm85-hpib-output`: all five modified original files
+  restored to byte-for-byte `main` content; the three new
+  probe header/source/test files deleted. No experimental Teensy
+  firmware remains on the branch.
+- `timob0/HP85-Option-Roms`
+  `feature/cpm85-hpib-output`: deleted the HP-source
+  `CMENU` probe and reverted HP ASM, keyword tests and CI
+  to pre-C2a, **CPM85 v0.05c** (quarantined crashed native
+  `CPKTEST`, accepted C1 `CPUI` and legacy `CPM` intact).
+  The old build/test guide now carries a prominent retraction.
+- `main` branches unchanged; ESP32 feature source unchanged.
+
+**Correct C2 plan:** inspect octal `RMIDLE=102434` (decimal 34076),
+whose seven-byte slot already contains the AUXROM/EBTKS handler.
+Implement a checked native hook chain that calls the saved
+original EBTKS hook, increments an HP RAM counter and restores the
+prior hook bytes on K8, CPOFF/unload/reset. Independently confirm a
+safe native CRT overlay primitive (not redirectable BASIC PRINT,
+not EBTKS DMA, not blindly invoked from the RMIDLE callback).
+The preexisting native `CHIDLE` keyboard callback remains the
+accepted source-free K8 handler. No code that touches RMIDLE
+is being offered for physical testing until these contracts are
+understood; no printer or CP/M LST readiness enabled.
+
+Detailed revised research is in
+`HP85-Option-Roms/docs/CPM85_NATIVE_CONSOLE_RESEARCH.md`,
+HP feature commit `b3f7f692d0633127e5f2f9cb8ce6a3aca2630ad9`.
+
 # Stage C proposal — CP/M LST: to HP-85-configured printer
 
 **Status 2026-10-24:** **Stage C0 physical HP-85 test PASSED.** The user
