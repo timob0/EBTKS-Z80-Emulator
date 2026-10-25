@@ -38,9 +38,7 @@ inline bool sourceName(uint8_t drive,const uint8_t name[11],char (&out)[16]) {
   return true;
 }
 inline bool rpc(JsonDocument &command,JsonDocument &response) {
-  JsonDocument wire;
-  wire["cpm_export"]=command["cpm_export"];
-  if(!ebtksStorageExchange(wire,response,5000))return false;
+  if(!ebtksStorageExchange(command,response,5000))return false;
   return response["cpm_export"]["ok"] | false;
 }
 inline bool begin(const char *name,uint32_t &session) {
@@ -56,7 +54,7 @@ inline bool append(uint32_t session,uint16_t record,const uint8_t *bytes,
                    uint16_t recordCrc,uint16_t cumulativeCrc) {
   char encoded[4*((128+2)/3)+1];
   size_t size=0;
-  if(mbedtls_base64_encode((unsigned char*)encoded,sizeof(encoded)-1,
+  if(mbedtls_base64_encode((unsigned char*)encoded,sizeof(encoded),
                            &size,bytes,128)!=0)return false;
   encoded[size]=0;
   JsonDocument cmd,answer;
