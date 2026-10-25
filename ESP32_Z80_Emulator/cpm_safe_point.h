@@ -19,7 +19,7 @@ enum Mode : uint8_t { UNKNOWN=0, BUSY=1, CCP_INPUT=2, PROBE_RUNNING=3 };
 enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
-enum Operation : uint8_t { PROBE=0, DIRECTORY=1, FILE_READ=2 };
+enum Operation : uint8_t { PROBE=0, DIRECTORY=1, READ_RECORD=2 };
 // Read-only observability; checkpoints never authorize guest-side operations.
 enum Checkpoint : uint8_t {
   IDLE=0, ARMED=1, EMPTY_LINE=2, NONEMPTY_LINE=3,
@@ -46,7 +46,7 @@ inline const char *checkpointText(uint8_t p) {
 enum FileError : uint8_t {
   FILE_OK=0, FILE_NOT_RUNNING=1, FILE_BAD_VECTOR=2, FILE_BAD_DMA=3,
   FILE_BAD_REQUEST=4, FILE_OPEN_NOT_FOUND=5, FILE_BDOS_INTERRUPTED=6,
-  FILE_READ_ERROR=7, FILE_CLOSE_ERROR=8, FILE_DMA_CHANGED=9
+  READ_RECORD_ERROR=7, FILE_CLOSE_ERROR=8, FILE_DMA_CHANGED=9
 };
 inline const char *fileErrorText(uint8_t e) {
   switch(e) {
@@ -56,7 +56,7 @@ inline const char *fileErrorText(uint8_t e) {
     case FILE_BAD_REQUEST:return "invalid_drive_filename_or_record";
     case FILE_OPEN_NOT_FOUND:return "file_not_found";
     case FILE_BDOS_INTERRUPTED:return "bdos_trampoline_did_not_return";
-    case FILE_READ_ERROR:return "bdos_sequential_read_error";
+    case READ_RECORD_ERROR:return "bdos_sequential_read_error";
     case FILE_CLOSE_ERROR:return "bdos_close_error";
     case FILE_DMA_CHANGED:return "bdos_dma_pointer_changed";
     default:return "none";
@@ -358,7 +358,7 @@ public:
       requestBusy.clear(std::memory_order_release);
       return false;
     }
-    if(drive>16 || (requested==FILE_READ &&
+    if(drive>16 || (requested==READ_RECORD &&
         (!fcbName || record>63)) ||
        (requested!=PROBE &&
        ccpLineKnown.load(std::memory_order_acquire) &&
@@ -367,7 +367,7 @@ public:
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
-    if(requested==FILE_READ) {
+    if(requested==READ_RECORD) {
       for(unsigned i=0;i<11;++i)
         requestedFile[i].store(fcbName[i],std::memory_order_relaxed);
       requestedRecord.store(record,std::memory_order_relaxed);
@@ -433,7 +433,7 @@ public:
   }
 };
 inline const char *operationText(uint8_t o) {
-  return o==DIRECTORY?"directory":o==FILE_READ?"file_read":"probe";
+  return o==DIRECTORY?"directory":o==READ_RECORD?"file_read":"probe";
 }
 inline const char *modeText(uint8_t m) {
   switch(m) {
