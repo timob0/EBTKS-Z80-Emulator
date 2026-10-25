@@ -5,6 +5,37 @@ first. This is the current checkpoint. Historical `NEXT_CHAT_HANDOFF.md`,
 `NEXT_CHAT_B2A_HANDOFF.md`, and `NEXT_CHAT_B2B_SD_HANDOFF.md`
 are retained for recovery baselines and previous milestones.
 
+## CPREBOOT acceptance and branch consolidation (2026-10-26)
+
+**Completed and physically confirmed:** The user reports HP-85 `CPVER`
+now displays **CPM85 0.04d** and `CPREBOOT` works as expected. This
+full **ESP32 EN hardware reset** is requested through the existing HP
+BASIC -> Teensy mailbox (opcode 8), handled *locally on the Teensy*
+after the HP-side acknowledgement, and therefore does **not** depend
+on Wi-Fi or a functioning ESP32 serial service. It restarts the
+ESP32/Z80/CPM/Wi-Fi, not the HP-85 or Teensy itself. This command is
+distinct from `CPRESET` (Z80-only); a separate `CPRESET` regression
+report is still pending. The earlier CAPASM bare-octal `=8` mistake
+was fixed to `=10`; old SD-deployed CPM85 0.05c was replaced by
+0.04d after correcting deployment of `CPM85.dat`.
+
+- **Teensy active branch:** `feature/cpm-file-transfer-b2c`. The former
+  `feature/cpm85-esp-reboot` changes were already merged into this
+  active branch in [Teensy PR #5](https://github.com/timob0/ebtks-alt-firmware/pull/5),
+  merge commit `3fb5e73ead73ac4ec48b3fccd3746af1439b2380`.
+  Comparison verifies the old reboot branch has **zero commits**
+  absent from the active B2c branch. Do not merge it again.
+- **ESP32 active branch:** `feature/cpm-file-transfer-b2c`; no
+  CPREBOOT-specific ESP32 source changes.
+- **HP ROM active branch:** `feature/cpm85-esp-reboot` contains tested
+  CPM85 v0.04d. **There is no HP85-Option-Roms B2c branch.** Retain
+  this tested HP branch until final user-authorized coordinated merge
+  into `main`; do not invent another branch.
+- **No `main` merges or branch deletions yet.** User requested that
+  full B2c file-transfer testing finish first, followed by coordinated
+  `main` integration and cleanup. No new branches without explicit
+  permission.
+
 ## User hardware acceptance baseline
 
 B2a native read-only CCP D382h service confirmed on physical HP-85:
@@ -30,7 +61,9 @@ Two new B2c-only branches created from their existing B2b lines:
   `feature/cpm-file-transfer-b2c`;
   previous physically accepted Teensy B2b branch
   `feature/cpm-file-transfer-b2b-sd` untouched.
-- HP Option ROM/LOADBIN and ALL main branches remain unchanged.
+- At original B2c branch creation, HP Option ROM/LOADBIN and ALL main branches
+  were unchanged. **Superseded for HP by the newer CPREBOOT acceptance above;
+  all `main` branches are still unchanged.**
 
 Teensy new `include/EBTKS_CPM85_SD_Import.h` and
 `include/EBTKS_ESP.h` `cpm_import` read-only UART RPC.
