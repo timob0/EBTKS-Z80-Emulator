@@ -1,3 +1,30 @@
+## CURRENT PRIORITY PIVOT — Stage B2 file transfer first (2026-10-25)
+
+The user proposes **suspending the native RMIDLE management-console
+investigation** and prioritizing the CP/M file-transfer utilities.
+This builds on the hardware-accepted **Stage B1 `CPDCAT` safe
+checkpoint** (CCP D382h, automatic empty Return, BDOS 17/18),
+accepted and merged to `main` in all three repos on 2026-10-24.
+Stage C C2/C2b native console trials remain quarantined after the
+physical freezes; do not reuse their experimental RMIDLE hook code.
+
+**New detailed architecture/acceptance plan:**
+`CPM85_FILE_TRANSFER_STAGE_B2_PLAN.md` in this repo, commit
+`f5fabab3d810bb87ea7d0c4cb44645d716dd29c2`.
+Design only, no runtime firmware change in this pivot.
+
+Proposed sequencing: **B2a read-only CP/M BDOS OPEN/READ/CLOSE
+via the existing safe checkpoint → B2b binary export to allowlisted
+Teensy SD staging → B2c carefully gated live CP/M BDOS file creation
+and writing → B2d HP BASIC `CPMCP` commands and HP-native HP-IB
+mass storage endpoint**. Use small bounded 128-byte records and
+explicit CRC/error/status; never edit mounted .DSK sectors behind
+BDOS, never call BDOS during a busy foreground CP/M app. Stage
+B2a can be ESP32-only, ideally from a new branch based on accepted
+`main`, not from failed experimental HP console commits. Preserve
+the accepted recovery firmware, CRT/TFT/Web, Z80, keyboard and SD
+paths. No merge without physical acceptance and user approval.
+
 ## 2026-10-25 — Post-freeze SOURCE AUDIT: concrete Capricorn register-save bug
 
 Audit of retired HP ROM **CPM85 v0.06b** at commit
