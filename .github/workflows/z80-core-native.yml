@@ -1,7 +1,7 @@
 name: Z80 replacement prototype validation
 on:
   push:
-    branches: [main, feature/cpm-wifi-modem, feature/cpm85-drive-control, feature/cpm85-management-console, feature/cpm85-file-transfer-hpib-ui]
+    branches: [main, feature/cpm-wifi-modem, feature/cpm85-drive-control, feature/cpm85-management-console, feature/cpm85-file-transfer-hpib-ui, feature/cpm-file-transfer-b2a]
   workflow_dispatch:
 jobs:
   native:
