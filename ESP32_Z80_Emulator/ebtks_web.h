@@ -404,6 +404,14 @@ inline bool ebtksWebBegin()
       v["file_error"]=CpmSafePoint::fileErrorText(
           gate?gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
       v["record_max"]=CpmFileReadService::kMaxRecord;
+      v["last_file_state"]=CpmSafePoint::resultText(gate?
+          gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
+          gate->lastFileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["last_file_checkpoint"]=CpmSafePoint::checkpointText(gate?
+          gate->lastFileCheckpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["last_file_forced_z80_reset"]=gate &&
+          gate->lastFileReset.load(std::memory_order_acquire);
       if(correct && state==CpmSafePoint::PASSED) {
         CpmSafePoint::FileRecord data;
         if(!gate->copyFile(data)) {
