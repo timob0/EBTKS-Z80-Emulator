@@ -520,6 +520,107 @@ inline bool ebtksWebBegin()
       r->send(200,"application/json",body);
     });
 
+  // B2c - write to a NEW native CP/M name, from a published Teensy
+  // /cpm/transfers file only. An explicit confirmation string is mandatory.
+  // This HTTP callback only arms the native CCP safe point; never calls BDOS.
+  ebtksServer.on("/api/cpm/service/import",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("source") || !r->hasParam("name")) {
+        r->send(400,"application/json","{\"error\":\"source_and_name_required\"}");
+        return;
+      }
+      if(!r->hasParam("confirm") ||
+         r->getParam("confirm")->value()!="CREATE_NEW") {
+        r->send(428,"application/json","{\"error\":\"confirm_CREATE_NEW_required\"}");
+        return;
+      }
+      const String source=r->getParam("source")->value();
+      const String target=r->getParam("name")->value();
+      uint8_t srcDrive=0,dstDrive=0,srcFcb[11]{},dstFcb[11]{};
+      if(!CpmFileReadService::parseName(source.c_str(),srcDrive,srcFcb) ||
+         !CpmFileReadService::parseName(target.c_str(),dstDrive,dstFcb)) {
+        r->send(400,"application/json","{\"error\":\"invalid_source_or_target_8_3\"}");
+        return;
+      }
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+        gate->request(CpmSafePoint::IMPORT_SD,dstDrive,dstFcb,0,srcFcb,srcDrive);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["operation"]="sd_import";
+      v["source"]=source;
+      v["target"]=target;
+      v["state"]=CpmSafePoint::resultText(gate?
+        gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+        "Import runs at verified native CCP; CP/M MAKE only if target absent":
+        "CCP not idle, another request active, or unsupported native CP/M";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/import",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+        gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correct?"sd_import":"not_requested";
+      v["state"]=correct?CpmSafePoint::resultText(
+        gate->result.load(std::memory_order_acquire)):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(gate?
+        gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["records"]=correct?gate->exportRecords.load(std::memory_order_acquire):0;
+      v["bytes"]=uint32_t(correct?
+        gate->exportRecords.load(std::memory_order_acquire):0)*128U;
+      v["crc16_ccitt_false"]=correct?
+        gate->exportCrc.load(std::memory_order_acquire):0xFFFF;
+      v["expected_records"]=correct?
+        gate->importTotalRecords.load(std::memory_order_acquire):0;
+      v["expected_crc16_ccitt_false"]=correct?
+        gate->importExpectedCrc.load(std::memory_order_acquire):0xFFFF;
+      v["partial_cpm_file_possible"]=correct &&
+        gate->importPartialPossible.load(std::memory_order_acquire);
+      v["last_file_state"]=CpmSafePoint::resultText(gate?
+        gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->lastFileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["last_file_forced_z80_reset"]=gate &&
+        gate->lastFileReset.load(std::memory_order_acquire);
+      if(correct) {
+        const auto addName=[&](const char *field,
+             const std::atomic<uint8_t> name[11],uint8_t drive) {
+          if(drive<1 || drive>16)return;
+          String spec;spec.reserve(16);
+          spec+=char('A'+drive-1);spec+=':';
+          for(unsigned i=0;i<8;++i) {
+            const char ch=(char)name[i].load(std::memory_order_relaxed);
+            if(ch!=' ')spec+=ch;
+          }
+          bool ext=false;
+          for(unsigned i=8;i<11;++i)
+            if(name[i].load(std::memory_order_relaxed)!=' ')ext=true;
+          if(ext) {
+            spec+='.';
+            for(unsigned i=8;i<11;++i) {
+              const char ch=(char)name[i].load(std::memory_order_relaxed);
+              if(ch!=' ')spec+=ch;
+            }
+          }
+          v[field]=spec;
+        };
+        addName("source",gate->requestedSourceFile,
+                gate->requestedSourceDrive.load(std::memory_order_acquire));
+        addName("target",gate->requestedFile,
+                gate->requestedDrive.load(std::memory_order_acquire));
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
   // RAM-only liveness and reset forensics, no SPI/UART/SD work.
   // Read BEFORE and AFTER enabling 4MHz read-ahead from Media Manager.
   // If the ESP resets, its next boot retains the hardware reset reason.
