@@ -1,3 +1,29 @@
+# CURRENT PROJECT CHECKPOINT — B2a FILE TRANSFER (2026-10-25)
+
+**READ FIRST: [NEXT_CHAT_B2A_HANDOFF.md](NEXT_CHAT_B2A_HANDOFF.md).**
+This concise new-chat checkpoint supersedes the much older and mostly
+historical chronology below. Active ESP32-only development branch:
+`feature/cpm-file-transfer-b2a`, from accepted `main`.
+Stage B2a CP/M BDOS 15/20/16 **read-only, one 128-byte record
+per request** with a safe CCP checkpoint, hex+CRC LAN endpoint and
+Mac export diagnostic is implemented. **Latest validated source/doc
+revision before new handoff:**
+`d910fd36edd168e0b94883e357d0163a9b99f83b`,
+**CI run 40228527192 GREEN** (native Z80, both headless/TFT
+ESP32 builds, TFT DRAM and optional Telnet checks).
+New documentation-only commits necessarily advance HEAD;
+check the latest run before hardware flashing.
+**B2a has not yet been tested on the user's physical system.**
+Next: user pulls on Mac, builds `esp32dev` and
+`esp32dev-tft`, tests read-only CP/M file records at
+`/api/cpm/service/file` and verifies CRC/EOF with
+`tools/cpm_b2a_read.py`. Keep rejected native HP
+RMIDLE/CMENU experiments quarantined; no Teensy or HP
+Option ROM changes and no merge to `main`.
+Full test guide: [CPM_FILE_TRANSFER_B2A.md](CPM_FILE_TRANSFER_B2A.md).
+
+---
+
 # Handoff / durable project memory for the next development chat
 
 **CURRENT CONTINUATION CHECKPOINT — 2026-10-23:** Read [NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md) before acting. That concise document supersedes the historical "CI pending" / "ready to flash" notes below. The code's *final completed CI* at `82d1215b919cbbd8f9838de5db0c2ce4d795d267` was **green, run 39862436831**, including both ESP32 builds, native Z80 safety regressions, complete Git SHA verification, and a TFT static DRAM guard. Local macOS linker success remains **unverified after** fixing the reported 16-byte `.dram0.bss` overrun; hardware Stage A is likewise untested. Do not modify `main` or the recovery firmware; pull and build the ESP32 feature branch on the user's Mac first. Documentation-only updates since `82d1215b` necessarily advance HEAD and its embedded Git ID without altering tested application code.
