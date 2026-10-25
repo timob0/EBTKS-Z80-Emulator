@@ -584,6 +584,8 @@ inline bool ebtksWebBegin()
         gate->importExpectedCrc.load(std::memory_order_acquire):0xFFFF;
       v["partial_cpm_file_possible"]=correct &&
         gate->importPartialPossible.load(std::memory_order_acquire);
+      v["last_import_partial_possible"]=gate &&
+        gate->lastImportPartialPossible.load(std::memory_order_acquire);
       v["last_file_state"]=CpmSafePoint::resultText(gate?
         gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
       v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
