@@ -142,6 +142,11 @@ public:
   std::atomic<uint8_t> requestedFile[11]{};
   std::atomic<uint16_t> requestedRecord{0};
   std::atomic<uint8_t> fileError{FILE_OK};
+  // Sticky until next ESP32 restart; Z80-only reset retains these.
+  std::atomic<uint8_t> lastFileResult{NEVER};
+  std::atomic<uint8_t> lastFileError{FILE_OK};
+  std::atomic<uint8_t> lastFileCheckpoint{IDLE};
+  std::atomic<bool> lastFileReset{false};
   std::atomic_flag fileBusy=ATOMIC_FLAG_INIT;
   FileRecord fileRecord{};
   void publishFile(const FileRecord &record) {
@@ -232,6 +237,9 @@ public:
       if(operation.load(std::memory_order_acquire)==DIRECTORY) {
         lastDirectoryCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
         lastDirectoryResult.store(INVALIDATED,std::memory_order_release);
+      } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+        lastFileCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
+        lastFileResult.store(INVALIDATED,std::memory_order_release);
       }
     }
   }
@@ -258,6 +266,9 @@ public:
         if(operation.load(std::memory_order_acquire)==DIRECTORY) {
           lastDirectoryCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
           lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+        } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+          lastFileCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
+          lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
         }
       }
     }
@@ -313,6 +324,9 @@ public:
           if(operation.load(std::memory_order_acquire)==DIRECTORY) {
             lastDirectoryCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
             lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+          } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+            lastFileCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
+            lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
           }
         }
       }
@@ -410,6 +424,9 @@ public:
       if(operation.load(std::memory_order_acquire)==DIRECTORY) {
         lastDirectoryCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
         lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+      } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+        lastFileCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
+        lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
       }
     }
     return cancelled;
@@ -428,6 +445,14 @@ public:
       lastDirectoryReset.store(false,std::memory_order_release);
       // Store this result LAST for a coherent postmortem snapshot.
       lastDirectoryResult.store(passed?PASSED:FAILED,std::memory_order_release);
+    } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+      const uint8_t finalCheckpoint=passed?BDOS_OK:BDOS_FAIL;
+      checkpoint.store(finalCheckpoint,std::memory_order_release);
+      lastFileCheckpoint.store(finalCheckpoint,std::memory_order_release);
+      lastFileError.store(fileError.load(std::memory_order_acquire),
+                          std::memory_order_release);
+      lastFileReset.store(false,std::memory_order_release);
+      lastFileResult.store(passed?PASSED:FAILED,std::memory_order_release);
     }
     result.store(passed?PASSED:FAILED,std::memory_order_release);
   }
