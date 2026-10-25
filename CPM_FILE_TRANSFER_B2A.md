@@ -57,7 +57,9 @@ curl -s http://<ESP32-IP>/api/cpm/service/file
 ```
 
 The POST should return `accepted:true`, HTTP 202; it will not
-block. The empty-Return handshake is automatic when no user key or
+block. The existing checkpoint label `bdos_search_completed` is reused
+for file operations as a legacy status string; it indicates BDOS
+service completion, not a directory search in this case. The empty-Return handshake is automatic when no user key or
 terminal input is queued. Repeat the GET until `state=passed`
 or a terminal failure. Successful read:
 
@@ -97,8 +99,8 @@ With a small known existing file such as `STAT.COM` in A:, run:
 python3 tools/cpm_b2a_read.py http://<ESP32-IP> A:STAT.COM /tmp/STAT-B2A.COM
 ```
 
-The stdlib-only script issues one authenticated-by-safe-point,
-read-only POST/GET cycle per record, validates all 128 bytes and
+The stdlib-only script issues one CCP-gated, read-only POST/GET
+cycle per record, validates all 128 bytes and
 CRC16, stops at CP/M EOF and atomically publishes a **new** local
 file (never overwrites an existing destination). If it does not
 find EOF before record 64, it aborts without publishing any file.
