@@ -209,7 +209,7 @@ void CPUTask(void *) {
         gate->directoryError.store(snapshot.error,std::memory_order_release);
         gate->publishDirectory(snapshot);
       } else if(gate &&
-                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::FILE_READ) {
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD) {
         uint8_t filename[11];
         for(unsigned i=0;i<11;++i)
           filename[i]=gate->requestedFile[i].load(std::memory_order_relaxed);
