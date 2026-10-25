@@ -1,3 +1,42 @@
+## CRITICAL C2b HP-85 HARDWARE FAILURE (2026-10-25)
+
+**Do not run the experimental v0.06b `CMENU` binary again.**
+The user tested the HP-native RMIDLE/CRT experiment:
+**no counter displayed; HP-85 froze; K8 had no effect; pressing RESET
+recovered through a warm boot.** C2b is NOT physically accepted.
+The preceding successful native assembler CI was only a build/static
+check and cannot establish the safety of the RMIDLE hook.
+
+The C2b code installed a wrapper over the existing EBTKS AUXROM 361
+RMIDLE slot and called direct HP CRT status/address/data I/O from
+that wrapper. `RMDIRTY=1` meant it could attempt a CRT write on
+the very first RMIDLE invocation, **before displaying any counter**.
+No visible count does not establish that RMIDLE was inactive.
+Potential causes include the RMIDLE trampoline, EXEC/ROMJSB calling
+or return conventions, CRT activity from the callback, or interacting
+with native keyboard hook/stack state. No root cause is confirmed.
+Avoid rerunning the same composite experiment.
+
+**Repository rollback completed:** HP Option ROM
+`feature/cpm85-hpib-output` source `src/cpm85.asm` and original
+tests/workflow returned to pre-C2b commit
+`72d389ae33a77c6b239ca09116a609a2942a1ddb`
+(experimental CPM85 v0.05c with C2 foreground probe disabled;
+physically accepted C1 CPUI and legacy CPM source intact).
+The C2b-specific source-presence regression was deleted.
+Teensy/ESP32 code unchanged; all main branches untouched.
+Use physically accepted **C1 v0.05a** at HP Option ROM commit
+`13655f2d8bd0889b91aa4d0a47c8936bcb429d0c`
+for subsequent real hardware work.
+
+**Next technical investigation:** read the exact HP-85 EXEC/ROMJSB
+call and return contract (ideally emulator testing) before installing
+another live RMIDLE hook. Split proof into **counter-only, no CRT**
+and **native display** as separate isolated tests; actual printer
+service is deferred. The native UI must remain source-free without
+Teensy mirroring. No new hardware binary is offered at this point.
+Detailed incident: `HP85-Option-Roms/docs/CPM85_NATIVE_RMIDLE_C2B.md`.
+
 ## 2026-10-25 — C2b HP-native CMENU implementation, hardware acceptance PENDING
 
 The user explicitly requested the implementation after identifying the
