@@ -117,7 +117,7 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
       }
       const uint8_t rc=Z80_A(bridge->cpu);
       if(rc==1) {out.eof=true;break;}
-      if(rc!=0) {out.error=CpmSafePoint::FILE_READ_ERROR;ok=false;break;}
+      if(rc!=0) {out.error=CpmSafePoint::READ_RECORD_ERROR;ok=false;break;}
       if(i==target) {
         memcpy(out.data,ram+kDma,sizeof(out.data));
         out.crc16=CpmSafePoint::fileRecordCrc(out.data,sizeof(out.data));
