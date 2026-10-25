@@ -176,8 +176,45 @@ static void testGateSafePointAndCancellation() {
   assert(!cancelled.takeAutomaticReturn());
 }
 
+static void testB2cGateImportOwnership() {
+  Fixture f;
+  const uint8_t sigPrompt[]={0x31,0xAB,0xD7};
+  const uint8_t sigCall[]={0xCD,0x39,0xD1};
+  const uint8_t sigCmd[]={0x11,0x80,0x00};
+  const uint8_t sigCon[]={0x0E,0x0A};
+  const uint8_t sigBdos[]={0xCD,0x05,0x00};
+  const uint8_t sigReturn[]={0xCD,0x29,0xD1};
+  memcpy(f.memory+0xD382,sigPrompt,3);
+  memcpy(f.memory+0xD395,sigCall,3);
+  memcpy(f.memory+0xD398,sigCmd,3);
+  memcpy(f.memory+0xD19C,sigCon,2);
+  memcpy(f.memory+0xD1A1,sigBdos,3);
+  memcpy(f.memory+0xD1A4,sigReturn,3);
+  CpmSafePoint::Gate gate;
+  gate.reset(f.memory,true);
+  gate.fetch(CpmSafePoint::kCcpPrompt,f.memory);
+  gate.fetch(CpmSafePoint::kCcpConsoleInput,f.memory);
+  gate.observeLineCount(0);
+  uint8_t src[11]{},dst[11]{},srcDrive=0,dstDrive=0;
+  assert(CpmFileReadService::parseName("A:STAT.COM",srcDrive,src));
+  assert(CpmFileReadService::parseName("B:IMPTST.COM",dstDrive,dst));
+  assert(!gate.request(CpmSafePoint::IMPORT_SD,dstDrive,dst));
+  assert(!gate.request(CpmSafePoint::IMPORT_SD,dstDrive,dst,0,src,17));
+  assert(gate.request(CpmSafePoint::IMPORT_SD,dstDrive,dst,0,src,srcDrive));
+  assert(gate.requestedSourceDrive.load()==1);
+  assert(gate.requestedDrive.load()==2);
+  assert(gate.requestedSourceFile[0].load()=='S');
+  assert(gate.requestedFile[0].load()=='I');
+  assert(!gate.request(CpmSafePoint::READ_RECORD,dstDrive,dst,0));
+  gate.observeLineCount(3);
+  assert(gate.result.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  assert(gate.lastFileResult.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  assert(!gate.takeAutomaticReturn());
+}
+
 int main() {
   testGateSafePointAndCancellation();
+  testB2cGateImportOwnership();
   testParser();
   testRecord(0,false);
   testRecord(1,false);
