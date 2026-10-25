@@ -1,3 +1,32 @@
+## 2026-10-25 — Physical HP-85 RMIDLE bytes IDENTIFIED
+
+User read native RAM at `RMIDLE` decimal 34076..34082:
+
+`206 254 9 51 103 241 158` (decimal).
+
+Exact decoder: `JSB =ROMJSB` opcode 316 oct + pointer
+`04776` oct, then `DEF 063463` oct, ROM byte `361` oct,
+`RTN` opcode 236 oct. This is the **installed AUXROM 361
+RMIDLE handler** in the documented 7-byte ROMJSB format.
+See the HP assembler ROM manual Section 3; EBTKS identifies
+ROM361 as its primary AUXROM.
+
+**Critical implication:** RMIDLE is owned by EBTKS and is
+not vacant. Correct C2 all-HP-native design must preserve and
+invoke the full original seven-byte handler during every native
+RMIDLE callback. Proposed: make a private 7-byte executable
+RAM copy, install a 4-byte relocation-aware native RAM trampoline,
+invoke the original saved handler, increment an HP-side counter,
+then safely throttle actual **HP-native** CRT drawing. The
+RAM/ROMJSB calling convention and safe register preservation
+must be verified before requesting another physical test.
+K1-K4 and K8 remain via the already proven CHIDLE hook.
+**No new code, firmware flashing or HP-IB printing in this diagnostic.**
+
+Full details: `timob0/HP85-Option-Roms`
+`docs/CPM85_NATIVE_CONSOLE_RESEARCH.md` commit
+`72d389ae33a77c6b239ca09116a609a2942a1ddb`.
+
 ## CURRENT CORRECTION (2026-10-25): native-only HP console, erroneous C2a retracted
 
 The user correctly rejected Teensy-side RMIDLE instrumentation,
