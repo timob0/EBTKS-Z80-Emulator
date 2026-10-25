@@ -65,7 +65,7 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
   const auto oldFetch=bridge->service_fetch;
   const Z80BridgeStop oldStop=bridge->stop_reason;
   const uint16_t oldStoppedAt=bridge->stopped_at;
-  bool unsafe=false,created=false,ok=false;
+  bool unsafe=false,ok=false;
   uint8_t bytes[128];
 
   // Exact directory search, under the same paused native CCP context.
@@ -84,12 +84,13 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
     memcpy(ram+kFcb+1,fcbName,11);
     // An interrupted MAKE may already have changed the directory.
     out.partialPossible=true;
+    if(progressGate)
+      progressGate->importPartialPossible.store(true,std::memory_order_release);
     if(!CpmDirectoryService::invoke(bridge,22,yieldCpu)) {
       out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;unsafe=true;
     } else if(Z80_A(bridge->cpu)==0xFF) {
       out.error=CpmSafePoint::FILE_MAKE_FAILED;
     } else {
-      created=true;
       bool allGood=true;
       for(uint16_t index=0;index<totalRecords;++index) {
         uint16_t receivedCrc=0;
@@ -197,8 +198,11 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
   needReset=unsafe||dmaChanged;
   // Once the native CP/M file and close/readback have been verified, it
   // is no longer "partial"; errors conservatively retain this warning.
-  if(ok)out.partialPossible=false;
-  (void)created;
+  if(ok) {
+    out.partialPossible=false;
+    if(progressGate)
+      progressGate->importPartialPossible.store(false,std::memory_order_release);
+  }
   return ok;
 }
 } // namespace CpmFileWriteService
