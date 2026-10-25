@@ -19,7 +19,7 @@ enum Mode : uint8_t { UNKNOWN=0, BUSY=1, CCP_INPUT=2, PROBE_RUNNING=3 };
 enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
-enum Operation : uint8_t { PROBE=0, DIRECTORY=1, READ_RECORD=2 };
+enum Operation : uint8_t { PROBE=0, DIRECTORY=1, READ_RECORD=2, EXPORT_SD=3 };
 // Read-only observability; checkpoints never authorize guest-side operations.
 enum Checkpoint : uint8_t {
   IDLE=0, ARMED=1, EMPTY_LINE=2, NONEMPTY_LINE=3,
@@ -46,7 +46,9 @@ inline const char *checkpointText(uint8_t p) {
 enum FileError : uint8_t {
   FILE_OK=0, FILE_NOT_RUNNING=1, FILE_BAD_VECTOR=2, FILE_BAD_DMA=3,
   FILE_BAD_REQUEST=4, FILE_OPEN_NOT_FOUND=5, FILE_BDOS_INTERRUPTED=6,
-  READ_RECORD_ERROR=7, FILE_CLOSE_ERROR=8, FILE_DMA_CHANGED=9
+  READ_RECORD_ERROR=7, FILE_CLOSE_ERROR=8, FILE_DMA_CHANGED=9,
+  FILE_SD_STAGE_FAILED=10, FILE_SD_WRITE_FAILED=11,
+  FILE_SD_COMMIT_FAILED=12, FILE_EXPORT_LIMIT=13
 };
 inline const char *fileErrorText(uint8_t e) {
   switch(e) {
@@ -59,6 +61,10 @@ inline const char *fileErrorText(uint8_t e) {
     case READ_RECORD_ERROR:return "bdos_sequential_read_error";
     case FILE_CLOSE_ERROR:return "bdos_close_error";
     case FILE_DMA_CHANGED:return "bdos_dma_pointer_changed";
+    case FILE_SD_STAGE_FAILED:return "teensy_sd_stage_failed";
+    case FILE_SD_WRITE_FAILED:return "teensy_sd_write_failed";
+    case FILE_SD_COMMIT_FAILED:return "teensy_sd_commit_unconfirmed";
+    case FILE_EXPORT_LIMIT:return "export_requires_eof_within_64_records";
     default:return "none";
   }
 }
@@ -142,6 +148,9 @@ public:
   std::atomic<uint8_t> requestedFile[11]{};
   std::atomic<uint16_t> requestedRecord{0};
   std::atomic<uint8_t> fileError{FILE_OK};
+  // End-to-end SD export progress: published by pinned CPU task only.
+  std::atomic<uint16_t> exportRecords{0};
+  std::atomic<uint16_t> exportCrc{0xFFFF};
   // Sticky until next ESP32 restart; Z80-only reset retains these.
   std::atomic<uint8_t> lastFileResult{NEVER};
   std::atomic<uint8_t> lastFileError{FILE_OK};
@@ -219,6 +228,8 @@ public:
     checkpoint.store(IDLE,std::memory_order_release);
     directoryError.store(DIR_OK,std::memory_order_release);
     fileError.store(FILE_OK,std::memory_order_release);
+    exportRecords.store(0,std::memory_order_release);
+    exportCrc.store(0xFFFF,std::memory_order_release);
     compatible.store(nativeCpm && signature(ram),std::memory_order_release);
   }
 
@@ -237,7 +248,8 @@ public:
       if(operation.load(std::memory_order_acquire)==DIRECTORY) {
         lastDirectoryCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
         lastDirectoryResult.store(INVALIDATED,std::memory_order_release);
-      } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+      } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
+                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
         lastFileCheckpoint.store(CANCEL_ON_WBOOT,std::memory_order_release);
         lastFileResult.store(INVALIDATED,std::memory_order_release);
       }
@@ -266,7 +278,8 @@ public:
         if(operation.load(std::memory_order_acquire)==DIRECTORY) {
           lastDirectoryCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
           lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
-        } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+        } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
+                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
           lastFileCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
           lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
         }
@@ -324,7 +337,8 @@ public:
           if(operation.load(std::memory_order_acquire)==DIRECTORY) {
             lastDirectoryCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
             lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
-          } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+          } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
+                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
             lastFileCheckpoint.store(CCP_NONEMPTY_RETURN,std::memory_order_release);
             lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
           }
@@ -372,8 +386,8 @@ public:
       requestBusy.clear(std::memory_order_release);
       return false;
     }
-    if(drive>16 || (requested==READ_RECORD &&
-        (!fcbName || record>63)) ||
+    if(drive>16 || ((requested==READ_RECORD || requested==EXPORT_SD) &&
+        (!fcbName || (requested==READ_RECORD && record>63))) ||
        (requested!=PROBE &&
        ccpLineKnown.load(std::memory_order_acquire) &&
        !ccpLineEmpty.load(std::memory_order_acquire))) {
@@ -381,11 +395,13 @@ public:
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
-    if(requested==READ_RECORD) {
+    if(requested==READ_RECORD || requested==EXPORT_SD) {
       for(unsigned i=0;i<11;++i)
         requestedFile[i].store(fcbName[i],std::memory_order_relaxed);
       requestedRecord.store(record,std::memory_order_relaxed);
       fileError.store(FILE_OK,std::memory_order_release);
+    exportRecords.store(0,std::memory_order_release);
+    exportCrc.store(0xFFFF,std::memory_order_release);
     }
     operation.store(requested,std::memory_order_release);
     checkpoint.store(ARMED,std::memory_order_release);
@@ -424,7 +440,8 @@ public:
       if(operation.load(std::memory_order_acquire)==DIRECTORY) {
         lastDirectoryCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
         lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
-      } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+      } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
+                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
         lastFileCheckpoint.store(CANCEL_ON_TIMEOUT,std::memory_order_release);
         lastFileResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
       }
@@ -445,7 +462,8 @@ public:
       lastDirectoryReset.store(false,std::memory_order_release);
       // Store this result LAST for a coherent postmortem snapshot.
       lastDirectoryResult.store(passed?PASSED:FAILED,std::memory_order_release);
-    } else if(operation.load(std::memory_order_acquire)==READ_RECORD) {
+    } else if((operation.load(std::memory_order_acquire)==READ_RECORD ||
+                 operation.load(std::memory_order_acquire)==EXPORT_SD)) {
       const uint8_t finalCheckpoint=passed?BDOS_OK:BDOS_FAIL;
       checkpoint.store(finalCheckpoint,std::memory_order_release);
       lastFileCheckpoint.store(finalCheckpoint,std::memory_order_release);
@@ -458,7 +476,8 @@ public:
   }
 };
 inline const char *operationText(uint8_t o) {
-  return o==DIRECTORY?"directory":o==READ_RECORD?"file_read":"probe";
+  return o==DIRECTORY?"directory":o==READ_RECORD?"file_read":
+         o==EXPORT_SD?"sd_export":"probe";
 }
 inline const char *modeText(uint8_t m) {
   switch(m) {
