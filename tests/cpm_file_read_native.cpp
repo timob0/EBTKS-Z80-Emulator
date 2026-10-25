@@ -115,7 +115,69 @@ void testInterrupted() {
   assert(!CpmFileReadService::execute(&f.bridge,fcb,1,0,out,reset));
   assert(reset && out.error==CpmSafePoint::FILE_BDOS_INTERRUPTED);
 }
+static void testGateSafePointAndCancellation() {
+  Fixture f;
+  // Checked-in native CCP opcode signatures, not arbitrary application PCs.
+  const uint8_t sigPrompt[]={0x31,0xAB,0xD7};
+  const uint8_t sigCall[]={0xCD,0x39,0xD1};
+  const uint8_t sigCmd[]={0x11,0x80,0x00};
+  const uint8_t sigCon[]={0x0E,0x0A};
+  const uint8_t sigBdos[]={0xCD,0x05,0x00};
+  const uint8_t sigReturn[]={0xCD,0x29,0xD1};
+  memcpy(f.memory+0xD382,sigPrompt,3);
+  memcpy(f.memory+0xD395,sigCall,3);
+  memcpy(f.memory+0xD398,sigCmd,3);
+  memcpy(f.memory+0xD19C,sigCon,2);
+  memcpy(f.memory+0xD1A1,sigBdos,3);
+  memcpy(f.memory+0xD1A4,sigReturn,3);
+  CpmSafePoint::Gate gate;
+  gate.reset(f.memory,true);
+  assert(gate.compatible.load());
+  gate.fetch(CpmSafePoint::kCcpPrompt,f.memory);
+  gate.fetch(CpmSafePoint::kCcpConsoleInput,f.memory);
+  gate.observeLineCount(0);
+  uint8_t drive=0,fcb[11]{};
+  assert(CpmFileReadService::parseName("A:STAT.COM",drive,fcb));
+  assert(gate.request(CpmSafePoint::READ_RECORD,drive,fcb,1));
+  assert(!gate.request(CpmSafePoint::DIRECTORY));
+  gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
+  assert(gate.takeAutomaticReturn());
+  assert(!gate.takeAutomaticReturn());
+  f.memory[CpmSafePoint::kCcpInputLength]=0;
+  gate.fetch(CpmSafePoint::kCcpInputReturn,f.memory);
+  gate.fetch(CpmSafePoint::kCcpCommand,f.memory);
+  assert(gate.fetch(CpmSafePoint::kCcpPrompt,f.memory));
+  assert(gate.checkpoint.load()==CpmSafePoint::BDOS_ENTER);
+  CpmSafePoint::FileRecord record{};
+  record.hasData=true;
+  record.record=1;
+  record.data[0]=0xE5;
+  gate.publishFile(record);
+  gate.fileError.store(CpmSafePoint::FILE_OK);
+  gate.complete(true);
+  CpmSafePoint::FileRecord copied{};
+  assert(gate.copyFile(copied));
+  assert(copied.hasData && copied.record==1 && copied.data[0]==0xE5);
+  assert(gate.lastFileResult.load()==CpmSafePoint::PASSED);
+  assert(gate.lastFileCheckpoint.load()==CpmSafePoint::BDOS_OK);
+  gate.reset(f.memory,true);
+  assert(gate.result.load()==CpmSafePoint::NEVER);
+  assert(gate.lastFileResult.load()==CpmSafePoint::PASSED);
+
+  CpmSafePoint::Gate cancelled;
+  cancelled.reset(f.memory,true);
+  cancelled.fetch(CpmSafePoint::kCcpPrompt,f.memory);
+  cancelled.fetch(CpmSafePoint::kCcpConsoleInput,f.memory);
+  cancelled.observeLineCount(0);
+  assert(cancelled.request(CpmSafePoint::READ_RECORD,drive,fcb,0));
+  cancelled.observeLineCount(2);
+  assert(cancelled.result.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  assert(cancelled.lastFileResult.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  assert(!cancelled.takeAutomaticReturn());
+}
+
 int main() {
+  testGateSafePointAndCancellation();
   testParser();
   testRecord(0,false);
   testRecord(1,false);
