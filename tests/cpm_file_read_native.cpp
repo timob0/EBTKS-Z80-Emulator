@@ -44,7 +44,7 @@ struct Fixture {
     const size_t read=code.size();
     byte(0x3A);byte(0x40);byte(0xC0); // LD A,(C040) current record
     byte(0xFE);byte(2);    // CP 2
-    byte(0x30);byte(7);    // JR NC,+7 -> EOF
+    byte(0x30);byte(9);    // JR NC,+9 -> EOF
     byte(0x32);byte(0x80);byte(0x00); // LD (0080),A
     byte(0x3C);             // INC A
     byte(0x32);byte(0x40);byte(0xC0); // LD (C040),A
