@@ -19,7 +19,7 @@ enum Mode : uint8_t { UNKNOWN=0, BUSY=1, CCP_INPUT=2, PROBE_RUNNING=3 };
 enum Result : uint8_t { NEVER=0, WAIT_EMPTY_LINE=1, RUNNING=2,
                         PASSED=3, INPUT_NOT_EMPTY=4, FAILED=5,
                         INVALIDATED=6 };
-enum Operation : uint8_t { PROBE=0, DIRECTORY=1 };
+enum Operation : uint8_t { PROBE=0, DIRECTORY=1, FILE_READ=2 };
 // Read-only observability; checkpoints never authorize guest-side operations.
 enum Checkpoint : uint8_t {
   IDLE=0, ARMED=1, EMPTY_LINE=2, NONEMPTY_LINE=3,
@@ -42,6 +42,42 @@ inline const char *checkpointText(uint8_t p) {
     case CANCEL_ON_TIMEOUT:return "request_timeout_cancelled";
     default:return "idle";
   }
+}
+enum FileError : uint8_t {
+  FILE_OK=0, FILE_NOT_RUNNING=1, FILE_BAD_VECTOR=2, FILE_BAD_DMA=3,
+  FILE_BAD_REQUEST=4, FILE_OPEN_NOT_FOUND=5, FILE_BDOS_INTERRUPTED=6,
+  FILE_READ_ERROR=7, FILE_CLOSE_ERROR=8, FILE_DMA_CHANGED=9
+};
+inline const char *fileErrorText(uint8_t e) {
+  switch(e) {
+    case FILE_NOT_RUNNING:return "guest_not_running";
+    case FILE_BAD_VECTOR:return "native_bdos_vector_mismatch";
+    case FILE_BAD_DMA:return "unexpected_bdos_dma_pointer";
+    case FILE_BAD_REQUEST:return "invalid_drive_filename_or_record";
+    case FILE_OPEN_NOT_FOUND:return "file_not_found";
+    case FILE_BDOS_INTERRUPTED:return "bdos_trampoline_did_not_return";
+    case FILE_READ_ERROR:return "bdos_sequential_read_error";
+    case FILE_CLOSE_ERROR:return "bdos_close_error";
+    case FILE_DMA_CHANGED:return "bdos_dma_pointer_changed";
+    default:return "none";
+  }
+}
+struct FileRecord {
+  uint8_t error=FILE_OK;
+  uint8_t data[128]{};
+  uint16_t record=0;
+  uint16_t crc16=0xFFFF;
+  bool hasData=false;
+  bool eof=false;
+};
+inline uint16_t fileRecordCrc(const uint8_t* buf,size_t n) {
+  uint16_t crc=0xFFFF;
+  for(size_t i=0;i<n;++i) {
+    crc^=uint16_t(buf[i])<<8;
+    for(unsigned b=0;b<8;++b)
+      crc=(crc&0x8000)?uint16_t((crc<<1)^0x1021):uint16_t(crc<<1);
+  }
+  return crc;
 }
 enum DirectoryError : uint8_t {
   DIR_OK=0, DIR_NOT_RUNNING=1, DIR_BAD_VECTOR=2, DIR_BAD_DMA=3,
@@ -102,6 +138,23 @@ public:
   std::atomic<uint8_t> operation{PROBE};
   // 0=current drive, 1..16=explicit A:..P: FCB drive selector.
   std::atomic<uint8_t> requestedDrive{0};
+  // Published before WAIT_EMPTY_LINE; only pinned CPU task reads this.
+  std::atomic<uint8_t> requestedFile[11]{};
+  std::atomic<uint16_t> requestedRecord{0};
+  std::atomic<uint8_t> fileError{FILE_OK};
+  std::atomic_flag fileBusy=ATOMIC_FLAG_INIT;
+  FileRecord fileRecord{};
+  void publishFile(const FileRecord &record) {
+    while(fileBusy.test_and_set(std::memory_order_acquire)) {}
+    fileRecord=record;
+    fileBusy.clear(std::memory_order_release);
+  }
+  bool copyFile(FileRecord &out) {
+    if(fileBusy.test_and_set(std::memory_order_acquire))return false;
+    out=fileRecord;
+    fileBusy.clear(std::memory_order_release);
+    return true;
+  }
   std::atomic<uint8_t> checkpoint{IDLE};
   std::atomic<uint8_t> directoryError{DIR_OK};
   // Sticky, read-only postmortem. reset() is called on every Z80-only cold
@@ -160,6 +213,7 @@ public:
     result.store(NEVER,std::memory_order_release);
     checkpoint.store(IDLE,std::memory_order_release);
     directoryError.store(DIR_OK,std::memory_order_release);
+    fileError.store(FILE_OK,std::memory_order_release);
     compatible.store(nativeCpm && signature(ram),std::memory_order_release);
   }
 
@@ -191,13 +245,13 @@ public:
   void observeLineCount(uint8_t count) {
     if(mode.load(std::memory_order_acquire)!=CCP_INPUT)return;
     if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE &&
-       operation.load(std::memory_order_acquire)==DIRECTORY)
+       operation.load(std::memory_order_acquire)!=PROBE)
       checkpoint.store(count==0?EMPTY_LINE:NONEMPTY_LINE,std::memory_order_release);
     ccpLineEmpty.store(count==0,std::memory_order_release);
     ccpLineKnown.store(true,std::memory_order_release);
     // Never leave an automatic directory request queued behind a typed line.
     // A pending request is cancelled as soon as BDOS observes characters.
-    if(count!=0 && operation.load(std::memory_order_acquire)==DIRECTORY) {
+    if(count!=0 && operation.load(std::memory_order_acquire)!=PROBE) {
       uint8_t expected=WAIT_EMPTY_LINE;
       if(result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
                                         std::memory_order_acq_rel)) {
@@ -215,7 +269,7 @@ public:
     if(autoReturnSent || !biosConinPoll || !insideVerifiedCcpPrompt ||
        mode.load(std::memory_order_acquire)!=CCP_INPUT ||
        result.load(std::memory_order_acquire)!=WAIT_EMPTY_LINE ||
-       operation.load(std::memory_order_acquire)!=DIRECTORY ||
+       operation.load(std::memory_order_acquire)==PROBE ||
        !ccpLineKnown.load(std::memory_order_acquire) ||
        !ccpLineEmpty.load(std::memory_order_acquire))return false;
     autoReturnSent=true;
@@ -249,7 +303,7 @@ public:
       if(result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
         if(ram[kCcpInputLength]==0) {
           blankInputReturned=true;
-          if(operation.load(std::memory_order_acquire)==DIRECTORY)
+          if(operation.load(std::memory_order_acquire)!=PROBE)
             checkpoint.store(CCP_EMPTY_RETURN,std::memory_order_release);
         } else {
           result.store(INPUT_NOT_EMPTY,std::memory_order_release);
@@ -287,7 +341,8 @@ public:
     return false;
   }
 
-  bool request(Operation requested=PROBE,uint8_t drive=0) {
+  bool request(Operation requested=PROBE,uint8_t drive=0,
+               const uint8_t* fcbName=nullptr,uint16_t record=0) {
     if(requestBusy.test_and_set(std::memory_order_acquire))return false;
     const uint32_t generation=inputGeneration.load(std::memory_order_acquire);
     if(!compatible.load(std::memory_order_acquire) ||
@@ -301,13 +356,21 @@ public:
       requestBusy.clear(std::memory_order_release);
       return false;
     }
-    if(drive>16 || (requested==DIRECTORY &&
+    if(drive>16 || (requested==FILE_READ &&
+        (!fcbName || record>63)) ||
+       (requested!=PROBE &&
        ccpLineKnown.load(std::memory_order_acquire) &&
        !ccpLineEmpty.load(std::memory_order_acquire))) {
       requestBusy.clear(std::memory_order_release);
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
+    if(requested==FILE_READ) {
+      for(unsigned i=0;i<11;++i)
+        requestedFile[i].store(fcbName[i],std::memory_order_relaxed);
+      requestedRecord.store(record,std::memory_order_relaxed);
+      fileError.store(FILE_OK,std::memory_order_release);
+    }
     operation.store(requested,std::memory_order_release);
     checkpoint.store(ARMED,std::memory_order_release);
     directoryError.store(DIR_OK,std::memory_order_release);
@@ -368,7 +431,7 @@ public:
   }
 };
 inline const char *operationText(uint8_t o) {
-  return o==DIRECTORY?"directory":"probe";
+  return o==DIRECTORY?"directory":o==FILE_READ?"file_read":"probe";
 }
 inline const char *modeText(uint8_t m) {
   switch(m) {
