@@ -228,7 +228,12 @@ void CPUTask(void *) {
       if(resetNeeded) {
         // The outer loop will rebootstrap the Z80 and Gate::reset() will
         // clear the live outcome. Preserve a sticky, read-only postmortem.
-        if(gate)gate->lastDirectoryReset.store(true,std::memory_order_release);
+        if(gate) {
+          if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::DIRECTORY)
+            gate->lastDirectoryReset.store(true,std::memory_order_release);
+          if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD)
+            gate->lastFileReset.store(true,std::memory_order_release);
+        }
         // Never resume the CCP after an interrupted BDOS call.
         Serial.println("CP/M BDOS service interrupted; requesting Z80-only reset");
         RUN=false;
