@@ -1,3 +1,53 @@
+## 2026-10-25 — C2b HP-native CMENU implementation, hardware acceptance PENDING
+
+The user explicitly requested the implementation after identifying the
+physical `RMIDLE` hook bytes. This is a **new HP-only executable
+prototype** (no Teensy or ESP32 source changes) on
+`timob0/HP85-Option-Roms`, `feature/cpm85-hpib-output`.
+
+New **CPM85 v0.06b**, keyword **`CMENU`**, extends rather than
+replaces the previously hardware-accepted `CPM`/C1 code. It uses
+the hardware-proven `CHIDLE` + K8 release path and immediately
+returns from its LOADBIN runtime to HP BASIC's normal EXEC,
+no BASIC source program or foreground busy spin needed.
+
+The `RMIDLE` hook at octal `102434` is only installed over the
+seven *exact* bytes measured on the physical HP:
+`316,376,011,063,147,361,236` octal. That sequence represents
+`JSB =ROMJSB; DEF 063463; BYT 361; RTN`. It is compared byte-for-byte
+and copied into private RAM before installing a 4-byte
+`JSB <relocated native RMHOOK>; RTN` entry. The callback preserves
+R10–R47 registers on R6, counts visits in three ASCII decimal
+digits modulo 1000, and paints one native 32-character HP-85 CRT
+alpha row with explicit CRTBAD/CRTDAT I/O. CRT repaint occurs only
+on each 256th callback or after a K1–K4 state change, each CRTBUSY
+test has a bounded loop, and CRTBAD is restored from `CRTBYT`.
+**The exact original AUXROM361 ROMJSB descriptor is called LAST
+after register restore** so its returned condition/status remains
+authoritative. No calls into EBTKS CRT DMA or `screenEmu`.
+
+K1/K2/K3 set local page 1/2/3; K4 toggles simulated Control,
+with no keyboard forwarding to the ESP32. K8 calls the tested
+`EOJ2` release sequence: `KREL` restores the prior RMIDLE
+7-byte image only if the live hook still belongs to this module,
+then restores the CHIDLE image. CPOFF/LOADBIN unload also run KREL.
+The old crashed CPKTEST remains **disabled**. HP-IB and printer
+output/ready are not implemented and remain disabled.
+
+**CI successful:** HP native CAPASM/CAPLIF and source regressions
+in GitHub Actions run **40206116757** with head
+`f46b297a10cd09b739ddc9e727f5603e225382b6`.
+No physical C2b hardware test has occurred yet. Screen overlay
+restoration after K8 is NOT complete (BASIC program is untouched
+but the native 32-char row might remain until refreshed).
+Hook callback/CRT interactions still require careful hardware
+validation. Test first using a disposable HP BASIC edit session,
+with C1 v0.05a rollback image handy. Build instructions and physical
+acceptance procedure:
+`HP85-Option-Roms/docs/CPM85_NATIVE_RMIDLE_C2B.md`.
+Do not test until both `CHIDLE` and `RMIDLE` ownership conditions
+are known. **All repository main branches untouched**.
+
 ## 2026-10-25 — Physical HP-85 RMIDLE bytes IDENTIFIED
 
 User read native RAM at `RMIDLE` decimal 34076..34082:
