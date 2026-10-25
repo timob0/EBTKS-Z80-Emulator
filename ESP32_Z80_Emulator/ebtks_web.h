@@ -440,6 +440,86 @@ inline bool ebtksWebBegin()
       r->send(200,"application/json",body);
     });
 
+  // Stage B2b: opt-in, trusted-LAN-only CP/M -> Teensy SD export.
+  // HTTP only arms the safe-point request; the pinned Z80 task executes it.
+  // Teensy confines output to exclusive files below /cpm/transfers.
+  ebtksServer.on("/api/cpm/service/export",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("name")) {
+        r->send(400,"application/json","{\"error\":\"name_required\"}");
+        return;
+      }
+      const String spec=r->getParam("name")->value();
+      uint8_t drive=0,fcb[11]{};
+      if(!CpmFileReadService::parseName(spec.c_str(),drive,fcb)) {
+        r->send(400,"application/json","{\"error\":\"invalid_8_3_source\"}");
+        return;
+      }
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+        gate->request(CpmSafePoint::EXPORT_SD,drive,fcb,0);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["operation"]="sd_export";
+      v["source"]=spec;
+      v["state"]=CpmSafePoint::resultText(gate?
+        gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+        "Automatic empty Return; files only under /cpm/transfers on Teensy":
+        "CCP not idle, another request active, or unsupported native CP/M";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/export",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+        gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correct?"sd_export":"not_requested";
+      v["state"]=correct?CpmSafePoint::resultText(
+        gate->result.load(std::memory_order_acquire)):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(gate?
+        gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["records"]=correct?gate->exportRecords.load(std::memory_order_acquire):0;
+      v["bytes"]=uint32_t(correct?gate->exportRecords.load(std::memory_order_acquire):0)*128U;
+      v["crc16_ccitt_false"]=correct?gate->exportCrc.load(std::memory_order_acquire):0xFFFF;
+      v["last_file_state"]=CpmSafePoint::resultText(gate?
+        gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->lastFileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["last_file_forced_z80_reset"]=gate &&
+        gate->lastFileReset.load(std::memory_order_acquire);
+      if(correct) {
+        const uint8_t drive=gate->requestedDrive.load(std::memory_order_acquire);
+        if(drive>=1 && drive<=16) {
+          String target="/cpm/transfers/";
+          target+=char('A'+drive-1);target+='_';
+          for(unsigned i=0;i<8;++i) {
+            const char ch=(char)gate->requestedFile[i].load(std::memory_order_relaxed);
+            if(ch!=' ')target+=ch;
+          }
+          bool ext=false;
+          for(unsigned i=8;i<11;++i)
+            if(gate->requestedFile[i].load(std::memory_order_relaxed)!=' ')ext=true;
+          if(ext) {
+            target+='.';
+            for(unsigned i=8;i<11;++i) {
+              const char ch=(char)gate->requestedFile[i].load(std::memory_order_relaxed);
+              if(ch!=' ')target+=ch;
+            }
+          }
+          v["destination"]=target;
+        }
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
   // RAM-only liveness and reset forensics, no SPI/UART/SD work.
   // Read BEFORE and AFTER enabling 4MHz read-ahead from Media Manager.
   // If the ESP resets, its next boot retains the hardware reset reason.
