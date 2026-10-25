@@ -160,6 +160,8 @@ public:
   std::atomic<uint8_t> requestedSourceDrive{0};
   std::atomic<uint8_t> requestedSourceFile[11]{};
   std::atomic<bool> importPartialPossible{false};
+  std::atomic<uint16_t> importTotalRecords{0};
+  std::atomic<uint16_t> importExpectedCrc{0xFFFF};
   std::atomic<uint8_t> fileError{FILE_OK};
   // End-to-end SD export progress: published by pinned CPU task only.
   std::atomic<uint16_t> exportRecords{0};
@@ -244,6 +246,8 @@ public:
     exportRecords.store(0,std::memory_order_release);
     exportCrc.store(0xFFFF,std::memory_order_release);
     importPartialPossible.store(false,std::memory_order_release);
+    importTotalRecords.store(0,std::memory_order_release);
+    importExpectedCrc.store(0xFFFF,std::memory_order_release);
     compatible.store(nativeCpm && signature(ram),std::memory_order_release);
   }
 
@@ -429,6 +433,8 @@ public:
     exportRecords.store(0,std::memory_order_release);
     exportCrc.store(0xFFFF,std::memory_order_release);
     importPartialPossible.store(false,std::memory_order_release);
+    importTotalRecords.store(0,std::memory_order_release);
+    importExpectedCrc.store(0xFFFF,std::memory_order_release);
     }
     operation.store(requested,std::memory_order_release);
     checkpoint.store(ARMED,std::memory_order_release);
