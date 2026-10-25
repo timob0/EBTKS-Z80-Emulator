@@ -8,6 +8,7 @@
 #include "cpm_service_probe.h"
 #include "cpm_directory_service.h"
 #include "cpm_file_read_service.h"
+#include "ebtks_cpm_sd_export.h"
 #include <new>  // tiny standard-heap allocation, not 32-bit/EXEC IRAM
 
 static Z80Bridge ebtksCpuBridge;
@@ -220,6 +221,12 @@ void CPUTask(void *) {
               record,resetNeeded,[](){taskYIELD();});
         gate->fileError.store(record.error,std::memory_order_release);
         gate->publishFile(record);
+      } else if(gate &&
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD) {
+        // One verified CCP checkpoint, multiple read-only B2a calls, and
+        // exclusive Teensy SD staging. Never touches raw mounted sectors.
+        ok=CpmSdExport::execute(&ebtksCpuBridge,*gate,resetNeeded,
+                                [](){taskYIELD();});
       } else {
         ok=CpmServiceProbe::execute(&ebtksCpuBridge);
       }
@@ -231,7 +238,8 @@ void CPUTask(void *) {
         if(gate) {
           if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::DIRECTORY)
             gate->lastDirectoryReset.store(true,std::memory_order_release);
-          if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD)
+          if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD ||
+             gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD)
             gate->lastFileReset.store(true,std::memory_order_release);
         }
         // Never resume the CCP after an interrupted BDOS call.
