@@ -373,7 +373,7 @@ inline bool ebtksWebBegin()
       CpmSafePoint::Gate* gate=cpmSafeGatePtr();
       const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
       const bool accepted=(bool)RUN && supported &&
-           gate->request(CpmSafePoint::FILE_READ,drive,fcb,record);
+           gate->request(CpmSafePoint::READ_RECORD,drive,fcb,record);
       JsonDocument v;
       v["accepted"]=accepted;
       v["supported"]=supported;
@@ -392,7 +392,7 @@ inline bool ebtksWebBegin()
     [](AsyncWebServerRequest *r) {
       CpmSafePoint::Gate* gate=cpmSafeGatePtr();
       const bool correct=gate &&
-          gate->operation.load(std::memory_order_acquire)==CpmSafePoint::FILE_READ;
+          gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD;
       const uint8_t state=gate?gate->result.load(std::memory_order_acquire):
           CpmSafePoint::NEVER;
       JsonDocument v;
