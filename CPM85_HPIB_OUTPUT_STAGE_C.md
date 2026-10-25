@@ -9,6 +9,49 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## 2026-10-25 — HP timer and nonblocking LST output research
+
+HP-85 **does** have three system-backed programmable timers and
+millisecond system clock. However the `ON TIMER#` callback mechanism
+branches into an HP BASIC program, and the HP Advanced Programming
+manual says it is associated with the program that declared it, rather
+than a free-standing native LOADBIN service. It is not an appropriate
+way to interrupt another user's BASIC program/edit session.
+
+The HP Assembler ROM Manual confirms:
+- **`IRQ20` is an I/O interrupt vector; it does NOT mean a 20 ms
+  timer or periodic clock callback.**
+- Clock interrupts normally use the ON TIMER machinery.
+- The HP executive loop normally tests `CSTAT`, tests `XCOM`,
+  then enters **`RMIDLE`**. This is the promising cooperative
+  no-key-required service point, but it is not a guaranteed
+  millisecond-periodic callback.
+- EBTKS AUXROM/Teensy already owns `RMIDLE`, dispatching its
+  autostart/batch/Wi-Fi key injection. Do not commandeer it.
+
+**Architectural update:** keep a resident native LOADBIN console
+(`CHIDLE`/possibly `KYIDLE` for keys) plus a **bounded, cooperative
+printer worker serviced through an explicitly verified RMIDLE
+extension/dispatch path**. An idle invocation may schedule/check data
+and handle only a small tentative chunk (16–32 bytes initially), but
+actual HP-native `PRINTER IS`/HPIB output must run only after a
+safe calling context and offline/timeouts are proven. Never run HP-IB
+transactions in raw IRQ/clock/keyboard hooks or the Teensy bus ISR.
+Short chunks reduce ordinary busy periods but **do not protect
+against even a single indefinite HP-IB handshake**.
+
+CP/M `LISTST` readiness and buffer credits follow confirmed printer
+service availability, not just an active `CPM` session or a timer
+tick. UI entry drops readiness; CP/M may continue executing.
+If EBTKS RMIDLE is not reached during a given HP operation,
+printing must pause/backpressure rather than fake readiness.
+
+Research is documented in
+`HP85-Option-Roms/docs/CPM85_NATIVE_CONSOLE_RESEARCH.md`,
+HP feature-branch commit
+`4b7fdb2bef05f9e9a44aabd49472fa2ee58e7649`.
+**Documentation only; no firmware changed or new hardware test.**
+
 ## 2026-10-25 research decision — fully self-contained native LOADBIN console
 
 The user clarified a fundamental product constraint: **do not require
