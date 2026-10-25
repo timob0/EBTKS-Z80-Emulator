@@ -255,8 +255,10 @@ public:
       uint8_t expected=WAIT_EMPTY_LINE;
       if(result.compare_exchange_strong(expected,INPUT_NOT_EMPTY,
                                         std::memory_order_acq_rel)) {
-        lastDirectoryCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
-        lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+        if(operation.load(std::memory_order_acquire)==DIRECTORY) {
+          lastDirectoryCheckpoint.store(NONEMPTY_LINE,std::memory_order_release);
+          lastDirectoryResult.store(INPUT_NOT_EMPTY,std::memory_order_release);
+        }
       }
     }
   }
@@ -331,7 +333,7 @@ public:
          result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
         blankInputReturned=false;
         result.store(RUNNING,std::memory_order_release);
-        if(operation.load(std::memory_order_acquire)==DIRECTORY)
+        if(operation.load(std::memory_order_acquire)!=PROBE)
           checkpoint.store(BDOS_ENTER,std::memory_order_release);
         mode.store(PROBE_RUNNING,std::memory_order_release);
         return true;
