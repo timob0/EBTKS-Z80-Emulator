@@ -160,6 +160,8 @@ public:
   std::atomic<uint8_t> requestedSourceDrive{0};
   std::atomic<uint8_t> requestedSourceFile[11]{};
   std::atomic<bool> importPartialPossible{false};
+  // Sticky evidence retained across Z80-only resets, like lastFileError.
+  std::atomic<bool> lastImportPartialPossible{false};
   std::atomic<uint16_t> importTotalRecords{0};
   std::atomic<uint16_t> importExpectedCrc{0xFFFF};
   std::atomic<uint8_t> fileError{FILE_OK};
@@ -505,6 +507,10 @@ public:
       lastFileError.store(fileError.load(std::memory_order_acquire),
                           std::memory_order_release);
       lastFileReset.store(false,std::memory_order_release);
+      if(operation.load(std::memory_order_acquire)==IMPORT_SD)
+        lastImportPartialPossible.store(
+          importPartialPossible.load(std::memory_order_acquire),
+          std::memory_order_release);
       lastFileResult.store(passed?PASSED:FAILED,std::memory_order_release);
     }
     result.store(passed?PASSED:FAILED,std::memory_order_release);
