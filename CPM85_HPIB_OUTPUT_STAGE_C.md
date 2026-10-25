@@ -1,3 +1,58 @@
+## 2026-10-25 — Post-freeze SOURCE AUDIT: concrete Capricorn register-save bug
+
+Audit of retired HP ROM **CPM85 v0.06b** at commit
+`f46b297a10cd09b739ddc9e727f5603e225382b6`
+revealed a real error independent of display timing:
+the native `RMHOOK` save sequence was
+
+```asm
+PUMD R10,+R6
+PUMD R20,+R6
+PUMD R30,+R6
+PUMD R40,+R6
+LDMD R14,=BINTAB
+```
+
+The Capricorn CPU multi-byte boundary rule means these save only
+R10-R11 (2 B), R20-R21 (2 B), R30-R31 (2 B), R40-R47 (8 B):
+**14 bytes, NOT the claimed R10..R47 context**. Subsequent
+`LDMD R14,=BINTAB` overwrites **UNSAVED R14-R15** immediately;
+`RMDRAW` also overwrites **unsaved R22 and R34-R35**.
+The four inverse `POMD`s restore only the same partial regions,
+then the original ROM361 AUXROM `RMIDLE` function is invoked
+with altered CPU register state. This is **a confirmed source
+defect and strong candidate for the observed hard freeze**;
+there is no trace proving the exact instruction where execution
+failed. This violates the project's previously learned register
+width rule from CPDMNT handling. Manual: Capricorn CPU, pages
+3-4 through 3-9 and 4-21,
+`https://www.jeffcalc.hp41.eu/emu75/files/capricorncpu.pdf`.
+
+**Other independent defects/risks:** MNRUN initialized
+`RMDIRTY=1`, so the first RMIDLE callback immediately performed
+32-char CRTBAD/CRTDAT work before ROM361 had been chained even
+once; CRT output safety from EXEC RMIDLE was never verified.
+The repaint interval of 256 **callbacks** is not a real-time
+throttle and may overwhelm the editor if RMIDLE is frequent.
+ROMJSB nested-entry and status/stack preservation are also
+not validated, and KREL's ownership-mismatch logic needs
+recovery handling.
+
+**Do not revive v0.06b by editing only register pushes.**
+Future new hook should be split into a *counter-only native
+transparent RMIDLE chain* (independently proven; full actual
+register/status preservation, no CRT), then a separate native
+CRT rendering service in safe context. Prefer emulator/ROM
+disassembly validation before another risky HP hardware test.
+
+Findings recorded in
+`timob0/HP85-Option-Roms/docs/CPM85_NATIVE_RMIDLE_C2B.md`
+feature-branch documentation commit
+`4933c61c77925e283a2eb1b98564c3604fbe9da4`.
+**Active source unchanged:** HP branch remains v0.05c rolled-back;
+last physical acceptance C1 v0.05a; Teensy/ESP32 unchanged;
+all `main` baselines pristine.
+
 ## CRITICAL C2b HP-85 HARDWARE FAILURE (2026-10-25)
 
 **Do not run the experimental v0.06b `CMENU` binary again.**
