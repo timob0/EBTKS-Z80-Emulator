@@ -1,3 +1,5 @@
+> **SUPERSEDED FOR NEW WORK:** Stage B2a has now passed the user's physical functional tests. The active B2b SD export checkpoint is [NEXT_CHAT_B2B_SD_HANDOFF.md](NEXT_CHAT_B2B_SD_HANDOFF.md), with test guide [CPM_FILE_TRANSFER_B2B_SD.md](CPM_FILE_TRANSFER_B2B_SD.md). This older document is retained for the B2a recovery baseline and historical acceptance procedure. B2b builds and hardware acceptance are still pending.
+
 # SIMON85 — B2a file-transfer continuation checkpoint
 
 **Saved 2026-10-25, at user request. This is the CURRENT starting point for the next chat.**
