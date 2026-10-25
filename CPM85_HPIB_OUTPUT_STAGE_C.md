@@ -9,6 +9,56 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## 2026-10-25 research decision — fully self-contained native LOADBIN console
+
+The user clarified a fundamental product constraint: **do not require
+loading an HP BASIC source program to use the management console**.
+It must launch with the existing `CPM` LOADBIN keyword even when the
+user is editing another HP BASIC program, preserving that program and
+editing state. The prior proposal to retain C1's BASIC event-pump in
+the final product is therefore **REJECTED for the finished console**.
+C1 remains useful solely as the hardware-tested page/render state
+prototype and regression reference.
+
+Research checked HP-85 global symbols (CAPASM and EBTKS headers),
+original PRINTER85/CPM85 hook code, and the Teensy EBTKS AUXROM
+`AUXROM_RMIDLE` implementation. HP-85 OCTAL intercept addresses:
+`CHIDLE=102416` (character editor), `KYIDLE=102425` (keyboard
+intercept), `RMIDLE=102434` (EXEC intercept). A published HP
+Assembler manual labels `KYIDLE` as polled upon keypress. Actual
+HP-85 callback ABI is still to be established. EBTKS already uses
+`RMIDLE` for autostart/batch keystroke injection; its source
+describes codes `2` and `3` for taking/releasing keyboard ownership
+but explicitly calls that feature untested on the Teensy.
+
+**Preferred direction:** A source-free **resident native, event-driven
+console**: a LOADBIN command initializes and draws menu, installs a
+verified hook and returns control to the normal HP firmware keyboard
+event path. The user remains in modal Management/Control mode until K8,
+but **no BASIC program has to be loaded** and **no native tight loop
+blocks HP keyboard processing**. Reuse the already accepted CPM85
+`CHIDLE` event handling / exit path as the first C2a keyboard
+checkpoint, lifting the C1 menu logic into a callback-safe routine
+that does not assume BASIC statement parser/stack state. Research
+`KYIDLE` as a potentially better future ownership hook; do not
+blindly overwrite CHIDLE when PRINTER85 owns it.
+
+A **second, no-key-required** HP service for eventual `LST:`
+printer reception must be designed using a *cooperative, confirmed*
+interpreter idle hook. The EBTKS `RMIDLE` hook is already occupied:
+cooperate/chaining is required. Validate actual no-key callback
+behavior first with a harmless event counter before modifying any
+ESP32/Teensy firmware or claiming printer ready. Do not assume the
+HP runs a service callback continuously during arbitrary BASIC code.
+
+The detailed research report and incremental hardware acceptance
+gates are in
+`timob0/HP85-Option-Roms/docs/CPM85_NATIVE_CONSOLE_RESEARCH.md`
+on `feature/cpm85-hpib-output`, commit
+`4429f1409b8ef8b6ab8049b227ead7208f02b0be`.
+All three `main` branches unchanged. **No executable code changed
+in this research checkpoint**; C2 unsafe `CPKTEST` stays quarantined.
+
 ## C2 crash clarification and revised next step (2026-10-24)
 
 Follow-up from physical HP-85 testing: `CPKTEST` **printed its
