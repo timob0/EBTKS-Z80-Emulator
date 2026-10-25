@@ -9,6 +9,55 @@ implemented by C0. All three `feature/cpm85-hpib-output` branches were
 created from the accepted `main` baselines. ESP32/Teensy code remains
 unchanged. Do not merge to `main` until complete C-stage hardware tests.
 
+## 2026-10-25 — C2a RMIDLE console hardware probe ready (UNTESTED ON HP)
+
+**Implemented on the feature branches, not yet physically validated:**
+
+- `timob0/HP85-Option-Roms`, `feature/cpm85-hpib-output`:
+  `src/cpm85.asm` **CPM85 v0.06a** exposes new **`CMENU`**
+  LOADBIN statement, intentionally alphabetic/unique to avoid
+  HP BASIC prefix ambiguity with existing `CPM`. It duplicates
+  the *proven* `CHIDLE` stub/save/restore logic, sets `KHACT=2`
+  and writes `CPCTL=2` instead of the old `CPM` attach=1.
+  It immediately returns to BASIC editor processing; no foreground
+  busy loop and no BASIC application/source needed. K1-K3 pages,
+  K4 mode, K8 exits via old local hook. All non-K8 keys are delivered
+  to Teensy `CPKEY` but feature Teensy consumes them locally; no
+  forwarding to Z80 in test mode. `CPKTEST` remains disabled.
+  Hardware test guide: `docs/CPM85_RMIDLE_CONSOLE_C2A.md`.
+- `timob0/ebtks-alt-firmware`, same feature branch:
+  `-DEBTKS_CPM85_RMIDLE_PROBE_ENABLE=1` enabled only in the
+  development `platformio.ini`. An opt-in probe counts **actual
+  EBTKS AUXROM_RMIDLE() invocations**, does not replace/chain the
+  hook or alter mailbox processing, and throttles HP-85 CRT overlay
+  painting from **normal Teensy main loop** using the existing
+  `Write_on_CRT_Alpha` DMA path (~4 fps). Status includes numeric
+  invocation count, `ACTIVE` / `STALLED` (no callbacks for 2 s),
+  selected page, and simulated UI vs Control mode. All CRT DMA is
+  excluded from bus ISR, HP keyboard hook and AUXROM handler.
+  On K8 Teensy attempts to restore the captured CRT image;
+  on HP RESET `CPCTL=4` requests exit without replaying a
+  pre-reset snapshot. Legacy control 0/1 still works.
+- ESP32 branch: **no code modifications**. No CP/M LST, printer,
+  mode-ready or HP-IB worker behavior is enabled.
+
+**CI:** HP native CAPASM/CAPLIF + regressions passed in HP
+`feature/cpm85-hpib-output` run `40195681837` (source includes
+documentation commit); Teensy firmware + native tests passed
+in Teensy `feature/cpm85-hpib-output` run `40195573628`.
+No physical firmware test yet. Two firmware assets need rebuilding:
+**Teensy and HP LOADBIN**, not ESP32.
+
+**C2a acceptance:** with a disposable BASIC program and `CRT IS 1`,
+execute `CMENU` as an immediate command, observe `RMIDLE` counter
+advancing **while no keys are pressed**; K2/K3/K1 change pages,
+K4 toggles simulated modes without stopping callbacks, K8 restores
+HP keyboard/screen, then regress legacy `CPM` forwarding/K8.
+`RMIDLE` count may stall, which is a useful negative result.
+The CRT capture/restore use is experimental; preserve a backup of
+important BASIC program edits before this hardware experiment.
+No `main` merge until accepted.
+
 ## 2026-10-25 — HP timer and nonblocking LST output research
 
 HP-85 **does** have three system-backed programmable timers and
