@@ -9,6 +9,8 @@
 #include <ArduinoJson.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
+#include <new>
 #include "ebtks_build_revision.h" // generated at firmware build
 #include "ebtks_firmware_options.h"
 #include "ebtks_static_pages.h"
@@ -20,6 +22,22 @@ AsyncWebSocket ebtksWebSocket("/ws");
 DNSServer ebtksDns;
 
 volatile bool ebtksRestartRequired = false;
+
+// Runtime-allocated only while uploading: the TFT firmware has <200 bytes
+// of spare static DRAM. Never retain an abandoned UpdateClass session.
+struct EbtksOtaSession {
+  AsyncWebServerRequest* owner;
+  size_t received;
+  uint8_t state; // 0 receiving, 1 failed, 2 verified
+};
+static EbtksOtaSession* ebtksOtaSession=nullptr;
+
+inline void ebtksOtaTrace(const char* phase,size_t received) {
+  Serial.printf("OTA %s bytes=%u heap=%u free8=%u largest8=%u\n",
+    phase,(unsigned)received,(unsigned)ESP.getFreeHeap(),
+    (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+}
 
 struct EBTKSBrowserRequest {
   char text[512];
@@ -720,28 +738,114 @@ inline bool ebtksWebBegin()
     });
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
 
+  // The old implementation kept UpdateClass alive after client disconnect.
+  // Update.begin() then silently returned false ("No Error"), and writes
+  // continued into that old session until it reported "Not Enough Space".
+  // Keep all OTA state request-owned and reclaim it on every disconnect.
   ebtksServer.on(
     "/updater", HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if (Update.hasError()) {
-        request->send(500, "text/plain", "Firmware update failed. Please check the file and retry.");
+      EbtksOtaSession* s=ebtksOtaSession;
+      if(!s || s->owner!=request) {
+        request->send(s?409:503,"text/plain",
+                      s?"Another firmware upload is active":
+                        "Firmware upload was not initialized");
         return;
       }
-      request->send(200, "text/plain", "Firmware updated successfully. EBTKS will reboot shortly.");
+      const bool verified=s->state==2;
+      delete s;
+      ebtksOtaSession=nullptr;
+      if(!verified) {
+        if(Update.isRunning()) Update.abort();
+        request->send(500,"text/plain",
+                      "Firmware update failed; see /z80debug for details.");
+        return;
+      }
+      request->send(200,"text/plain",
+                    "Firmware updated successfully. EBTKS will reboot shortly.");
     },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if (!index) {
-        Serial.printf("OTA Update Start: %s\n", filename.c_str());
-        if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) Update.printError(Serial);
+    [](AsyncWebServerRequest *request,String filename,size_t index,
+       uint8_t *data,size_t len,bool final) {
+      if(index==0) {
+        if(ebtksOtaSession) {
+          Serial.println("OTA refused: another upload is active");
+          return;
+        }
+        // Defensive recovery for a previously orphaned UpdateClass session.
+        if(Update.isRunning()) {
+          Serial.printf("OTA stale session aborted at %u bytes\n",
+                        (unsigned)Update.progress());
+          Update.abort();
+        }
+        EbtksOtaSession* s=new(std::nothrow) EbtksOtaSession{request,0,0};
+        if(!s) {
+          Serial.println("OTA unable to allocate upload session");
+          return;
+        }
+        ebtksOtaSession=s;
+        request->onDisconnect([request](){
+          EbtksOtaSession* current=ebtksOtaSession;
+          if(!current || current->owner!=request) return;
+          if(Update.isRunning()) {
+            ebtksOtaTrace("client disconnected; aborting",current->received);
+            Update.abort();
+          } else if(current->state!=2) {
+            ebtksOtaTrace("client disconnected (no active Update)",current->received);
+          }
+          delete current;
+          ebtksOtaSession=nullptr;
+        });
+
+        const esp_partition_t* partition=esp_ota_get_next_update_partition(nullptr);
+        const size_t available=ESP.getFreeSketchSpace();
+        const size_t limit=available>0x1000U?
+                            ((available-0x1000U)&~size_t(0xFFFU)):0;
+        Serial.printf(
+          "OTA start: %s target=%s offset=0x%06x slot=%u "
+          "limit=%u http_content_length=%u\n",
+          filename.c_str(),partition?partition->label:"none",
+          (unsigned)(partition?partition->address:0),
+          (unsigned)available,(unsigned)limit,
+          (unsigned)request->contentLength());
+        ebtksOtaTrace("begin",0);
+        if(!limit || !Update.begin(limit)) {
+          Serial.printf("OTA begin failed: %s running=%u\n",
+                        Update.errorString(),(unsigned)Update.isRunning());
+          s->state=1;
+          if(Update.isRunning()) Update.abort();
+          return;
+        }
       }
-      if (!Update.hasError() && len) {
-        if (Update.write(data, len) != len) Update.printError(Serial);
+
+      EbtksOtaSession* s=ebtksOtaSession;
+      if(!s || s->owner!=request || s->state!=0) return;
+      if(len) {
+        const size_t written=Update.write(data,len);
+        if(written!=len) {
+          Serial.printf("OTA write failed at=%u chunk=%u wrote=%u: %s\n",
+                        (unsigned)index,(unsigned)len,(unsigned)written,
+                        Update.errorString());
+          ebtksOtaTrace("write failed",s->received);
+          s->state=1;
+          if(Update.isRunning()) Update.abort();
+          return;
+        }
+        s->received=index+len;
+        // Bounded telemetry: roughly 20 lines for a 1.2 MiB image.
+        if((index>>16)!=(s->received>>16))
+          ebtksOtaTrace("progress",s->received);
       }
-      if (final) {
-        if (Update.end(true)) {
-          Serial.printf("OTA Update Success: %u bytes\n", (unsigned)(index + len));
-          ebtksRestartRequired = true;
-        } else Update.printError(Serial);
+      if(final) {
+        if(Update.end(true)) {
+          s->state=2;
+          ebtksOtaTrace("verified",s->received);
+          ebtksRestartRequired=true;
+        } else {
+          Serial.printf("OTA finalize failed: %s\n",Update.errorString());
+          ebtksOtaTrace("finalize failed",s->received);
+          s->state=1;
+          if(Update.isRunning()) Update.abort();
+        }
       }
     }
   );
