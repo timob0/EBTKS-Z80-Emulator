@@ -1,5 +1,57 @@
 # ACTIVE NEXT-CHAT CHECKPOINT — Stage B2c SD -> CP/M (2026-10-25)
 
+## OTA recovery investigation (2026-10-27; not yet hardware-tested)
+
+The user observed that ESP32 TFT OTA ceased working after B2b (last
+hardware-tested B2a commit `e01211f`; current ESP32 runs
+`edad55b7a5e21d6074f17fcbb4226c9f39f8f9e2`, the B2b source).
+A new B2c binary measured 1,263,776 bytes; documented app slots
+are 0x140000 bytes each and previous updater reserves one 0x1000-byte
+sector (computed limit 0x13f000 = 1,306,624 bytes). Physical partition
+table must still be read/verified on the Mac before USB flashing.
+
+An **initial** browser OTA attempt after fresh power-cycle disconnected
+while ESP stayed running; /z80debug contained only
+`OTA Update Start: firmware.bin`. ESP health showed no reset/panic,
+heap ~62.5 KiB, free 8-bit heap ~22.5 KiB, largest8 ~15.3 KiB,
+minimum observed 8-bit free ~4.7 KiB. The 8-KiB SPI disk cache is
+already in IRAM32; SPI DMA and persistent SPI disk worker are active.
+Do **not** assume this initial upload failure has been explained.
+Memory pressure or AsyncTCP callback stall is plausible but unproven.
+
+Subsequent same-boot attempts logged `No Error` and
+`Not Enough Space`. Inspection of pinned Arduino-ESP32 2.0.17
+Updater.cpp confirmed `Update.begin` returns false without setting
+an error when an update is still active, and `Update.write` sets
+`UPDATE_ERROR_SPACE` after exceeding the prior session's remaining
+allowance. Old updater lacked disconnect abort and continued to write
+after `Update.begin` failure. This **retry-session bug is confirmed**,
+but is distinct from the unproven cause of the initial B2b upload drop.
+
+ESP32 B2c branch has OTA-only commits:
+- `da8ce05`: runtime-heap request-owned OTA state (one static pointer
+  because TFT static DRAM guard is tight); HTTP onDisconnect abort;
+  no writes after failed begin; reject concurrent uploads; log actual
+  next OTA partition, size, allowed image bytes, HTTP content length;
+  progress at 64 KiB crossings, 8-bit RAM/contiguous block, final
+  verification and disconnect offset.
+- `78cb82f`: static regression assertions in
+  `tests/check_web_ui_cleanup.py` for OTA session handling.
+
+No main merge, no Teensy/HP modifications. Local firmware and CI
+builds **not confirmed**. Operator should pull this B2c ESP32 feature
+branch, run `python3 tests/check_web_ui_cleanup.py`,
+`bash tests/run_z80_core_native.sh`, `pio run -e esp32dev-tft`,
+`python3 tests/check_esp32_dram_budget.py` and check image size.
+Use documented `ESP32_RECOVERY_USB.md` Teensy USB programming bridge
+to install the B2c diagnostic firmware after **reading the actual
+partition table**, retaining the present recovery binary. Do not
+retry unstable browser OTA to install this correction. Test a *single*
+OTA upload afterward (when stable), capture `/z80debug` and
+`/api/system/memory`, compare firmware Git SHA on reboot.
+No further feature testing until OTA/heap stability is established.
+
+
 Read [CPM_FILE_TRANSFER_B2C_IMPORT.md](CPM_FILE_TRANSFER_B2C_IMPORT.md)
 first. This is the current checkpoint. Historical `NEXT_CHAT_HANDOFF.md`,
 `NEXT_CHAT_B2A_HANDOFF.md`, and `NEXT_CHAT_B2B_SD_HANDOFF.md`
