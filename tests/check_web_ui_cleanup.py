@@ -269,4 +269,23 @@ assert 'v["git_dirty"]' not in web
 assert (ROOT.parent / "tests/check_build_revision.py").is_file()
 print("PASS: known-good boot/network paths; only compile-time Git SHA added")
 
+# OTA regression (B2b exposed an older incomplete-session problem):
+# interrupted HTTP uploads must not leave UpdateClass running; only successful
+# begin may be followed by writes, and user-visible diagnostics identify where
+# an initial transfer stopped. No new permanent TFT DRAM buffers.
+assert "static EbtksOtaSession* ebtksOtaSession=nullptr;" in web
+assert "new(std::nothrow) EbtksOtaSession{request,0,0}" in web
+assert "request->onDisconnect([request]()" in web
+assert 'ebtksOtaTrace("client disconnected; aborting"' in web
+assert "if(Update.isRunning()) Update.abort();" in web
+assert "if(!limit || !Update.begin(limit))" in web
+assert "if(!s || s->owner!=request || s->state!=0) return;" in web
+assert "if(written!=len)" in web
+assert 'ebtksOtaTrace("progress",s->received);' in web
+assert 'ebtksOtaTrace("verified",s->received);' in web
+assert "esp_ota_get_next_update_partition(nullptr)" in web
+assert "Update.end(true)" in web
+assert "ebtksRestartRequired=true;" in web
+print("PASS: OTA upload owner/disconnect cleanup and bounded progress tracing")
+
 print("PASS: Web, modem, heap capability inventory, shared Telnet, IRAM32 SPI cache, SPI safeguards")
