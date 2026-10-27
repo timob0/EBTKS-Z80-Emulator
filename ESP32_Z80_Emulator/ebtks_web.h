@@ -33,10 +33,14 @@ struct EbtksOtaSession {
 static EbtksOtaSession* ebtksOtaSession=nullptr;
 
 inline void ebtksOtaTrace(const char* phase,size_t received) {
-  Serial.printf("OTA %s bytes=%u heap=%u free8=%u largest8=%u\n",
+  // Called from the AsyncTCP event task: its stack low-water mark is
+  // a practical guard before reducing the default 16 KiB reservation.
+  const uint32_t asyncStackUnused=(uint32_t)uxTaskGetStackHighWaterMark(nullptr);
+  Serial.printf("OTA %s bytes=%u heap=%u free8=%u largest8=%u async_stack_unused=%u\n",
     phase,(unsigned)received,(unsigned)ESP.getFreeHeap(),
     (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
-    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
+    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+    (unsigned)asyncStackUnused);
 }
 
 struct EBTKSBrowserRequest {
