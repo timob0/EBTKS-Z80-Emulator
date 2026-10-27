@@ -1,5 +1,47 @@
 # ACTIVE NEXT-CHAT CHECKPOINT — Stage B2c SD -> CP/M (2026-10-25)
 
+### Two-browser OTA upload evidence (2026-10-27)
+
+After the B2c OTA fix was flashed via Teensy USB bridge, both Safari and
+Chrome **still lost the initial HTTP upload connection** (Chrome
+`ERR_CONNECTION_RESET`); the OTA client-disconnect handler now correctly
+aborts the session. Physical app1 partition is 1,310,720 bytes with
+1,306,624-byte Update limit; HTTP multipart content length 1,265,431
+(including form overhead) easily fits. Safari disconnected after
+295,299 firmware bytes; Chrome after 108,119 firmware bytes. During uploads
+free8 fell to 15,656/13,312 bytes, largest contiguous free8 to
+7,412/10,228 bytes, respectively. Client disconnect was logged; no
+Update.write() or finalize errors before it. **Not a flash-capacity
+problem and not a browser-specific problem.** Root cause of original
+network disconnect remains *unproven*; prime suspects are malloc-cap8
+pressure/fragmentation and synchronous flash writes directly in the
+AsyncTCP network event task. Do not claim solved by abort fix.
+
+Inspection of pinned ESP32Async/AsyncTCP 3.3.2 found that its default
+`CONFIG_ASYNC_TCP_STACK_SIZE` is **16,384 bytes**, a persistent task stack.
+The upstream ESPAsyncWebServer configuration guidance recommends 4–8 KiB
+for suitable callbacks, but emphasizes measuring usage, and warns against
+blind queue-size increases. For a **controlled memory-headroom experiment**,
+B2c feature branch now includes three additional commits:
+- `bb92069`: set `-DCONFIG_ASYNC_TCP_STACK_SIZE=8192` in the shared
+  `env:esp32dev` PlatformIO flags (inherited by TFT); no changes to
+  async callback code or ESP/Teensy transport.
+- `e88729a`: OTA traces include `async_stack_unused` via
+  `uxTaskGetStackHighWaterMark(nullptr)` while inside AsyncTCP callback.
+  Need verify at least 2 KiB headroom under full upload before calling
+  this safe; if less, roll back/revise.
+- `e6a5e82`: static tests require new config and OTA stack telemetry.
+
+**This change has not been compiled or tested on physical hardware.**
+It may improve free 8-bit heap by up to ~8 KiB but does NOT prove it
+fixes the connection reset; heavy flash writes still run inside the
+AsyncTCP callback. Compile/check both targets and TFT static DRAM
+guard before any further USB flash. Test ordinary cold boot, HP BASIC,
+Teensy storage, CP/M DIR and Web/Media first, then **one** OTA attempt,
+log new `async_stack_unused`, progress, free8, largest8, and firmware
+commit. Preserve prior recovery binary. No main merge or feature
+branch deletion without explicit user approval.
+
 ## OTA recovery investigation (2026-10-27; not yet hardware-tested)
 
 The user observed that ESP32 TFT OTA ceased working after B2b (last
