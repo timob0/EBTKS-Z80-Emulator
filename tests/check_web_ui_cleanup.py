@@ -259,6 +259,11 @@ assert "setTimeout(connect,1000)" not in web_terminal
 pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
 revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
 assert "pre:tools/pio_git_revision.py" in pio
+# AsyncTCP 3.3.2 ships with a 16KiB default TCP event-task stack.
+# Conservatively reserve 8KiB, measure the actual free stack in OTA callbacks.
+assert "-DCONFIG_ASYNC_TCP_STACK_SIZE=8192" in pio
+assert "uxTaskGetStackHighWaterMark(nullptr)" in web
+assert "async_stack_unused=%u" in web
 assert "pre:tools/pio_gzip_pages.py" in pio
 assert 'git("rev-parse", "--verify", "HEAD")' in revision
 assert "EBTKS_BUILD_GIT_COMMIT" in revision
