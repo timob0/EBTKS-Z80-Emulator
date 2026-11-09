@@ -1,3 +1,32 @@
+## 2026-11-10: Physical B2c SUCCESS, stack exhaustion strongly corroborated
+
+User flashed ESP32 B2c SHA
+`5cc28cca44adb9e5a4305799e603eccfb4fd6e2b` with
+8,192-byte CPU-task stack. Native B2c import Teensy SD
+`A:STAT.COM` -> CP/M `A:IMPTST.COM` PASSED: 42 records,
+5376 bytes, expected/actual CRC16-CCITT-FALSE 54346,
+`partial_cpm_file_possible=false`, no source/file errors,
+no Z80-only reset, no ESP32 panic. RTC `import_complete/passed`
+has `stack_unused_bytes=3840`, so peak CPU-task use is
+**4352 bytes**, greater than the previous 4096-byte allocation
+by 256 bytes. Strong evidence the prior MAKE reset was CPU-task
+stack exhaustion, although original exception backtrace unavailable.
+Heap remains healthy (minimum free8 25612, largest free8 28660),
+SPI failures 0, TFT operational.
+
+**Next**: ask user to verify `DIR IMPTST.COM` in CP/M; do not perform
+another experimental import or flash. After acceptance, preserve
+8 KiB stack and execute explicit diagnostic removal/retain review
+in `B2C_DIAGNOSTIC_CLEANUP_LEDGER.md`. Build/tests then one final
+cleanup flash, user approval required before main merge.
+Teensy unchanged, HP Option ROM unchanged.
+
+Tang Nano 9K + matched 5-inch 40-pin RGB display ordered for future
+FPGA video/programmable softcore, FAT32 storage, GSX/HPGL possibilities.
+This is separate from B2c immediate work.
+
+---
+
 ## 2026-11-09: ELF full-frame analysis -> conservative 8 KiB stack candidate
 
 User supplied complete `--all-matches` disassembly report from the unchanged
