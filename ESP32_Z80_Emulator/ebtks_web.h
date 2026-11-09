@@ -576,7 +576,7 @@ inline bool ebtksWebBegin()
       v["state"]=CpmSafePoint::resultText(gate?
         gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
       v["instruction"]=accepted?
-        "Automatic blank CCP Return; Teensy SD read only; no CP/M BDOS":
+        "Automatic blank CCP Return; Teensy SD read only; no CP/M file BDOS":
         "Native CCP not idle, another service running, or unsupported CP/M";
       String body;serializeJson(v,body);
       r->send(accepted?202:409,"application/json",body);
