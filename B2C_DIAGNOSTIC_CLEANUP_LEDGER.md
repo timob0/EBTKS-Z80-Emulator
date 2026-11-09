@@ -143,8 +143,8 @@ not an instantaneous stack-pointer measurement. These figures make
 establish an exact complete maximum or exception subtype.
 
 **For the next deliberate and preferably final hardware-validation
-flash:** size the CPU task conservatively (8 KiB is an attractive
-candidate, versus the currently committed untested 6 KiB trial), verify
+flash:** size the CPU task conservatively (8 KiB has now been committed as
+the untested feature-branch default, superseding the 6 KiB trial), verify
 runtime heap/memory safeguards via build and inspection, and decide
 which temporary tracing to clean up before flashing. Don't treat the
 temporary 6 KiB setting as an accepted final fix without analysis.
@@ -175,3 +175,17 @@ temporary 6 KiB setting as an accepted final fix without analysis.
 **Do not run another B2c import on the potentially modified disk image
 without a verified backup. Do not flash a diagnostic build merely to
 gather more data that a source/ELF analysis can supply.**
+
+
+## 8 KiB candidate commit (2026-11-09)
+
+Following the 3216-byte simultaneous-frame subtotal, the untested
+6 KiB intermediate setting was superseded by **8192 bytes** on the ESP32
+B2c branch, still overridable via
+`-DEBTKS_Z80_CPU_TASK_STACK_BYTES=4096` for a controlled baseline.
+This costs approximately 4 KiB additional runtime internal heap relative
+to the original 4 KiB allocation; firmware DRAM/BSS growth is not expected.
+The actual heap and largest 8-bit block MUST be verified, including the
+TFT build and network operation. Neither a compile nor flash has been
+completed by this change. Existing RTC tracing is intentionally kept
+for one supervised validation, then subject to the removal plan above.
