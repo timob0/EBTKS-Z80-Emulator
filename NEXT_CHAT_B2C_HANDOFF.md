@@ -1,3 +1,41 @@
+## 2026-11-10: B2d HP-85 blocking BASIC commands — proposed interaction
+
+User accepted B2d Option ROM BASIC entry points `CPEXPORT` and
+`CPIMPORT` after B2c cleanup, and **prefers blocking commands**.
+The commands should clearly tell the HP-85 operator to leave native CP/M
+idle at the CCP prompt (e.g. `A>`) before issuing transfers.
+
+Agreed interaction direction:
+- Start a bounded wait (initial proposal 10 s, configurable during design).
+- If native CP/M is busy or safe point unavailable at timeout, show
+  `CP/M NOT IDLE - RETURN TO A> PROMPT. CONTINUE WAIT (C) / ABORT (A)?`
+  through HP-85 native CRT/keyboard; Continue retries another bounded
+  interval, Abort ends the HP BASIC command with no import created.
+- Once a transfer actually enters the BDOS/file-transfer phase, block
+  until it completes and show result/error, count and CRC; do **not**
+  offer unsafe mid-write abort. Distinguish a bounded start timeout from
+  an in-progress stall/watchdog with safe error reporting.
+- No duplicate operation must be queued after Continue; Abort must
+  guarantee a not-yet-started operation cannot run later.
+- **Current ESP32 Gate::request() refuses immediately when mode!=CCP_INPUT**
+  (application still running); it does NOT queue a transfer while busy.
+  `WAIT_EMPTY_LINE` is different: it is an accepted request awaiting
+  the verified blank CCP return.
+- `Gate::cancelPending()` already exists and atomically cancels only
+  `WAIT_EMPTY_LINE`. No public or HP mailbox cancellation is exposed yet.
+  The B2d control interface should reuse this safely. Races where the
+  operation transitions to RUNNING must be reported as already started
+  and handled by waiting for completion, not abandoned.
+- Design new HP85<->Teensy<->ESP32 control/status mailbox so BASIC
+  blocks cooperatively, without running CP/M BDOS in the HP-85.
+  Existing export/import engine/data path is reused unchanged.
+
+The exact ROM keyboard prompts/timeout must be reviewed against the
+existing CPM85 ROM conventions before implementation. Nothing was
+changed in executable firmware by recording this specification.
+
+---
+
 ## 2026-11-10: Native CP/M confirms imported file — B2c accepted
 
 User checked physical CP/M A: after successful B2c import:
