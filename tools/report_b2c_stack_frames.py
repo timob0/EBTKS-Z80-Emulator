@@ -73,6 +73,8 @@ def main():
     parser.add_argument("--objdump", default=None,
                         help="Explicit xtensa-esp32-elf-objdump path")
     parser.add_argument("--selftest", action="store_true")
+    parser.add_argument("--all-matches", action="store_true",
+                        help="List every matched symbol, including CpmSdImport::execute")
     args = parser.parse_args()
     if args.selftest:
         selftest()
@@ -101,12 +103,12 @@ def main():
             print(f"{term:34s} NOT A STANDALONE SYMBOL (possibly inlined)")
             continue
         found.sort(key=lambda f: (f["frame"] or -1), reverse=True)
-        for f in found[:4]:
+        for f in (found if args.all_matches else found[:4]):
             frame = f["frame"]
             print(f"{term:34s} {str(frame)+' B' if frame is not None else 'unknown':>9s}"
                   f"  0x{f['address']}  {f['symbol'][:110]}")
-        if len(found)>4:
-            print(f"  (+{len(found)-4} more matches)")
+        if len(found)>4 and not args.all_matches:
+            print(f"  (+{len(found)-4} more matches; run --all-matches)")
     print("\nLIMITATION: Do NOT add these figures blindly. Live stack usage equals")
     print("the maximum of simultaneous frames on an ACTUAL execution path;")
     print("inlined functions, indirect callbacks, and external library calls")
