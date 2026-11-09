@@ -1,3 +1,24 @@
+## 2026-11-10: Native CP/M confirms imported file — B2c accepted
+
+User checked physical CP/M A: after successful B2c import:
+`IMPTST.COM` present; STAT = **42 records** / **8 KiB allocated**.
+42 x 128 = 5376 logical bytes, CRC16-CCITT-FALSE 54346 matched
+original source and native BDOS readback. Allocation rounding to
+8 KiB is expected. ESP32 8 KiB CPU-task stack build at
+`5cc28cca44adb9e5a4305799e603eccfb4fd6e2b` had
+measured 4352-byte peak CPU stack use and no reboot/panic.
+
+**B2c functionally accepted on real hardware.** Preserve current
+working ESP32/Teensy firmware and A.dsk backups. No further import or
+flash required for B2c functional proof. Next work: review and
+remove temporary instrumentation per
+`B2C_DIAGNOSTIC_CLEANUP_LEDGER.md`, keep 8192-byte stack and selected
+production error reporting, then native and PlatformIO build checks,
+one controlled cleaned-build regression before main merge with
+explicit user approval.
+
+---
+
 ## 2026-11-10: Physical B2c SUCCESS, stack exhaustion strongly corroborated
 
 User flashed ESP32 B2c SHA
