@@ -1,3 +1,19 @@
+> **CURRENT STATUS (2026-11-10): B2c FUNCTIONALLY ACCEPTED on physical HP-85.**
+> This document contains the original pre-acceptance test plan and historical
+> cautions. The phrase below saying B2c has not passed hardware testing is
+> obsolete. The 8 KiB CPU-task-stack ESP32 TFT build at
+> `5cc28cca44adb9e5a4305799e603eccfb4fd6e2b` successfully imported
+> `A:STAT.COM` from Teensy SD to `A:IMPTST.COM` on live CP/M A:
+> using native BDOS, 42 records = 5376 bytes with CRC16-CCITT-FALSE
+> 54346, independent BDOS readback passed, no ESP panic/reset.
+> Physical CP/M `DIR` showed `IMPTST.COM`, and `STAT`
+> reported 42 records and 8 KiB allocated. The peak ESP32 CPU-task
+> stack consumption during import was **4352 bytes**, explaining the
+> prior 4096-byte stack failure. Do not repeat this diagnostic test
+> unnecessarily. For next work see
+> `NEXT_CHAT_B2C_HANDOFF.md` (current summary) and
+> `B2C_DIAGNOSTIC_CLEANUP_LEDGER.md` (required trace cleanup).
+
 # Stage B2c — read an SD transfer into a new native CP/M file
 
 **Status 2026-10-26: B2b hardware and regression checks ACCEPTED by the user;
