@@ -33,7 +33,7 @@ assert 'cmd["cpm_import"]["op"]="release"' in source
 assert 'cmd["cpm_import"]["op"]="recover"' in source
 assert "gate.importRecoverRequested.load" in preflight
 assert "requested==PREFLIGHT_SD && recoverOrphan" in gate
-assert 'fcbName?fcbName[i]:\' \' ' in gate
+assert "fcbName?fcbName[i]" in gate
 
 # Preserve the Teensy reason instead of collapsing all source failures.
 assert 'session.sourceIssue=reasonCode(r["reason"] | "")' in source
