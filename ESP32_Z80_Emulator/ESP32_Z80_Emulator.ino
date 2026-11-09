@@ -34,6 +34,7 @@
 // after the existing Wi-Fi stack is up and from the existing CPU worker.
 // No new permanent DRAM/BSS is consumed on the constrained ST7796 build.
 #include "cpm_safe_point.h"
+#include "cpm_import_diag.h"
 #include "cpm_file_read_service.h" // read-only B2a name parser/record schema for web
 CpmSafePoint::Gate *cpmSafeGatePtr();
 #include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
@@ -58,6 +59,7 @@ inline CpmSafePoint::Gate *cpmSafeGatePtr() {
 #include "serial.h"
 
 void setup() {
+  CpmImportDiag::onBoot();
   // Before EBTKS Wi-Fi/services; Arduino framework already initialized.
   EbtksMemory::capture(EbtksMemory::ARDUINO_SETUP_ENTRY);
   // Do not initialise or write a diagnostic hardware UART.  GPIO3/1 are used
