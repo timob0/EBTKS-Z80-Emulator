@@ -95,7 +95,14 @@ void setup() {
   EbtksMemory::capture(EbtksMemory::STORAGE_READY);
 
   RUN=false;
-  xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
+  // B2c panic A/B diagnostic: the real BDOS MAKE path performs nested
+  // virtual-disk UART/Base64 work on this task. Temporarily allocate 6 KiB
+  // rather than 4 KiB. Override with -DEBTKS_Z80_CPU_TASK_STACK_BYTES=4096
+  // to reproduce the original baseline without changing any other path.
+#ifndef EBTKS_Z80_CPU_TASK_STACK_BYTES
+#define EBTKS_Z80_CPU_TASK_STACK_BYTES 6144
+#endif
+  xTaskCreatePinnedToCore(CPUTask,"CPUTask",EBTKS_Z80_CPU_TASK_STACK_BYTES,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
 
 #if EBTKS_TELNET_ENABLE && !EBTKS_TELNET_SHARED_WORKER
