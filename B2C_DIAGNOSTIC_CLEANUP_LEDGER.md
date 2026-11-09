@@ -1,3 +1,47 @@
+## 2026-11-10: 8 KiB build physically accepted — B2c import PASSED
+
+User flashed ESP32 commit `5cc28cca44adb9e5a4305799e603eccfb4fd6e2b`
+(8 KiB Z80 CPU-task stack) with unchanged B2c Teensy firmware.
+Hardware report:
+- `POST /api/cpm/service/import?source=A:STAT.COM&name=A:IMPTST.COM&confirm=CREATE_NEW` accepted.
+- `GET /api/cpm/service/import`: `state=passed`,
+  `records=42`, `bytes=5376`, `crc16_ccitt_false=54346`,
+  `expected_records=42`, `expected_crc16_ccitt_false=54346`,
+  `partial_cpm_file_possible=false`, `file_error=none`,
+  `source_error=none`, `last_file_forced_z80_reset=false`.
+- `GET /api/cpm/service/diag`: `stage=import_complete`,
+  `status=passed`, `stack_unused_bytes=3840`.
+- Measured peak Z80 FreeRTOS task stack use **8192-3840=4352 bytes**;
+  **256 bytes greater than the original entire 4096-byte task stack**.
+  This is strong causal evidence for host task stack exhaustion in the
+  earlier MAKE panic, although there is no original panic backtrace.
+- `GET /api/system/health`: `reset_reason=1`,
+  `reset_panic=false`, `reset_watchdog=false`,
+  `reset_brownout=false`, `spi_read_failures=0`.
+- `GET /api/system/memory`: `min_free_8bit=25612`,
+  `largest_8bit=28660`, `z80_cpu` high-watermark=3840.
+
+**The 8 KiB allocation is the hardware-validated candidate.**
+Do NOT revert to 4 KiB or substitute the untested 6 KiB version.
+Do NOT modify/flash the currently working firmware solely to gather
+more diagnostics.
+
+Remaining acceptance and cleanup:
+1. Independently confirm the created `A:IMPTST.COM` is visible to
+   native CP/M (`DIR IMPTST.COM`, optionally `STAT IMPTST.COM`).
+2. Run regression checks as appropriate, preserving A.dsk backup.
+3. Decide and implement the explicit instrumentation cleanup from
+   this ledger, preserving the accepted 8192-byte CPU task size,
+   preflight/source error handling where useful, and permanent tests.
+4. Build both ESP32 targets and Teensy native tests as appropriate,
+   verify static and runtime memory budgets. Only then consider
+   **one** cleanup-release flash and main merge (with user approval).
+
+The Tang Nano 9K RGB terminal is a separate upcoming hardware project
+and does not change B2c acceptance.
+
+---
+
 # B2c diagnostic ledger and cleanup contract (2026-11-09)
 
 ## Policy
