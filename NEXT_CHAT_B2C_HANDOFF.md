@@ -1,3 +1,27 @@
+## 2026-11-09: ELF full-frame analysis -> conservative 8 KiB stack candidate
+
+User supplied complete `--all-matches` disassembly report from the unchanged
+existing 4 KiB B2c ELF. `CpmSdImport::execute` = 144 bytes;
+identified simultaneous MAKE -> virtual disk JSON serialization frame
+sum **3216 bytes** (78.5% of 4096). This deliberately excludes the
+1008-byte directory-listing execution frame and sequential alternatives.
+Only 880 bytes remained for deeper library/indirect calls and interrupt
+margin. `ESP_RST_PANIC` and the RTC `bdos_make` trace strongly support,
+but do not mathematically prove, ESP32 CPU stack exhaustion.
+
+The ESP32 B2c feature branch was updated from the untested 6144-byte
+trial to a **8192-byte** CPU task allocation by default
+(`EBTKS_Z80_CPU_TASK_STACK_BYTES`, compile-time override retained).
+This costs ~4096 additional bytes of runtime heap versus the original
+4 KiB task; verify runtime 8-bit heap, Wi-Fi and TFT DRAM when flashed.
+No build/flash/hardware validation has been performed for this candidate.
+Keep diagnostic hooks for one controlled validation, then remove/review
+every listed hook in `B2C_DIAGNOSTIC_CLEANUP_LEDGER.md` **before merge**.
+The user's OTA path is unreliable; avoid unnecessary serial
+Teensy->ESP programming cycles.
+
+---
+
 ## 2026-11-09: Stop flashing; source/ELF stack analysis before more experiments
 
 User reports normal CP/M PIP A: file copy succeeded; earlier Multiplan installer
