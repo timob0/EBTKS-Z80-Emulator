@@ -461,7 +461,7 @@ public:
     if(requested==READ_RECORD || requested==EXPORT_SD ||
        requested==IMPORT_SD || requested==PREFLIGHT_SD) {
       for(unsigned i=0;i<11;++i)
-        requestedFile[i].store(fcbName[i],std::memory_order_relaxed);
+        requestedFile[i].store(fcbName?fcbName[i]:' ',std::memory_order_relaxed);
       requestedRecord.store(record,std::memory_order_relaxed);
       if(requested==IMPORT_SD || requested==PREFLIGHT_SD) {
         requestedSourceDrive.store(sourceDrive,std::memory_order_relaxed);
