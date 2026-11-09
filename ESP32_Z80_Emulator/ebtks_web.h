@@ -542,6 +542,82 @@ inline bool ebtksWebBegin()
       r->send(200,"application/json",body);
     });
 
+  // Stage B2c diagnostic: read-only Teensy source preflight.
+  // Uses the pinned CPU task's verified CCP checkpoint, but calls NO BDOS
+  // functions and never modifies a CP/M disk image.
+  ebtksServer.on("/api/cpm/service/source",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("name")) {
+        r->send(400,"application/json","{\"error\":\"name_required\"}");
+        return;
+      }
+      const String spec=r->getParam("name")->value();
+      uint8_t drive=0,fcb[11]{};
+      if(!CpmFileReadService::parseName(spec.c_str(),drive,fcb)) {
+        r->send(400,"application/json","{\"error\":\"invalid_source_name\"}");
+        return;
+      }
+      bool recover=false;
+      if(r->hasParam("recover")) {
+        if(r->getParam("recover")->value()!="READ_ONLY_SESSION") {
+          r->send(400,"application/json","{\"error\":\"recover_requires_READ_ONLY_SESSION\"}");
+          return;
+        }
+        recover=true;
+      }
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool accepted=(bool)RUN && gate &&
+        gate->request(CpmSafePoint::PREFLIGHT_SD,0,nullptr,0,fcb,drive,recover);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["operation"]="sd_source_preflight";
+      v["source"]=spec;
+      v["recover_requested"]=recover;
+      v["state"]=CpmSafePoint::resultText(gate?
+        gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+        "Automatic blank CCP Return; Teensy SD read only; no CP/M BDOS":
+        "Native CCP not idle, another service running, or unsupported CP/M";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/source",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+        gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD;
+      JsonDocument v;
+      v["operation"]=correct?"sd_source_preflight":"not_requested";
+      v["state"]=correct?CpmSafePoint::resultText(
+        gate->result.load(std::memory_order_acquire)):"not_requested";
+      v["source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->importSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      v["file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["expected_records"]=correct?
+        gate->importTotalRecords.load(std::memory_order_acquire):0;
+      v["expected_crc16_ccitt_false"]=correct?
+        gate->importExpectedCrc.load(std::memory_order_acquire):0xFFFF;
+      v["last_source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->lastImportSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+  // The RTC trace is useful only if the reset preserved RTC memory.
+  // It makes no assertion about EN or power-loss retention.
+  ebtksServer.on("/api/cpm/service/diag",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      JsonDocument v;
+      v["uptime_ms"]=(uint32_t)millis();
+      v["esp_reset_reason"]=(int)esp_reset_reason();
+      v["rtc_retention_not_guaranteed"]=true;
+      CpmImportDiag::append(v["current"].to<JsonObject>(),CpmImportDiag::active);
+      CpmImportDiag::append(v["before_last_esp_boot"].to<JsonObject>(),
+                            CpmImportDiag::previous);
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
   // B2c - write to a NEW native CP/M name, from a published Teensy
   // /cpm/transfers file only. An explicit confirmation string is mandatory.
   // This HTTP callback only arms the native CCP safe point; never calls BDOS.
@@ -608,6 +684,10 @@ inline bool ebtksWebBegin()
         gate->importPartialPossible.load(std::memory_order_acquire);
       v["last_import_partial_possible"]=gate &&
         gate->lastImportPartialPossible.load(std::memory_order_acquire);
+      v["source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->importSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      v["last_source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->lastImportSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
       v["last_file_state"]=CpmSafePoint::resultText(gate?
         gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
       v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
