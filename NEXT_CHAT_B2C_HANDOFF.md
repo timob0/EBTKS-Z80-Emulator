@@ -1,3 +1,32 @@
+## 2026-11-09: RTC proves native BDOS MAKE ESP32 panic
+
+Read-only SD preflight passed: 42 records, CRC16 54346; source session
+cleanly released. The first real import generated ESP32 panic
+`reset_reason=4`, `reset_panic=true`. RTC
+`before_last_esp_boot.stage=bdos_make` (`status=running`,
+`record=0`, CPU task stack watermark 1,472 bytes).
+Therefore first native MAKE(22) had been entered but not returned;
+this is NOT merely a Z80-only reboot, nor evidence of an SD source error.
+The exact cause and whether MAKE modified A.dsk remain unproven.
+
+Follow-up committed to ESP32 `feature/cpm-file-transfer-b2c`
+only: instrument virtual disk read/write entry/return in RTC diagnostic
+and use a reversible 6 KiB Z80 CPU task stack (baseline 4 KiB via
+`-DEBTKS_Z80_CPU_TASK_STACK_BYTES=4096` for later A/B).
+No CP/M BDOS algorithm or Teensy code changes in this follow-up.
+Extended static test and `B2C_DIAGNOSTIC_TEST.md` instructions.
+
+**Immediate next step:** inspect/backup physical A.dsk; don't execute
+IMPTST.COM or retry import using potentially modified disk. Pull the
+updated ESP32 branch and compile native checks, both PlatformIO targets
+and TFT DRAM budget; DO NOT flash until build success. Teensy B2c remains
+at `5d94a0af752ef4be208939b22d2467576bbf71ee`.
+Once code/build and backup are verified, single controlled import on a
+disposable mounted image, capture /api/cpm/service/diag right after any
+reset, and inspect the deeper virtual disk/stack checkpoint. No main merge.
+
+---
+
 # B2c diagnostic implementation checkpoint — 2026-11-09
 
 This checkpoint supersedes the older OTA-era notes below for the immediate
