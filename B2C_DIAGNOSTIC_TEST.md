@@ -1,3 +1,18 @@
+> **HISTORICAL DIAGNOSTIC TEST PLAN — NOT THE CURRENT NEXT ACTION**
+> As of 2026-11-10, the B2c import passed on real hardware
+> using the ESP32 8 KiB Z80 CPU task. The last RTC checkpoint was
+> `import_complete/passed`; the CPU-task stack watermark was
+> 3840 bytes unused of 8192, implying 4352 bytes peak usage.
+> Imported `A:IMPTST.COM` exists in CP/M and `STAT` reports
+> 42 records and 8 KiB allocated; 5376 logical bytes and CRC16
+> 54346 matched. The source preflight and native BDOS readback passed.
+> **Do not restart the old diagnostic sequence or reflash just to
+> repeat it.** The next job is to remove/review diagnostic
+> instrumentation on the B2c feature branch, then implement the
+> blocking HP-85 BASIC B2d commands. Use
+> `NEXT_CHAT_B2C_HANDOFF.md` and
+> `B2C_DIAGNOSTIC_CLEANUP_LEDGER.md`.
+
 # B2c diagnostics — hardware validation (2026-11-09)
 
 ## Confirmed first write-path panic (2026-11-09)
