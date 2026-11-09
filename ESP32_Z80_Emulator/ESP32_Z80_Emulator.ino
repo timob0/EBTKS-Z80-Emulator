@@ -95,12 +95,14 @@ void setup() {
   EbtksMemory::capture(EbtksMemory::STORAGE_READY);
 
   RUN=false;
-  // B2c panic A/B diagnostic: the real BDOS MAKE path performs nested
-  // virtual-disk UART/Base64 work on this task. Temporarily allocate 6 KiB
-  // rather than 4 KiB. Override with -DEBTKS_Z80_CPU_TASK_STACK_BYTES=4096
-  // to reproduce the original baseline without changing any other path.
+  // B2c stack budget: the compiled MAKE -> disk-write serialization path
+  // has >=3216 bytes of simultaneously active function frames, excluding
+  // deeper library and Z80 instruction-handler calls. The previous 4096-byte
+  // task suffered ESP_RST_PANIC inside MAKE. Reserve 8192 bytes for the
+  // B2c validation; this uses runtime heap, not static TFT DRAM.
+  // Compile-time override permits controlled A/B testing without code edits.
 #ifndef EBTKS_Z80_CPU_TASK_STACK_BYTES
-#define EBTKS_Z80_CPU_TASK_STACK_BYTES 6144
+#define EBTKS_Z80_CPU_TASK_STACK_BYTES 8192
 #endif
   xTaskCreatePinnedToCore(CPUTask,"CPUTask",EBTKS_Z80_CPU_TASK_STACK_BYTES,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
