@@ -68,6 +68,50 @@ tracing; protocol/recovery improvements may prove worth retaining.
 - The installed 4 KiB diagnostic ESP32 image reported commit
   `902b22a92206b8a5a064cff86c46afb334ef90b0`.
 
+## Measured 4 KiB crashed-build ELF frame inventory (2026-11-09)
+
+The user pulled GitHub source **without rebuilding**, then ran the
+existing `.pio/build/esp32dev-tft/firmware.elf` through the offline
+Xtensa objdump analyzer. Its parser selftest passed and 6239 functions
+were disassembled. The ELF is understood to be the pre-6KiB diagnostic
+build; verify build revision independently before relying on addresses.
+
+Important emitted frames on a *potentially simultaneous* MAKE/write path:
+
+| Function | Xtensa frame bytes |
+|---|---:|
+| CPUTask | 752 |
+| CpmFileWriteService::execute | 768 |
+| CpmDirectoryService::invoke | 48 |
+| z80BridgeRun | 32 |
+| z80_run | 32 |
+| z80BridgeOut | 32 |
+| ebtksBridgePortOut | 32 |
+| portOut | 32 |
+| diskWrite | 64 |
+| cpmMountedDiskWrite | 928 |
+| ebtksStorageExchange | 80 |
+| serializeJson | 272 |
+
+**Subtotal = 3072 bytes.** This subtotal is NOT the actual maximum:
+the unreported `CpmSdImport::execute` frame, additional indirect or
+inlined/library calls, runtime/ABI stack, and mutually exclusive
+branches must be analyzed. `CpmDirectoryService::execute` with a
+1008-byte frame is **NOT on the B2c import path**; do not count it.
+The 928-byte disk-write frame already contains the 685-byte Base64
+array; never add that buffer again.
+
+The live RTC high-water value was 1472 bytes unused before MAKE on a
+4096-byte task. Therefore 2624 bytes had been used at some prior point,
+but that watermark is historical and cannot be algebraically added
+to the disassembly subtotal. The full MAKE serial-write path is
+credible for stack exhaustion; still **not proven** without exact
+exception type or complete compiled call graph.
+
+The offline script now supports `--all-matches`, which lists
+`CpmSdImport::execute` and any additional matching functions without
+altering the ELF or requiring an upload.
+
 ## Next steps requiring NO firmware flash
 
 1. Inspect an **existing** `.pio/build/esp32dev-tft/firmware.elf`:
