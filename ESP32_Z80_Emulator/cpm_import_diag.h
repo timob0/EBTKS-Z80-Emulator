@@ -14,7 +14,9 @@ enum Stage : uint8_t {
   BOOT=0, SOURCE_RECOVER=1, SOURCE_BEGIN=2, SOURCE_READY=3,
   BDOS_SEARCH=4, BDOS_MAKE=5, SOURCE_READ=6, BDOS_WRITE=7,
   BDOS_CLOSE=8, VERIFY_OPEN=9, VERIFY_READ=10, VERIFY_CLOSE=11,
-  SOURCE_RELEASE=12, IMPORT_COMPLETE=13
+  SOURCE_RELEASE=12, IMPORT_COMPLETE=13,
+  DISK_READ_ENTER=14, DISK_READ_RETURN=15,
+  DISK_WRITE_ENTER=16, DISK_WRITE_RETURN=17
 };
 enum Status : uint8_t { IDLE=0, RUNNING=1, PASSED=2, FAILED=3,
                         Z80_RESET_REQUESTED=4 };
@@ -34,7 +36,7 @@ RTC_NOINIT_ATTR static volatile Trace previous;
 
 inline bool valid(const volatile Trace &t) {
   return t.magic==kMagic && t.inverse==~kMagic &&
-         t.stage<=IMPORT_COMPLETE && t.status<=Z80_RESET_REQUESTED;
+         t.stage<=DISK_WRITE_RETURN && t.status<=Z80_RESET_REQUESTED;
 }
 inline void onBoot() {
   if(valid(active)) {
@@ -49,6 +51,14 @@ inline void onBoot() {
   active.magic=kMagic;active.inverse=~kMagic;
   active.stage=BOOT;active.status=IDLE;active.record=0;
   active.stack_unused_bytes=0;active.uptime_ms=millis();
+}
+// Only trace disk I/O while a native B2c import is executing. Keep
+// normal Z80 activity and boot-time disk I/O from overwriting its snapshot.
+inline bool tracingNativeImport() {
+  if(!valid(active) || active.status!=RUNNING)return false;
+  const uint32_t s=active.stage;
+  return (s>=BDOS_SEARCH && s<=VERIFY_CLOSE) ||
+         (s>=DISK_READ_ENTER && s<=DISK_WRITE_RETURN);
 }
 inline void mark(Stage s,uint32_t record=0) {
   active.stage=(uint32_t)s;active.status=RUNNING;
@@ -77,6 +87,10 @@ inline const char *stageText(uint32_t s) {
     case VERIFY_CLOSE:return "bdos_verify_close";
     case SOURCE_RELEASE:return "sd_source_release";
     case IMPORT_COMPLETE:return "import_complete";
+    case DISK_READ_ENTER:return "virtual_disk_read_enter";
+    case DISK_READ_RETURN:return "virtual_disk_read_return";
+    case DISK_WRITE_ENTER:return "virtual_disk_write_enter";
+    case DISK_WRITE_RETURN:return "virtual_disk_write_return";
     default:return "unknown";
   }
 }
