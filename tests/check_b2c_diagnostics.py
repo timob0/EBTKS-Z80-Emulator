@@ -60,7 +60,7 @@ assert "CpmImportDiag::DISK_WRITE_RETURN" in cpu
 assert "CpmImportDiag::DISK_READ_ENTER" in cpu
 assert "CpmImportDiag::DISK_READ_RETURN" in cpu
 assert "RTC_NOINIT_ATTR static volatile Trace previous" in rtc
-assert "EBTKS_Z80_CPU_TASK_STACK_BYTES 6144" in ino
+assert "EBTKS_Z80_CPU_TASK_STACK_BYTES 8192" in ino
 assert "xTaskCreatePinnedToCore(CPUTask,\"CPUTask\",EBTKS_Z80_CPU_TASK_STACK_BYTES" in ino
 assert "xTaskCreate" not in rtc and "malloc(" not in rtc
 print("PASS: B2c preflight/recovery/RTC/BDOS diagnostic wiring")
