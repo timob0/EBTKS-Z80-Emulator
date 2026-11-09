@@ -163,7 +163,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
           uint16_t readbackCrc=0xFFFF;
           for(uint16_t index=0;index<totalRecords;++index) {
             if(trace)trace(TRACE_VERIFY_READ,index);
-            if(trace)trace(TRACE_VERIFY_READ,totalRecords);
             if(!CpmDirectoryService::invoke(bridge,20,yieldCpu)) {
               out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
               unsafe=true;break;
@@ -175,6 +174,7 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
             readbackCrc=extendCrc(readbackCrc,ram+kDma,128);
           }
           if(!unsafe && out.error==CpmSafePoint::FILE_OK) {
+            if(trace)trace(TRACE_VERIFY_READ,totalRecords);
             if(!CpmDirectoryService::invoke(bridge,20,yieldCpu)) {
               out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
               unsafe=true;
