@@ -232,10 +232,19 @@ void CPUTask(void *) {
                 gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD) {
         ok=CpmSdImport::execute(&ebtksCpuBridge,*gate,resetNeeded,
                                 [](){taskYIELD();});
+      } else if(gate &&
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD) {
+        // Only Teensy UART/SD read and a clean read-only session release.
+        // No guest BDOS operations or mounted CP/M disk changes.
+        ok=CpmSdImport::preflight(*gate);
       } else {
         ok=CpmServiceProbe::execute(&ebtksCpuBridge);
       }
       if(gate)gate->complete(ok);
+      if(gate && (gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD ||
+                  gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD))
+        CpmImportDiag::finish(resetNeeded?CpmImportDiag::Z80_RESET_REQUESTED:
+                              ok?CpmImportDiag::PASSED:CpmImportDiag::FAILED);
       PC=Z80_PC(ebtksCpuBridge.cpu);
       if(resetNeeded) {
         // The outer loop will rebootstrap the Z80 and Gate::reset() will
@@ -245,7 +254,8 @@ void CPUTask(void *) {
             gate->lastDirectoryReset.store(true,std::memory_order_release);
           if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD ||
              (gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD ||
-              gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD))
+              (gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD ||
+               gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD)))
             gate->lastFileReset.store(true,std::memory_order_release);
         }
         // Never resume the CCP after an interrupted BDOS call.
