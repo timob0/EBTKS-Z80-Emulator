@@ -20,7 +20,7 @@ not findings.
 - Diagnostic `POST /api/cpm/service/source?name=A%3ASTAT.COM` requests a
   verified native CCP blank-line safe point. The pinned CPU task then asks
   Teensy to open, scan, CRC and **release** the published read-only SD source.
-  There are **no CP/M BDOS MAKE/WRITE/READ calls** in this preflight.
+  There are **no additional CP/M filesystem BDOS calls** in this preflight (ordinary CCP console input still runs).
   The source is not modified.
 - The HTTP handler never blocks on Teensy UART, calls BDOS or touches disk.
 - A source session abandoned by an ESP32-only reset may be explicitly
