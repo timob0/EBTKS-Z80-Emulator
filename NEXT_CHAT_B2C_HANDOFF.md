@@ -1,3 +1,232 @@
+# SIMON85 / CP/M integration — START HERE for next chat (2026-11-10)
+
+> **Status: B2b EXPORT and B2c IMPORT passed on real HP-85 hardware.
+> Next immediate task: B2c cleanup, then B2d HP-85 BASIC transfer commands.**
+> This section supersedes historical "B2c not yet tested", "do not flash
+> until diagnostics complete", and other earlier-in-time instructions
+> further down this chronological handoff. Keep that history for diagnosis.
+
+## Exact working baseline and branch policy
+
+- **ESP32** repository `timob0/EBTKS-Z80-Emulator`, branch
+  `feature/cpm-file-transfer-b2c`. Physically flashed and tested image:
+  **`5cc28cca44adb9e5a4305799e603eccfb4fd6e2b`**, TFT target
+  `esp32dev-tft`, Z80 CPU task stack **8192 bytes**. The branch HEAD
+  may be newer because documentation was committed after hardware validation;
+  do not mistake documentation-only HEAD for the tested firmware binary.
+- **Teensy 4.1** repository `timob0/ebtks-alt-firmware`, branch
+  `feature/cpm-file-transfer-b2c`, last recorded firmware commit
+  **`5d94a0af752ef4be208939b22d2467576bbf71ee`**. No Teensy
+  change was needed for the final B2c 8 KiB ESP32 fix.
+- **HP Option ROM** `CPM85 v0.04d`: previously accepted,
+  `CPREBOOT`/`CPRESET` implemented. No B2c-specific ROM change;
+  B2d is the planned next ROM update. Do not modify SIMON85/PRINTER85
+  or merge unrelated ROM branches as part of B2c cleanup.
+- **`main` untouched** for the active B2c implementation. Do not merge
+  until user agrees and full native/PlatformIO/hardware regressions pass.
+- **Flashing constraint:** ESP32 OTA firmware update is unreliable for
+  unresolved reasons. User has to flash via serial -> Teensy -> ESP Prog;
+  this is slow. Minimize flashing cycles: do source/ELF analysis and
+  native builds first; consolidate changes into one deliberate final
+  cleaned build. Preserve current good firmware and backed-up SD images.
+- Do not claim CI runs or local compilation/tests have passed unless
+  actually observed in their respective outputs. The user did report
+  successful TFT firmware build and static DRAM check.
+
+## B2b/B2c physical acceptance (DO NOT re-test needlessly)
+
+- B2b exports from **native CP/M BDOS** to Teensy SD
+  `/cpm/transfers/`, with safe-point/CCP coordination, 128-byte
+  records and CRC16-CCITT-FALSE verification. Export
+  `A:STAT.COM` produced `/cpm/transfers/A_STAT.COM`,
+  **42 records x 128 = 5376 bytes, CRC 54346**.
+- B2c read-only source preflight passed with 42 records / CRC 54346
+  and clean Teensy source-session release. B2c import from Teensy SD
+  `A:STAT.COM` to *new* CP/M `A:IMPTST.COM` initially triggered
+  `ESP_RST_PANIC` (`reset_reason=4`). The RTC trace survived
+  and located the pre-panic stage at BDOS `MAKE` (function 22),
+  record 0, historical stack watermark 1472 bytes free on a
+  **4096-byte CPU-task stack**.
+- Source/ELF analysis on the original compiled 4 KiB firmware identified
+  at least **3216 bytes of simultaneously active function frames**
+  on the MAKE -> Z80 -> virtual disk write/JSON path, excluding deeper
+  library/handler calls. `CpmSdImport::execute` = 144 B,
+  `CPUTask` = 752 B, `CpmFileWriteService::execute` = 768 B,
+  `cpmMountedDiskWrite` = 928 B (includes its **685-byte**
+  Base64 buffer); the 1008-byte directory-listing execute frame is
+  **not** on the B2c MAKE path.
+  The issue is deep **ESP32 host C++ call-stack usage**, not an
+  accumulating recursive `z80BridgeRun()`: the normal emulator run
+  returned to CPUTask at the safe point before the B2c BDOS trampoline
+  started. PIP file copy within A: and earlier Multiplan installer worked
+  under ordinary CP/M, so ordinary virtual-disk writes are proven.
+- Increasing Z80 CPU-task allocation to **8192 bytes** made the native
+  B2c import pass with **`state=passed`, 42 records,
+  5376 bytes, CRC16=54346, no errors, no partial-warning,
+  no forced Z80 reset and no ESP32 panic**. BDOS independent readback
+  passed. RTC watermark after import: **3840 bytes unused**, meaning
+  **4352 bytes peak used** (256 bytes more than entire original 4 KiB
+  allocation). This strongly supports stack exhaustion as the root
+  cause, although no original panic backtrace was recovered.
+- User independently verified on physical CP/M A: drive:
+  `IMPTST.COM` visible and `STAT` says **42 records, 8 KiB
+  allocated** (normal CP/M allocation rounding; content is 5376 B).
+  **B2c FUNCTIONALLY ACCEPTED.** Do not request another import merely
+  to confirm this result.
+- Hardware health with accepted build: no watchdog/panic/brownout,
+  no SPI disk read failures; free heap about 70 KiB, min free 8-bit
+  heap **25612 B**, largest current 8-bit block **28660 B**,
+  TFT/Web terminal running. TFT static DRAM `124512` bytes
+  (`.data=28440`, `.bss=96072`), passed local guard
+  `124544` with 32-byte margin. Runtime 8 KiB task allocation
+  costs about 4096 B extra internal heap compared with former 4 KiB.
+- All current source/export/import functions retain intentionally
+  **bounded single-file size**: B2a highest record index 63, B2b 64
+  records, B2c 63 records. This is NOT yet arbitrary-length
+  CP/M file transfer. ZIP/batch must not assume these limits removed.
+
+## NEXT: B2c cleanup (first job in next chat)
+
+1. Read `B2C_DIAGNOSTIC_CLEANUP_LEDGER.md` and review every entry.
+   **Keep the tested 8192-byte CPU task allocation** and useful
+   source-error/session reporting. Do not accidentally revert it to
+   4096 or untested 6144 bytes.
+2. Remove temporary RTC trace/`CpmImportDiag`, per-stage BDOS/disk
+   instrumentation, diagnostic-only endpoint `/api/cpm/service/diag`,
+   and associated static assertions/tests **only after identifying the
+   correct final design**. Review read-only source preflight,
+   source-session release/recover and source-error codes individually
+   for retention; do not remove useful production safeguards merely
+   because they were developed during debugging.
+3. Check related files: `cpm_import_diag.h`,
+   `ESP32_Z80_Emulator.ino`, `cpu_redcode.h`,
+   `cpm_file_write_service.h`, `cpm_safe_point.h`,
+   `ebtks_cpm_sd_import.h`, `ebtks_web.h`,
+   `tests/check_b2c_diagnostics.py`, CI and docs. Teensy recovery/
+   release code and tests must be retained or purposefully adjusted.
+4. Run native Z80 regression suite, Teensy native tests, ESP32
+   `esp32dev` and `esp32dev-tft` PlatformIO builds, plus TFT static
+   DRAM and runtime memory considerations. Plan **one** controlled
+   regression flash of the cleaned firmware rather than many diagnostic
+   flashes. User must approve any merge to `main`.
+5. The historical notes below document previous investigations. Do
+   not follow their old instructions to repeat the successful import,
+   use the 6 KiB trial, or request a diagnostic flash.
+
+## NEXT AFTER CLEANUP: B2d — HP-85 BASIC single-file commands
+
+- Implement CPM85 Option ROM BASIC keywords
+  `CPEXPORT "A:STAT.COM"` and
+  `CPIMPORT "A:STAT.COM","A:COPY.COM"`
+  (provisional exact spelling; check HP BASIC shortest-unique-keyword
+  collisions like earlier `PLOT`/`PLOTTER` incident).
+- HP-85 ROM -> EBTKS Teensy -> ESP32 **control/status mailbox**;
+  reuse tested Teensy SD and ESP32 native-BDOS data path. HP-85 does
+  not shuttle record payloads or reimplement CP/M filesystem operations.
+- **Blocking** by user preference. Tell operator to leave CP/M idle at
+  native CCP `A>` prompt before starting. Proposed start wait ~10 s,
+  then on HP native CRT prompt:
+  `CP/M NOT IDLE - RETURN TO A> PROMPT; C=CONTINUE A=ABORT`.
+  Continue retries another bounded window; Abort cancels only a
+  **not-yet-started** transfer and returns to HP BASIC with no
+  unexpectedly queued operation. If active BDOS has begun, **never
+  abort mid-write**; continue waiting and report result/partial warning.
+- ESP32 `Gate::request()` **currently refuses immediately if
+  mode != CCP_INPUT** (application busy); accepted
+  `WAIT_EMPTY_LINE` means a verified safe point has not yet occurred.
+  `Gate::cancelPending()` atomically cancels only WAIT_EMPTY_LINE,
+  but is not yet exposed through B2d mailbox. Avoid duplicate requests
+  on Continue or races with RUNNING. Handle start timeout differently
+  from an operation stalled after start; define a safe bounded
+  watchdog/status reporting strategy.
+- Report success/failure, records, bytes, CRC and actionable errors;
+  import still means CREATE-NEW, no overwrite and no silent cleanup
+  of potentially partial CP/M files.
+- Test native HP CRT/keyboard interaction without compromising existing
+  `CPM` session, K8 exit, `CPREBOOT`, or independent Z80 operation.
+- Do B2d on a new feature branch after B2c is regression-accepted;
+  merge only with explicit approval.
+
+## FOLLOW-ON ROADMAP: bulk files / ZIP
+
+- **B2e**: remove 63/64-record ceiling (multi-extent CP/M 2.2 files,
+  EOF, 128-byte record semantics, extended counters/CRC, progress and
+  memory-bounded transfers); then wildcard/batch copy. This is a
+  prerequisite, not a minor afterthought: many CP/M applications are
+  bigger than 8 KiB.
+- **B2f**: `CPUNZIP "GAMES.ZIP","B:"` (provisional) —
+  Teensy streams ZIP entries from SD; ESP32 repeats native BDOS
+  create-new/write/close/readback for each file. ZIPs typically contain
+  individual 8.3 CP/M files, **not uniform original disk images**.
+  No raw `.DSK` surgery. Standard stored/DEFLATE entries if
+  streaming library and resources permit; validate CRC32, size,
+  FAT files and mapping rules.
+- **B2g**: `CPZIP "A:*.COM","UTILS.ZIP"` (provisional) —
+  native CP/M wildcard enumeration/export, Teensy builds new archive
+  transactionally via temp file then publishes complete ZIP.
+- Protect CP/M flat 8.3 naming, no silent overwrites, no `../`
+  paths, reject ambiguous long names/duplicates/unsafe archives,
+  encryption, ZIP64/multivolume and zip bombs unless explicitly
+  supported. Plan preflight and capacity check before writes;
+  abort only before active BDOS; on failure disclose completed files
+  and possible partial current file. Archive-level atomicity on CP/M
+  is not guaranteed. Non-128-aligned ZIP payloads need explicit
+  CP/M EOF/padding policy; native CP/M cannot preserve exact trailing
+  byte count without metadata. Consider using a RAM-bounded
+  decompressor on Teensy rather than buffering the ZIP.
+
+## SEPARATE FUTURE HARDWARE: Tang Nano 9K
+
+- User ordered a **Sipeed Tang Nano 9K plus matched 5-inch 40-pin
+  parallel RGB LCD** as a bundle. The target is eventually installing
+  the display in the HP-85 printer hatch; a 7-inch panel is too large.
+  Check actual module dimensions, backlight, viewing angle and
+  power/pinout when received.
+- **First FPGA milestone:** replace sluggish SPI ST7796 TFT terminal
+  with hardware-refresh 80-column RGB text display, CP437,
+  ANSI/VT100 color, efficient hardware scrolling; keep existing
+  Teensy storage and optional ESP32 TFT builds for compatibility.
+  ESP32 sends chars/attributes via a designed interface (e.g. SPI),
+  not full pixel redraws; FPGA handles scanout. Board/display timing
+  must be established with Sipeed example on bench first.
+- **Architectural preference:** add a small software-programmable
+  RISC-V or comparable softcore to handle terminal control, future
+  FAT32 file service and graphics commands; keep time-critical RGB
+  timing/video refresh in HDL. Availability of logic/BRAM/PSRAM,
+  framebuffers and simultaneous softcore/peripheral fit must be
+  demonstrated by synthesis; no assumption that all features will
+  fit at once. Starting with CPU core does **not** commit us to
+  building a third Unix-like computer.
+- **Optional Tang TF storage**: user prefers **FAT32 files** over raw
+  disk slots to copy `.dsk` images with a card reader and support
+  later applications. Potentially mount 8 MiB CP/M drives from
+  Tang TF while retaining Teensy SD service for LIF disks,
+  traditional EBTKS filesystem and full backwards compatibility.
+  Extend mount routing by **backend** (Teensy vs Tang) independently
+  of **media format** (`ebtks8m` vs `hp82900_lif`).
+  One filesystem owner should coordinate FAT32 access to prevent
+  concurrent corruption; prefer streaming/binary sector commands,
+  no duplicate CP/M directory/allocation implementation.
+- **Potential extensions, not committed deliverables:**
+  GSX/VDI graphics coprocessor for CP/M, HP-GL interpreter/virtual
+  HP-IB plotter accessible from HP-85 `PLOTTER IS`, common drawing
+  primitives, SD file server, optional independent software
+  environment on the softcore. Share graphics raster backend between
+  GSX and HP-GL; keep video refresh responsive while softcore works.
+- Keep Tang architecture separate from immediate B2c/B2d tasks
+  until hardware arrives.
+
+## Start-of-next-chat instruction
+
+Read this **topmost current-status section** and
+`B2C_DIAGNOSTIC_CLEANUP_LEDGER.md` first. Begin with the B2c
+diagnostic cleanup review, preserving the working 8 KiB stack and
+the B2b/B2c transport behavior. Do not propose another speculative
+flash or re-ask for already confirmed hardware outputs. After cleanup
+and regression, proceed to B2d blocking HP-85 BASIC file transfers.
+
+---
+
 ## Future B2e: HP-85 bulk and ZIP CP/M transfers (2026-11-10 design discussion)
 
 After B2d HP-85 BASIC single-file `CPEXPORT`/`CPIMPORT` is
