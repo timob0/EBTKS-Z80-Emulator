@@ -18,10 +18,10 @@ Never execute a partial IMPTST.COM.
 
 Diagnostic follow-up committed on the same ESP32 B2c branch:
 - No BDOS logic or Teensy change.
-- CPU task stack increased from 4,096 to **6,144 bytes** for a controlled
+- CPU task stack increased from 4,096 to **8,192 bytes** for a controlled
   A/B experiment; reversible via
   `-DEBTKS_Z80_CPU_TASK_STACK_BYTES=4096`. This consumes approximately
-  2 KiB more internal runtime heap, so check Wi-Fi/OTA/TFT memory.
+  4 KiB more internal runtime heap, so check Wi-Fi/OTA/TFT memory.
 - Additional RTC checkpoints around virtual Z80 disk reads/writes reached
   during the import: `virtual_disk_read_enter`,
   `virtual_disk_read_return`, `virtual_disk_write_enter`,
