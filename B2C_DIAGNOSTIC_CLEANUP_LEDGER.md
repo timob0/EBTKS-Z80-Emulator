@@ -112,6 +112,43 @@ The offline script now supports `--all-matches`, which lists
 `CpmSdImport::execute` and any additional matching functions without
 altering the ELF or requiring an upload.
 
+## Complete all-matches ELF stack-frame result (2026-11-09)
+
+The second offline run used `--all-matches` with the unchanged ELF
+(6239 disassembled functions). It established
+`CpmSdImport::execute=144 B` and confirmed that the earlier report
+had only truncated the list of symbols.
+
+The statically identified simultaneous frames on the MAKE-path JSON
+**serialization** branch are:
+`CPUTask=752`, `CpmSdImport::execute=144`,
+`CpmFileWriteService::execute=768`,
+`CpmDirectoryService::invoke=48`,
+`z80BridgeRun=32`, `z80_run=32`,
+three port-output callbacks/dispatchers `32+32+32`,
+`diskWrite=64`, `cpmMountedDiskWrite=928`,
+`ebtksStorageExchange=80`, and `serializeJson=272` bytes.
+
+**Sum = 3216 bytes (78.5% of the original 4096-byte CPU-task
+allocation); only 880 bytes remain for deeper runtime, instruction
+handlers, indirect callbacks and ABI/interrupt costs on that branch.**
+
+Note that `serializeJson` and `ebtksLinkTransaction` are serial phases:
+do not count both simultaneously. The 685-byte Base64 output buffer is
+already included in `cpmMountedDiskWrite=928 B`. The 1008-byte
+`CpmDirectoryService::execute` is NOT on this path. The earlier
+1472-byte unused stack was a historical watermark at MAKE entry,
+not an instantaneous stack-pointer measurement. These figures make
+4 KiB stack inadequacy the leading cause of panic but do not yet
+establish an exact complete maximum or exception subtype.
+
+**For the next deliberate and preferably final hardware-validation
+flash:** size the CPU task conservatively (8 KiB is an attractive
+candidate, versus the currently committed untested 6 KiB trial), verify
+runtime heap/memory safeguards via build and inspection, and decide
+which temporary tracing to clean up before flashing. Don't treat the
+temporary 6 KiB setting as an accepted final fix without analysis.
+
 ## Next steps requiring NO firmware flash
 
 1. Inspect an **existing** `.pio/build/esp32dev-tft/firmware.elf`:
