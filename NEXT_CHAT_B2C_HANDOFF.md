@@ -1,3 +1,69 @@
+## Future B2e: HP-85 bulk and ZIP CP/M transfers (2026-11-10 design discussion)
+
+After B2d HP-85 BASIC single-file `CPEXPORT`/`CPIMPORT` is
+functional and the B2c diagnostics cleaned, add archive/bulk
+transfers. User often obtains historical CP/M packages in ZIP
+archives containing individual CP/M files, **not raw CP/M disk
+images**. Teensy should own ZIP archive processing; ESP32 still
+uses native CP/M BDOS for each file on mounted drives, so no
+filesystem-format-specific disk image editing.
+
+**Critical prerequisite found in current source**:
+`CpmFileWriteService::kMaxRecords=63`;
+`Cpm85SdImport::kMaxRecords=63`; B2b
+`Cpm85SdExport::kMaxRecords=64`; B2a
+`CpmFileReadService::kMaxRecord=63`. Thus B2b/B2c are limited to
+~8 KiB single files. Before ZIP/bulk, extend CP/M files across
+multiple extents, sequential record index/EOF, CRC and counted
+reads/writes (no assumption ZIP entries fit 63 records); add
+longer-transfer watchdog/progress/cancellation semantics.
+
+**Tentative BASIC syntax**, subject to ROM keyword compatibility:
+`CPUNZIP "GAMES.ZIP","B:"` and
+`CPZIP "A:*.COM","UTILS.ZIP"`. Preserve simple
+`CPEXPORT` and `CPIMPORT` syntax; avoid interpreting a
+regular .ZIP CP/M file as an archive implicitly. A useful first
+intermediate milestone is multi-file wildcard transfer without ZIP.
+
+For ZIP import: Teensy reads a FAT ZIP on SD, validates central
+directory and entry metadata, streams stored/DEFLATE contents
+into fixed small buffers; ESP32 writes a sequence of CP/M
+files with BDOS MAKE/WRITE/CLOSE and independent readback, not
+raw sector edits. For ZIP export: ESP32 iterates matching CP/M
+files (wildcards, current user area), streams 128-byte records
+to Teensy; Teensy writes a temporary ZIP with per-entry CRC32
+and atomically publishes only when complete.
+
+First-version compatibility/safety rules:
+- CP/M has flat 8.3 names; reject or explicitly map unsupported ZIP
+  paths/long names, nested directories, duplicate/colliding names,
+  unsafe `../` paths, unsupported file attributes; no silent overwrites
+  of existing CP/M files or destination ZIPs.
+- Only standard ZIP stored (method 0) and DEFLATE (method 8) initially,
+  if a RAM-bounded streaming library is available; reject encrypted,
+  ZIP64, multi-volume and oversized/zip-bomb entries with clear errors.
+- Specify conversion of arbitrary ZIP entry lengths to 128-byte
+  CP/M logical records (e.g. CP/M EOF padding), and note that ordinary
+  CP/M files cannot preserve arbitrary exact byte lengths for
+  later re-export without side metadata.
+- Perform archive preflight: filenames, counts, free CP/M allocation,
+  conflicts, maximum expanded bytes, optional dry-run list.
+- Commands can remain blocking, displaying file progress; wait for
+  CCP idle before starting, allow pre-start abort/continue,
+  **never interrupt active BDOS**. A multi-file failure may leave
+  completed files and a partial current file; report exactly which.
+  Do not promise full archive atomicity on CP/M disk.
+
+Suggested order: (1) B2c cleanup and B2d single-file ROM UI;
+(2) lift 63/64-record constraint and verify larger files;
+(3) native CP/M wildcard/batch transfer; (4) streaming CPUNZIP;
+(5) streaming CPZIP. Keep separate from optional Tang Nano 9K
+FAT32 storage and display work.
+
+No executable firmware changes from this proposal.
+
+---
+
 ## 2026-11-10: B2d HP-85 blocking BASIC commands — proposed interaction
 
 User accepted B2d Option ROM BASIC entry points `CPEXPORT` and
