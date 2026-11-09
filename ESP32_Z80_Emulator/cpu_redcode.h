@@ -78,8 +78,20 @@ void portOut(uint8_t p, uint8_t v) {
       pIn[p] = v;
       if (sdfound == true) {
         switch (v) {
-          case 1: diskRead();         pIn[DCMD] = 0; break;
-          case 2: diskWrite();        pIn[DCMD] = 0; break;
+          case 1: {
+            const bool trace=CpmImportDiag::tracingNativeImport();
+            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_READ_ENTER);
+            diskRead();
+            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_READ_RETURN);
+            pIn[DCMD]=0;break;
+          }
+          case 2: {
+            const bool trace=CpmImportDiag::tracingNativeImport();
+            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_WRITE_ENTER);
+            diskWrite();
+            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_WRITE_RETURN);
+            pIn[DCMD]=0;break;
+          }
           case 4: SDfileOpen();       pIn[DCMD] = 0; break;
           case 5: SDfileRead();       pIn[DCMD] = 0; break;
           case 6: SDprintDir();       pIn[DCMD] = 0; break;
