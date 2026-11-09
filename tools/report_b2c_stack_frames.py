@@ -22,8 +22,8 @@ NAMES = (
     "HardwareSerial::print", "HardwareSerial::write",
     "uxTaskGetStackHighWaterMark",
 )
-HEADER = re.compile(r"^\\s*([0-9a-fA-F]+)\\s+<(.+)>:\\s*$")
-ENTRY = re.compile(r"\\bentry\\s+a1,\\s*(0x[0-9a-fA-F]+|\\d+)\\b")
+HEADER = re.compile(r"^\s*([0-9a-fA-F]+)\s+<(.+)>:\s*$")
+ENTRY = re.compile(r"\bentry\s+a1,\s*(0x[0-9a-fA-F]+|\d+)\b")
 
 
 def parse_disassembly(lines):
@@ -93,8 +93,8 @@ def main():
     if run.returncode:
         parser.error("objdump failed: " + run.stderr[-800:])
     functions = parse_disassembly(run.stdout.splitlines())
-    print(f"ELF: {elf}\\nFunctions disassembled: {len(functions)}")
-    print("Frame bytes are compiler-emitted Xtensa entry allocations.\\n")
+    print(f"ELF: {elf}\nFunctions disassembled: {len(functions)}")
+    print("Frame bytes are compiler-emitted Xtensa entry allocations.\n")
     for term in NAMES:
         found = [f for f in functions if term in f["symbol"]]
         if not found:
@@ -107,7 +107,7 @@ def main():
                   f"  0x{f['address']}  {f['symbol'][:110]}")
         if len(found)>4:
             print(f"  (+{len(found)-4} more matches)")
-    print("\\nLIMITATION: Do NOT add these figures blindly. Live stack usage equals")
+    print("\nLIMITATION: Do NOT add these figures blindly. Live stack usage equals")
     print("the maximum of simultaneous frames on an ACTUAL execution path;")
     print("inlined functions, indirect callbacks, and external library calls")
     print("need disassembly/call-graph review. A high-water mark is historical.")
