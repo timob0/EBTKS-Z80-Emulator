@@ -1,3 +1,23 @@
+## 2026-11-10: Native CP/M file confirmation — B2c functionally accepted
+
+After the successful B2c import, user independently checked the
+physical CP/M A: directory: `IMPTST.COM` exists, and CP/M `STAT`
+reports **42 records** and **8 KiB allocated**. Logical content size
+is 42 x 128 = **5376 bytes**; 8 KiB is allocation rounding, not a
+mismatch. Combined with the prior successful 42-record BDOS readback
+and matching CRC16-CCITT-FALSE 54346, B2c is now **functionally
+accepted on hardware**.
+
+Do not repeat the import or flash additional diagnostic builds.
+Preserve the measured-good 8192-byte CPU task stack and existing
+Teensy B2c protocol. Next project task is a deliberate diagnostic
+cleanup review, retain useful error reporting/preflight as appropriate,
+run static/native + both ESP32 builds and DRAM checks; one final
+hardware regression flash may be appropriate before merging to main
+after user approval. No cleanup has been performed by this note.
+
+---
+
 ## 2026-11-10: 8 KiB build physically accepted — B2c import PASSED
 
 User flashed ESP32 commit `5cc28cca44adb9e5a4305799e603eccfb4fd6e2b`
