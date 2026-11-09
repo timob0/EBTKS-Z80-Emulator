@@ -1,4 +1,61 @@
-# B2c diagnostics — first hardware test (2026-11-09)
+# B2c diagnostics — hardware validation (2026-11-09)
+
+## Confirmed first write-path panic (2026-11-09)
+
+After B2c preflight passed (42 records, CRC16=54346, CPU stack
+low watermark 1,664 bytes), a real import caused a full ESP32 **panic**:
+`reset_reason=4`, `reset_panic=true`, RTC
+`before_last_esp_boot.valid=true`, `stage=bdos_make`,
+`status=running`, `record=0`, `stack_unused_bytes=1472`.
+This proves the firmware entered BDOS MAKE(22), which may have already
+modified A.dsk. It does NOT prove which nested function panicked or whether
+stack exhaustion was the cause. The post-boot CPU stack watermark is not
+evidence about the crashed task; its allocation was recreated.
+
+**Do not repeat the import using that disk image without first
+backing up and inspecting it for IMPTST.COM or a partial directory entry.**
+Never execute a partial IMPTST.COM.
+
+Diagnostic follow-up committed on the same ESP32 B2c branch:
+- No BDOS logic or Teensy change.
+- CPU task stack increased from 4,096 to **6,144 bytes** for a controlled
+  A/B experiment; reversible via
+  `-DEBTKS_Z80_CPU_TASK_STACK_BYTES=4096`. This consumes approximately
+  2 KiB more internal runtime heap, so check Wi-Fi/OTA/TFT memory.
+- Additional RTC checkpoints around virtual Z80 disk reads/writes reached
+  during the import: `virtual_disk_read_enter`,
+  `virtual_disk_read_return`, `virtual_disk_write_enter`,
+  `virtual_disk_write_return`. The saved `stack_unused_bytes` is the
+  task high-watermark measured at that checkpoint.
+- `tests/check_b2c_diagnostics.py` checks these branch-specific hooks.
+
+**Build/review before any flash:**
+```sh
+git fetch origin
+git switch feature/cpm-file-transfer-b2c
+git pull --ff-only
+python3 tests/check_b2c_diagnostics.py
+bash tests/run_z80_core_native.sh
+pio run -e esp32dev
+pio run -e esp32dev-tft
+python3 tests/check_esp32_dram_budget.py
+```
+
+Do not flash on test/build errors. The Teensy firmware already contains
+the matching B2c source session protocol; no new Teensy flash is required.
+Preserve both known-working firmware backups.
+
+Once all builds pass and the CP/M disk has been checked/secured, the next
+step is a *deliberate*, single B2c import into a verified disposable disk
+image, with immediate post-run `/api/cpm/service/diag`,
+`/api/system/health`, and `/api/cpm/service/import`. A repeated panic
+without more stack pressure would point toward a different failure mechanism;
+a successful run would support but not alone prove the stack hypothesis.
+Only after verified output and post-run regression should the 6 KiB
+stack become a permanent production setting.
+
+---
+
 
 ## Why this exists
 
