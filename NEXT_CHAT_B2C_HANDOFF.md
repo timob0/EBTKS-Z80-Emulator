@@ -1,3 +1,51 @@
+# B2c diagnostic implementation checkpoint — 2026-11-09
+
+This checkpoint supersedes the older OTA-era notes below for the immediate
+next action. **No ESP32/Teensy B2c diagnostic source has yet been compiled
+locally or tested on hardware. Do not flash until the native and PlatformIO
+build gates pass.** No `main` or HP Option ROM changes.
+
+Hardware evidence leading here:
+- B2b physically accepted: SD `/cpm/transfers/A_STAT.COM` exists with
+  5,376 bytes / 42 CP/M records, CRC16 54346.
+- First B2c import POST was accepted but appeared to restart ESP32 and lose
+  its Wi-Fi association; diagnostic state was reset to `never`.
+- A subsequent import failed `teensy_sd_source_failed`, zero records,
+  no CP/M destination, no Z80-only forced-reset marker.
+- Source exists (SDCAT 5,376 bytes); a stale Teensy read-only session
+  is plausible but **unproven**. No cause of apparent ESP32 restart proven.
+
+Implementation committed on existing feature branches:
+- Teensy `feature/cpm-file-transfer-b2c`, currently
+  `5d94a0af752ef4be208939b22d2467576bbf71ee`.
+  New `cpm_import` `release` and source-name-checked `recover` verbs;
+  native SD test extended. They only close a read-only descriptor and never
+  write/delete the published source or any CP/M disk.
+- ESP32 `feature/cpm-file-transfer-b2c`, new
+  `ESP32_Z80_Emulator/cpm_import_diag.h`, new
+  `tests/check_b2c_diagnostics.py`, and updates to safe-point gate,
+  import handler, BDOS-tracing callback, web API, CPU task, and workflow.
+  `POST /api/cpm/service/source?name=A%3ASTAT.COM` arms a safe-point
+  read-only Teensy SD preflight (no CP/M BDOS calls); GET reports expected
+  count/CRC and a classified source error. Explicit option
+  `&recover=READ_ONLY_SESSION` is allowed only for manually recovering
+  an orphaned session for the SAME source name.
+  `GET /api/cpm/service/diag` exposes the current and prior (if retained)
+  RTC_NOINIT import stage, index and stack watermark, ESP32 uptime/reset reason.
+  Existing `GET /api/cpm/service/import` now exposes `source_error`
+  and `last_source_error`. No new task or normal DRAM/BSS buffers.
+  RTC trace retention is NOT guaranteed after EN reset or power loss.
+
+**Next user action:** Read `B2C_DIAGNOSTIC_TEST.md`; pull both branches,
+run all native checks and Teensy/ESP32 PlatformIO builds, confirm TFT
+DRAM budget; only after build success, flash Teensy first, then ESP32 TFT.
+At native `A>` perform **only the read-only preflight POST/GET** and
+retrieve `/api/cpm/service/diag` and `/api/system/health`.
+Do not repeat the writable SD->CP/M import or merge into main until
+preflight/boot evidence has been reviewed.
+
+---
+
 # ACTIVE NEXT-CHAT CHECKPOINT — Stage B2c SD -> CP/M (2026-10-25)
 
 ### Two-browser OTA upload evidence (2026-10-27)
