@@ -167,6 +167,20 @@ inline bool preflight(CpmSafePoint::Gate &gate) {
   CpmImportDiag::mark(CpmImportDiag::IMPORT_COMPLETE);
   return true;
 }
+inline void traceBdos(uint8_t step,uint16_t record) {
+  using namespace CpmFileWriteService;
+  using namespace CpmImportDiag;
+  switch(step) {
+    case TRACE_SEARCH:mark(BDOS_SEARCH,record);break;
+    case TRACE_MAKE:mark(BDOS_MAKE,record);break;
+    case TRACE_SOURCE_READ:mark(SOURCE_READ,record);break;
+    case TRACE_WRITE:mark(BDOS_WRITE,record);break;
+    case TRACE_CLOSE:mark(BDOS_CLOSE,record);break;
+    case TRACE_VERIFY_OPEN:mark(VERIFY_OPEN,record);break;
+    case TRACE_VERIFY_READ:mark(VERIFY_READ,record);break;
+    case TRACE_VERIFY_CLOSE:mark(VERIFY_CLOSE,record);break;
+  }
+}
 inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
                     bool &needReset,void (*yieldCpu)()=nullptr) {
   needReset=false;
@@ -199,7 +213,7 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
   CpmFileWriteService::Outcome outcome;
   const bool wrote=CpmFileWriteService::execute(
      bridge,destFcb,destDrive,session.records,session.expectedCrc,
-     &read,&session,outcome,needReset,yieldCpu,&gate);
+     &read,&session,outcome,needReset,yieldCpu,&gate,&traceBdos);
   gate.importPartialPossible.store(outcome.partialPossible,
                                    std::memory_order_release);
   gate.importSourceIssue.store(session.sourceIssue,std::memory_order_release);
