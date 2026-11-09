@@ -1,3 +1,41 @@
+## 2026-11-09: Stop flashing; source/ELF stack analysis before more experiments
+
+User reports normal CP/M PIP A: file copy succeeded; earlier Multiplan installer
+also worked. That exercises ordinary mounted-disk writes but does not give
+B2c the same ESP32 host C++ stack depth. The first `z80BridgeRun`
+**returns** on the CCP service breakpoint before B2c invokes another
+`z80BridgeRun`; it is not runaway recursion. The nested
+`CPUTask -> CpmSdImport -> CpmFileWriteService ->
+CpmDirectoryService::invoke -> z80_run -> portOut -> diskWrite ->
+cpmMountedDiskWrite -> ebtksStorageExchange -> UART` chain can be
+considerably deeper than normal CP/M writes.
+
+At the RTC MAKE checkpoint, the 4 KiB ESP32 CPU task had a 1472-byte
+historical minimum free-stack watermark (2624 bytes max used so far).
+The 512-byte virtual-disk write includes a **685-byte local Base64 buffer**
+in `cpm_media.h`. This is compelling circumstantial stack-pressure
+evidence, not a precise static bound or proof that stack overflow caused
+`ESP_RST_PANIC`. Compiler inlining, call-frame/register spills and
+library code must be inspected.
+
+**No new flash recommended.** New offline tool
+`tools/report_b2c_stack_frames.py` obtains Xtensa emitted frame sizes
+from an *existing ELF* using PlatformIO's objdump; run
+`python3 tools/report_b2c_stack_frames.py --selftest` and
+`python3 tools/report_b2c_stack_frames.py .pio/build/esp32dev-tft/firmware.elf`.
+The parser reports individual frames only, not a complete call-chain
+max; follow with `-fstack-usage` compiler data/disassembly as necessary.
+Only after source/ELF analysis choose one permanent fix and perform a
+single validation flash. The already committed 6 KiB A/B stack build is
+**not yet hardware tested** and not assumed permanent.
+
+A comprehensive removal/retain inventory is committed at
+`B2C_DIAGNOSTIC_CLEANUP_LEDGER.md`, with exact baselines
+ESP32 `d58c6811`, Teensy `833ac458`; no tracing will be merged
+unreviewed into `main`.
+
+---
+
 ## 2026-11-09: RTC proves native BDOS MAKE ESP32 panic
 
 Read-only SD preflight passed: 42 records, CRC16 54346; source session
