@@ -364,6 +364,16 @@ inline void catalog(const char *arg) {
    if(!transfer){setResult(false,"TRANSFER NOT STARTED");return;}
    const Transfer &t=*transfer;
    if(t.phase==Transfer::WAIT_CCP) {
+     // A native CCP fetch marks BUSY when an application is running.
+     // This is only advisory for HP UI: it NEVER authorizes BDOS or
+     // changes the request. UNKNOWN stays a bounded ordinary wait.
+     CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+     const uint8_t mode=gate?gate->mode.load(std::memory_order_acquire):
+                             CpmSafePoint::UNKNOWN;
+     if(mode==CpmSafePoint::BUSY || mode==CpmSafePoint::PROBE_RUNNING) {
+       lastTransferPhase='B';
+       setResult(true,"CP/M RUNNING PROGRAM - RETURN TO A>");return;
+     }
      lastTransferPhase='W';
      setResult(true,"WAITING FOR CP/M A> (NOT STARTED)");return;
    }
