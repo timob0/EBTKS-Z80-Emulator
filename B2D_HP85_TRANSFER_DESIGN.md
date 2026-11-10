@@ -1,3 +1,16 @@
+## 2026-11-10 — User physical-hardware CPIMPORT regression results
+
+User exercised the B2d HP BASIC `CPIMPORT` command on actual HP-85/EBTKS/CP/M hardware:
+
+- B: drive, mounted as read-only floppy: import **failed**, and `CPIMPORT` reported the problem. Expected protection.
+- A: system drive, new destination `TEST.COM`: import **succeeded**.
+- F: other hard disk, new destination: import **succeeded**.
+- F: retry using the **same destination filename**: import **failed**, with error reported. Expected CREATE-NEW/no-overwrite protection.
+
+These observations validate important BASIC → Teensy → ESP32 → native BDOS import paths and refusal cases across different drives. They do **not** independently establish exact CRC, record count or binary readback from this message, nor confirm `CPEXPORT`, the busy CCP wait, C/A interaction, or abort-vs-start races on physical hardware. Do not mark those additional tests as passed until separately reported. No `main` merge authorization.
+
+---
+
 ## 2026-11-10 — B2d source-argument correction (user-requested)
 
 The **first CPIMPORT argument is a literal SD filename or optional
