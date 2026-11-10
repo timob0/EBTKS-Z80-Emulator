@@ -436,7 +436,7 @@ inline void catalog(const char *arg) {
                CpmFileReadService::parseName(sep+1,dstDrive,dst);
          // B2c native gate still needs a nonnull source FCB pointer,
          // but the B2d literal path supersedes it for this transaction.
-         memset(src,' ',sizeof(src));
+         for(unsigned i=0;i<sizeof(src);++i)src[i]=' ';
          srcDrive=1;
        }
      }
