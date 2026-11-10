@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Static B2c diagnostic safety gates; hardware execution is still required."""
+"""Static safety gates for production B2c import; not a hardware test."""
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1] / "ESP32_Z80_Emulator"
-web = (root / "ebtks_web.h").read_text()
-ino = (root / "ESP32_Z80_Emulator.ino").read_text()
-cpu = (root / "cpu_redcode.h").read_text()
-gate = (root / "cpm_safe_point.h").read_text()
-source = (root / "ebtks_cpm_sd_import.h").read_text()
-bdos = (root / "cpm_file_write_service.h").read_text()
-rtc = (root / "cpm_import_diag.h").read_text()
+base = Path(__file__).resolve().parents[1]
+root = base / "ESP32_Z80_Emulator"
+read = lambda name: (root / name).read_text()
+web = read("ebtks_web.h")
+ino = read("ESP32_Z80_Emulator.ino")
+cpu = read("cpu_redcode.h")
+gate = read("cpm_safe_point.h")
+source = read("ebtks_cpm_sd_import.h")
+bdos = read("cpm_file_write_service.h")
 
-# Only the pinned CPU worker handles Teensy SD/BDOS; the AsyncTCP handler arms it.
+# Preserve the physically verified stack, independent of any optional A/B override.
+assert "#define EBTKS_Z80_CPU_TASK_STACK_BYTES 8192" in ino
+assert 'xTaskCreatePinnedToCore(CPUTask,"CPUTask",EBTKS_Z80_CPU_TASK_STACK_BYTES' in ino
+
+# Only the pinned CPU task can initiate native BDOS and Teensy SD exchanges.
 assert '"/api/cpm/service/source",HTTP_POST' in web
 assert '"/api/cpm/service/source",HTTP_GET' in web
-assert '"/api/cpm/service/diag",HTTP_GET' in web
 http = web.split('"/api/cpm/service/source",HTTP_POST', 1)[1].split(
     '"/api/cpm/service/source",HTTP_GET', 1)[0]
 assert "gate->request(CpmSafePoint::PREFLIGHT_SD" in http
@@ -23,8 +27,9 @@ assert "CpmFileWriteService::execute" not in http
 assert "recover_requires_READ_ONLY_SESSION" in http
 assert '"/api/cpm/service/import",HTTP_POST' in web
 
-# Preflight must close a READ-ONLY Teensy session and never enter native BDOS.
-preflight = source.split("inline bool preflight(", 1)[1].split("inline void traceBdos", 1)[0]
+# Preflight reads a source, releases the read-only session and never enters BDOS.
+preflight = source.split("inline bool preflight(", 1)[1].split(
+    "inline bool execute(", 1)[0]
 assert "begin(source,session)" in preflight
 assert "release(session.token)" in preflight
 assert "CpmFileWriteService::execute" not in preflight
@@ -35,32 +40,26 @@ assert "gate.importRecoverRequested.load" in preflight
 assert "requested==PREFLIGHT_SD && recoverOrphan" in gate
 assert "fcbName?fcbName[i]" in gate
 
-# Preserve the Teensy reason instead of collapsing all source failures.
+# Source error telemetry, partial-file warnings and verified guest readback stay.
 assert 'session.sourceIssue=reasonCode(r["reason"] | "")' in source
 assert '"source_error"' in web and '"last_source_error"' in web
 assert "lastImportSourceIssue.store(" in gate
-
-# The native BDOS implementation only acquires an optional trace callback;
-# existing native test fixtures retain the old arguments.
-assert "TraceCallback trace=nullptr" in bdos
-assert "if(trace)trace(TRACE_MAKE,0)" in bdos
-assert "if(trace)trace(TRACE_WRITE,index)" in bdos
-assert "if(trace)trace(TRACE_VERIFY_READ,index)" in bdos
+assert "importPartialPossible.store(" in bdos
+assert "FILE_IMPORT_VERIFY_FAILED" in bdos
 assert "CpmSdImport::preflight(*gate)" in cpu
 assert "CpmSdImport::execute(&ebtksCpuBridge" in cpu
 
-# No new FreeRTOS task or ordinary heap allocation for the reset trace.
-assert "RTC_NOINIT_ATTR static volatile Trace active" in rtc
-assert "RTC_NOINIT_ATTR static volatile Trace previous" in rtc
-assert "CpmImportDiag::onBoot();" in ino
-assert "uxTaskGetStackHighWaterMark(nullptr)" in rtc
-assert "CpmImportDiag::tracingNativeImport()" in cpu
-assert "CpmImportDiag::DISK_WRITE_ENTER" in cpu
-assert "CpmImportDiag::DISK_WRITE_RETURN" in cpu
-assert "CpmImportDiag::DISK_READ_ENTER" in cpu
-assert "CpmImportDiag::DISK_READ_RETURN" in cpu
-assert "RTC_NOINIT_ATTR static volatile Trace previous" in rtc
-assert "EBTKS_Z80_CPU_TASK_STACK_BYTES 8192" in ino
-assert "xTaskCreatePinnedToCore(CPUTask,\"CPUTask\",EBTKS_Z80_CPU_TASK_STACK_BYTES" in ino
-assert "xTaskCreate" not in rtc and "malloc(" not in rtc
-print("PASS: B2c preflight/recovery/RTC/BDOS diagnostic wiring")
+# Crash-specific tracing is no longer compiled or exposed.
+assert not (root / "cpm_import_diag.h").exists()
+for name, data in {
+    "ESP32_Z80_Emulator.ino": ino,
+    "cpu_redcode.h": cpu,
+    "ebtks_cpm_sd_import.h": source,
+    "cpm_file_write_service.h": bdos,
+    "ebtks_web.h": web,
+}.items():
+    assert "CpmImportDiag" not in data, name
+    assert "traceBdos" not in data, name
+assert '"/api/cpm/service/diag"' not in web
+assert "TraceCallback" not in bdos
+print("PASS: B2c 8KiB stack, preflight/recovery/error safeguards, no RTC tracing")
