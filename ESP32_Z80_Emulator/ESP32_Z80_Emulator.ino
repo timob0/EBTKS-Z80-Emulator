@@ -96,9 +96,10 @@ void setup() {
   // B2c stack budget: the compiled MAKE -> disk-write serialization path
   // has >=3216 bytes of simultaneously active function frames, excluding
   // deeper library and Z80 instruction-handler calls. The previous 4096-byte
-  // task suffered ESP_RST_PANIC inside MAKE. Reserve 8192 bytes for the
-  // hardware-validated B2c allocation; runtime heap, not static TFT DRAM.
-  // Compile-time override permits controlled A/B testing without code edits.
+  // task suffered ESP_RST_PANIC inside MAKE. The 8192-byte allocation
+  // passed physical B2c import, leaving 3840 bytes at peak watermark.
+  // This is runtime heap, not static TFT DRAM. Retain the compile-time
+  // override for engineering tests; do not reduce the production default.
 #ifndef EBTKS_Z80_CPU_TASK_STACK_BYTES
 #define EBTKS_Z80_CPU_TASK_STACK_BYTES 8192
 #endif
