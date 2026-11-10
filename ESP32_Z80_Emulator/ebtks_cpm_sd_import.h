@@ -31,9 +31,9 @@ inline uint8_t reasonCode(const char *reason) {
   if(!strcmp(reason,"no_active_import"))return CpmSafePoint::SRC_NO_ACTIVE;
   return CpmSafePoint::SRC_OTHER;
 }
-inline bool begin(const char *source,Session &session) {
+inline bool begin(const char *source,Session &session,bool literal=false) {
   JsonDocument cmd,reply;
-  cmd["cpm_import"]["op"]="begin";
+  cmd["cpm_import"]["op"]=literal?"begin_literal":"begin";
   cmd["cpm_import"]["source"]=source;
   if(!exchange(cmd,reply)) {
     session.sourceIssue=CpmSafePoint::SRC_UART_FAILED;
@@ -172,15 +172,29 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
   }
   const uint8_t sourceDrive=gate.requestedSourceDrive.load(std::memory_order_acquire);
   const uint8_t destDrive=gate.requestedDrive.load(std::memory_order_acquire);
-  char sourceName[16]{};
-  if(!CpmSdExport::sourceName(sourceDrive,sourceFcb,sourceName)) {
-    gate.fileError.store(CpmSafePoint::FILE_BAD_REQUEST,std::memory_order_release);
-    return false;
+  char sourceName[72]{};
+  // The B2d BASIC source is the literal filename/path under
+  // /cpm/transfers, not a logical CP/M drive/FCB. B2c HTTP users
+  // still have the prior A:NAME -> A_NAME mapping.
+  bool literal=false;
+  for(size_t i=0;i<sizeof(sourceName);++i) {
+    const char ch=gate.requestedSourceLiteral[i].load(std::memory_order_relaxed);
+    sourceName[i]=ch;
+    if(!ch)break;
+    literal=true;
+  }
+  if(!literal) {
+    char oldName[16]{};
+    if(!CpmSdExport::sourceName(sourceDrive,sourceFcb,oldName)) {
+      gate.fileError.store(CpmSafePoint::FILE_BAD_REQUEST,std::memory_order_release);
+      return false;
+    }
+    strncpy(sourceName,oldName,sizeof(sourceName)-1);
   }
   Session session;
   // Ensure the complete, valid 128-byte-aligned SD source was scanned
   // before calling even a single mutating native CP/M BDOS function.
-  if(!begin(sourceName,session)) {
+  if(!begin(sourceName,session,literal)) {
     gate.importSourceIssue.store(session.sourceIssue,std::memory_order_release);
     gate.fileError.store(CpmSafePoint::FILE_SD_SOURCE_FAILED,
                          std::memory_order_release);
