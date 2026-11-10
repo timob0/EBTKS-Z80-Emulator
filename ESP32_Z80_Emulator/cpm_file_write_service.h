@@ -23,13 +23,6 @@ struct Outcome {
 };
 typedef bool (*ReadSource)(void *context,uint16_t record,uint8_t bytes[128],
                            uint16_t &recordCrc);
-// Optional no-heap instrumentation. The native BDOS regression fixture
-// remains unchanged; only the ESP32 B2c caller supplies this callback.
-enum TraceStep : uint8_t {
-  TRACE_SEARCH,TRACE_MAKE,TRACE_SOURCE_READ,TRACE_WRITE,TRACE_CLOSE,
-  TRACE_VERIFY_OPEN,TRACE_VERIFY_READ,TRACE_VERIFY_CLOSE
-};
-typedef void (*TraceCallback)(uint8_t step,uint16_t record);
 inline uint16_t extendCrc(uint16_t crc,const uint8_t *bytes,size_t length) {
   for(size_t i=0;i<length;++i) {
     crc^=uint16_t(bytes[i])<<8;
@@ -43,8 +36,7 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
                     ReadSource readSource,void *sourceContext,
                     Outcome &out,bool &needReset,
                     void (*yieldCpu)()=nullptr,
-                    CpmSafePoint::Gate *progressGate=nullptr,
-                    TraceCallback trace=nullptr) {
+                    CpmSafePoint::Gate *progressGate=nullptr ) {
   out=Outcome{};
   needReset=false;
   if(!bridge || !bridge->memory ||
@@ -82,7 +74,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
   memset(ram+kFcb,0,36);
   ram[kFcb]=drive;
   memcpy(ram+kFcb+1,fcbName,11);
-  if(trace)trace(TRACE_SEARCH,0);
   if(!CpmDirectoryService::invoke(bridge,17,yieldCpu)) {
     out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;unsafe=true;
   } else if(Z80_A(bridge->cpu)!=0xFF) {
@@ -95,7 +86,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
     out.partialPossible=true;
     if(progressGate)
       progressGate->importPartialPossible.store(true,std::memory_order_release);
-    if(trace)trace(TRACE_MAKE,0);
     if(!CpmDirectoryService::invoke(bridge,22,yieldCpu)) {
       out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;unsafe=true;
     } else if(Z80_A(bridge->cpu)==0xFF) {
@@ -104,7 +94,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
       bool allGood=true;
       for(uint16_t index=0;index<totalRecords;++index) {
         uint16_t receivedCrc=0;
-        if(trace)trace(TRACE_SOURCE_READ,index);
         if(!readSource(sourceContext,index,bytes,receivedCrc)) {
           out.error=CpmSafePoint::FILE_SD_SOURCE_FAILED;
           allGood=false;break;
@@ -114,7 +103,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
           allGood=false;break;
         }
         memcpy(ram+kDma,bytes,sizeof(bytes));
-        if(trace)trace(TRACE_WRITE,index);
         if(!CpmDirectoryService::invoke(bridge,21,yieldCpu)) {
           out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
           unsafe=true;allGood=false;break;
@@ -137,7 +125,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
       // CLOSE the newly created FCB even after an ordinary disk-full or
       // source-read error. Never re-enter BDOS after an interrupted call.
       if(!unsafe) {
-        if(trace)trace(TRACE_CLOSE,out.written);
         if(!CpmDirectoryService::invoke(bridge,16,yieldCpu)) {
           out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;unsafe=true;
           allGood=false;
@@ -153,7 +140,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
         ram[kFcb]=drive;
         memcpy(ram+kFcb+1,fcbName,11);
         bool opened=false;
-        if(trace)trace(TRACE_VERIFY_OPEN,0);
         if(!CpmDirectoryService::invoke(bridge,15,yieldCpu)) {
           out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;unsafe=true;
         } else if(Z80_A(bridge->cpu)==0xFF) {
@@ -162,7 +148,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
           opened=true;
           uint16_t readbackCrc=0xFFFF;
           for(uint16_t index=0;index<totalRecords;++index) {
-            if(trace)trace(TRACE_VERIFY_READ,index);
             if(!CpmDirectoryService::invoke(bridge,20,yieldCpu)) {
               out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
               unsafe=true;break;
@@ -174,7 +159,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
             readbackCrc=extendCrc(readbackCrc,ram+kDma,128);
           }
           if(!unsafe && out.error==CpmSafePoint::FILE_OK) {
-            if(trace)trace(TRACE_VERIFY_READ,totalRecords);
             if(!CpmDirectoryService::invoke(bridge,20,yieldCpu)) {
               out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
               unsafe=true;
@@ -185,7 +169,6 @@ inline bool execute(Z80Bridge *bridge,const uint8_t fcbName[11],
           }
         }
         if(opened && !unsafe) {
-          if(trace)trace(TRACE_VERIFY_CLOSE,totalRecords);
           if(!CpmDirectoryService::invoke(bridge,16,yieldCpu)) {
             out.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;unsafe=true;
           } else if(Z80_A(bridge->cpu)==0xFF &&
