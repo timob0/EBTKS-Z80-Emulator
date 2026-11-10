@@ -41,10 +41,13 @@ inline bool rpc(JsonDocument &command,JsonDocument &response) {
   if(!ebtksStorageExchange(command,response,5000))return false;
   return response["cpm_export"]["ok"] | false;
 }
-inline bool begin(const char *name,uint32_t &session) {
+inline bool begin(const char *name,uint32_t &session,
+                  const char *literalDestination=nullptr) {
   JsonDocument cmd,answer;
   cmd["cpm_export"]["op"]="begin";
   cmd["cpm_export"]["name"]=name;
+  if(literalDestination && literalDestination[0])
+    cmd["cpm_export"]["sd_name"]=literalDestination;
   if(!rpc(cmd,answer))return false;
   session=answer["cpm_export"]["session"] | (uint32_t)0;
   return session!=0 &&
@@ -108,10 +111,18 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,bool &needReset,
     gate.fileError.store(CpmSafePoint::FILE_BAD_REQUEST,std::memory_order_release);
     return false;
   }
+  // The native gate is exclusive across export/import, so its shared
+  // literal slot holds the optional export destination (not CP/M FCB).
+  char sdDestination[72]{};
+  for(size_t i=0;i<sizeof(sdDestination)-1;++i) {
+    const char c=gate.requestedSourceLiteral[i].load(std::memory_order_relaxed);
+    if(!c)break;
+    sdDestination[i]=c;
+  }
   uint32_t session=0;
   // No BDOS call or guest modification if a matching Teensy is unavailable
   // or SD cannot create an exclusive staging file.
-  if(!begin(name,session)) {
+  if(!begin(name,session,sdDestination)) {
     gate.fileError.store(CpmSafePoint::FILE_SD_STAGE_FAILED,std::memory_order_release);
     return false;
   }
