@@ -1,3 +1,26 @@
+## 2026-11-10 — Cleaned B2c firmware physical regression update
+
+User reports cleaned ESP32 `esp32dev-tft` firmware built successfully,
+was flashed and restarted. After 254452 ms uptime:
+`heap_free=67772`, `free_8bit=28784`,
+`min_free_8bit=21024`, `largest_8bit=26612`,
+and `z80_cpu` historical stack unused = **6388 bytes**.
+This is an early/normal workload watermark, **not** the deep MAKE-path
+peak from the previously accepted 42-record import (3840 bytes unused).
+TFT/Web terminals were enabled and Telnet remained disabled.
+User subsequently confirmed native CP/M `DIR` works and existing
+`IMPTST.COM` remains present. Do not request a repeat writable import.
+
+These physical checks support cleanup regression, but the user did
+not separately report native CP/M console K8/re-entry, active TFT/Web
+terminal interaction, reset-reason counters, or complete native-test/DRAM
+output. Do not represent those outstanding observations as passed.
+No change to Teensy, Option ROM, or `main`. Next feature is B2d
+blocking HP-85 BASIC `CPEXPORT`/`CPIMPORT`; preserve this B2c branch
+as a recovery baseline. No merge to `main` without explicit approval.
+
+---
+
 # Update 2026-11-10 — B2c diagnostic cleanup source changes committed
 
 The earlier "NEXT B2c cleanup" instructions below were acted upon on
