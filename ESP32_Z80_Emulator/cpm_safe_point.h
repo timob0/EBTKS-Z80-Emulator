@@ -470,9 +470,12 @@ public:
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
-    if(requested==IMPORT_SD || requested==PREFLIGHT_SD) {
-      // Populate complete literal before WAIT_EMPTY_LINE becomes visible.
-      // B2c HTTP requests pass nullptr and keep the original A:NAME map.
+    if(requested==EXPORT_SD || requested==IMPORT_SD ||
+       requested==PREFLIGHT_SD) {
+      // Reuse the existing 72-byte literal-name slot for B2d export
+      // destination and B2d import source: operations are serialized.
+      // B2b/B2c callers pass nullptr and retain their default SD names.
+      // Publish complete name before WAIT_EMPTY_LINE becomes visible.
       const size_t n=literalSource?strnlen(literalSource,72):0;
       if(n>=72) {
         requestBusy.clear(std::memory_order_release);
