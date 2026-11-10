@@ -287,6 +287,7 @@ inline void catalog(const char *arg) {
    Phase phase=WAIT_CCP;
    uint8_t operation=0,drive=0,sourceDrive=0;
    uint8_t filename[11]{},source[11]{};
+   char sdSource[72]{};
    uint8_t error=0,sourceIssue=0;
    uint16_t records=0,crc=0xFFFF;
    bool partial=false;
@@ -346,7 +347,7 @@ inline void catalog(const char *arg) {
                      transfer->filename,0,nullptr,0,false,true):
        gate->request(CpmSafePoint::IMPORT_SD,transfer->drive,
                      transfer->filename,0,transfer->source,
-                     transfer->sourceDrive,false,true);
+                     transfer->sourceDrive,false,true,transfer->sdSource);
      if(accepted)transfer->phase=Transfer::WAIT_EMPTY;
      return;
    }
@@ -395,6 +396,26 @@ inline void catalog(const char *arg) {
      setResult(false,msg);
    }
  }
+ // Transfer source names describe files on Teensy SD, not CP/M FCBs.
+ // Keep the entire path under /cpm/transfers; no absolute paths,
+ // backslashes, drive letters, parent components or hidden dot segments.
+ inline bool safeTransferSource(const char *name) {
+   if(!name)return false;
+   const size_t n=strnlen(name,72);
+   if(n<1 || n>=72 || name[0]=='/' || name[n-1]=='/')return false;
+   size_t part=0;
+   for(size_t i=0;i<n;++i) {
+     const unsigned char ch=(unsigned char)name[i];
+     if(ch=='/') {
+       if(part==0)return false;
+       part=0;continue;
+     }
+     if(!(isalnum(ch) || ch=='_' || ch=='-' || ch=='.'))return false;
+     if(part==0 && ch=='.')return false;
+     ++part;
+   }
+   return part>0;
+ }
  inline void transferCommand(uint8_t op,const char *args,uint16_t seq,
                              uint16_t txn) {
    CpmSafePoint::Gate *gate=cpmSafeGatePtr();
@@ -403,19 +424,23 @@ inline void catalog(const char *arg) {
        setResult(false,"ANOTHER HP TRANSFER IS ACTIVE");return;
      }
      uint8_t dstDrive=0,srcDrive=0,dst[11]{},src[11]{};
+     char sdSource[72]{};
      bool valid=false;
      if(op==9) valid=CpmFileReadService::parseName(args,dstDrive,dst);
      else {
        const char *sep=args?strchr(args,'|'):nullptr;
-       if(sep && sep!=args && (size_t)(sep-args)<=14 &&
+       if(sep && sep!=args && (size_t)(sep-args)<sizeof(sdSource) &&
           strlen(sep+1)<=14) {
-         char sourceName[16]{};
-         memcpy(sourceName,args,(size_t)(sep-args));
-         valid=CpmFileReadService::parseName(sourceName,srcDrive,src) &&
+         memcpy(sdSource,args,(size_t)(sep-args));
+         valid=safeTransferSource(sdSource) &&
                CpmFileReadService::parseName(sep+1,dstDrive,dst);
+         // B2c native gate still needs a nonnull source FCB pointer,
+         // but the B2d literal path supersedes it for this transaction.
+         memset(src,' ',sizeof(src));
+         srcDrive=1;
        }
      }
-     if(!valid){setResult(false,"INVALID 8.3 SOURCE OR DESTINATION");return;}
+     if(!valid){setResult(false,"INVALID SD SOURCE PATH OR CP/M 8.3 DESTINATION");return;}
      if(!gate || !RUN || !gate->compatible.load(std::memory_order_acquire)) {
        setResult(false,"NATIVE CP/M IS NOT RUNNING");return;
      }
@@ -433,6 +458,7 @@ inline void catalog(const char *arg) {
      transfer->drive=dstDrive;transfer->sourceDrive=srcDrive;
      memcpy(transfer->filename,dst,11);
      memcpy(transfer->source,src,11);
+     strlcpy(transfer->sdSource,sdSource,sizeof(transfer->sdSource));
      transferPoll();
      transferReply();
      return;
