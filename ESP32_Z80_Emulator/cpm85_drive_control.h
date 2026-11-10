@@ -306,10 +306,12 @@ inline void catalog(const char *arg) {
      t.error=gate.fileError.load(std::memory_order_acquire);
      t.sourceIssue=gate.importSourceIssue.load(std::memory_order_acquire);
      t.partial=gate.importPartialPossible.load(std::memory_order_acquire);
-     t.records=t.operation==9?gate.exportRecords.load(std::memory_order_acquire):
-                               gate.importTotalRecords.load(std::memory_order_acquire);
-     t.crc=t.operation==9?gate.exportCrc.load(std::memory_order_acquire):
-                           gate.importExpectedCrc.load(std::memory_order_acquire);
+     // Both B2b export and B2c import publish actual transferred record
+     // counts and accumulated CRC through these progress atomics. The
+     // importTotalRecords/ExpectedCrc fields are source preflight totals,
+     // not evidence that a failed write finished those records.
+     t.records=gate.exportRecords.load(std::memory_order_acquire);
+     t.crc=gate.exportCrc.load(std::memory_order_acquire);
      gate.hpTransferReserved.store(false,std::memory_order_release);
    }
  }
