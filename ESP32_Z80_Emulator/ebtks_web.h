@@ -603,21 +603,6 @@ inline bool ebtksWebBegin()
       String body;serializeJson(v,body);
       r->send(200,"application/json",body);
     });
-  // The RTC trace is useful only if the reset preserved RTC memory.
-  // It makes no assertion about EN or power-loss retention.
-  ebtksServer.on("/api/cpm/service/diag",HTTP_GET,
-    [](AsyncWebServerRequest *r) {
-      JsonDocument v;
-      v["uptime_ms"]=(uint32_t)millis();
-      v["esp_reset_reason"]=(int)esp_reset_reason();
-      v["rtc_retention_not_guaranteed"]=true;
-      CpmImportDiag::append(v["current"].to<JsonObject>(),CpmImportDiag::active);
-      CpmImportDiag::append(v["before_last_esp_boot"].to<JsonObject>(),
-                            CpmImportDiag::previous);
-      String body;serializeJson(v,body);
-      r->send(200,"application/json",body);
-    });
-
   // B2c - write to a NEW native CP/M name, from a published Teensy
   // /cpm/transfers file only. An explicit confirmation string is mandatory.
   // This HTTP callback only arms the native CCP safe point; never calls BDOS.
