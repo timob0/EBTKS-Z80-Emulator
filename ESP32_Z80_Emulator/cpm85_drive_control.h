@@ -301,17 +301,22 @@ inline void catalog(const char *arg) {
    if(result==CpmSafePoint::WAIT_EMPTY_LINE) {t.phase=Transfer::WAIT_EMPTY;return;}
    if(result==CpmSafePoint::RUNNING) {t.phase=Transfer::ACTIVE;return;}
    if(result==CpmSafePoint::PASSED || result==CpmSafePoint::FAILED ||
-      result==CpmSafePoint::INPUT_NOT_EMPTY || result==CpmSafePoint::INVALIDATED) {
+      result==CpmSafePoint::INPUT_NOT_EMPTY || result==CpmSafePoint::INVALIDATED ||
+      result==CpmSafePoint::NEVER) {
      t.phase=result==CpmSafePoint::PASSED?Transfer::PASSED:Transfer::FAILED;
      t.error=gate.fileError.load(std::memory_order_acquire);
      t.sourceIssue=gate.importSourceIssue.load(std::memory_order_acquire);
-     t.partial=gate.importPartialPossible.load(std::memory_order_acquire);
+     t.partial=gate.importPartialPossible.load(std::memory_order_acquire) ||
+       (t.operation==10 && t.phase==Transfer::ACTIVE &&
+        (result==CpmSafePoint::NEVER || result==CpmSafePoint::INVALIDATED));
      // Both B2b export and B2c import publish actual transferred record
      // counts and accumulated CRC through these progress atomics. The
      // importTotalRecords/ExpectedCrc fields are source preflight totals,
      // not evidence that a failed write finished those records.
      t.records=gate.exportRecords.load(std::memory_order_acquire);
      t.crc=gate.exportCrc.load(std::memory_order_acquire);
+     if(result==CpmSafePoint::NEVER)
+       t.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
      gate.hpTransferReserved.store(false,std::memory_order_release);
    }
  }
@@ -319,6 +324,12 @@ inline void catalog(const char *arg) {
    if(!transfer || transferTerminal(transfer->phase))return;
    CpmSafePoint::Gate *gate=cpmSafeGatePtr();
    if(!gate || !RUN || !gate->compatible.load(std::memory_order_acquire)) {
+     // If an active BDOS call remains marked RUNNING, we cannot safely
+     // declare completion or release ownership merely due to a guest flag.
+     if(gate && gate->result.load(std::memory_order_acquire)==CpmSafePoint::RUNNING) {
+       transfer->phase=Transfer::ACTIVE;
+       return;
+     }
      transfer->phase=Transfer::FAILED;
      transfer->error=CpmSafePoint::FILE_NOT_RUNNING;
      if(gate) {
