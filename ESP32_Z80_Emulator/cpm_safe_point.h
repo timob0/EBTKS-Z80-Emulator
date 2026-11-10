@@ -187,6 +187,9 @@ public:
   std::atomic<uint16_t> requestedRecord{0};
   // B2c SD source name is independent of the destination FCB.
   std::atomic<uint8_t> requestedSourceDrive{0};
+  // B2d only: literal SD source path, relative to /cpm/transfers.
+  // Empty string retains established B2c logical A:NAME mapping.
+  std::atomic<char> requestedSourceLiteral[72]{};
   std::atomic<uint8_t> requestedSourceFile[11]{};
   std::atomic<bool> importPartialPossible{false};
   // Sticky evidence retained across Z80-only resets, like lastFileError.
@@ -466,6 +469,8 @@ public:
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
+    if(requested==IMPORT_SD || requested==PREFLIGHT_SD)
+      requestedSourceLiteral[0].store(0,std::memory_order_release);
     if(requested==READ_RECORD || requested==EXPORT_SD ||
        requested==IMPORT_SD || requested==PREFLIGHT_SD) {
       for(unsigned i=0;i<11;++i)
