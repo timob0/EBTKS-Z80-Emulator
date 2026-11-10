@@ -4,7 +4,6 @@
 #include "cpm_file_write_service.h"
 #include "ebtks_storage.h"
 #include "ebtks_cpm_sd_export.h"
-#include "cpm_import_diag.h"
 
 // B2c: Teensy SD (published transfers ONLY) -> new live CP/M filename.
 // The fixed 128-byte buffer and strict 63-record bound are deliberate.
@@ -139,7 +138,6 @@ inline bool preflight(CpmSafePoint::Gate &gate) {
     return false;
   }
   if(gate.importRecoverRequested.load(std::memory_order_acquire)) {
-    CpmImportDiag::mark(CpmImportDiag::SOURCE_RECOVER);
     const uint8_t err=recover(source);
     if(err!=CpmSafePoint::SRC_NONE) {
       gate.importSourceIssue.store(err,std::memory_order_release);
@@ -147,7 +145,6 @@ inline bool preflight(CpmSafePoint::Gate &gate) {
       return false;
     }
   }
-  CpmImportDiag::mark(CpmImportDiag::SOURCE_BEGIN);
   Session session;
   if(!begin(source,session)) {
     gate.importSourceIssue.store(session.sourceIssue,std::memory_order_release);
@@ -156,7 +153,6 @@ inline bool preflight(CpmSafePoint::Gate &gate) {
   }
   gate.importTotalRecords.store(session.records,std::memory_order_release);
   gate.importExpectedCrc.store(session.expectedCrc,std::memory_order_release);
-  CpmImportDiag::mark(CpmImportDiag::SOURCE_RELEASE);
   if(!release(session.token)) {
     abort(session.token);
     gate.importSourceIssue.store(CpmSafePoint::SRC_RELEASE_FAILED,
@@ -164,22 +160,7 @@ inline bool preflight(CpmSafePoint::Gate &gate) {
     gate.fileError.store(CpmSafePoint::FILE_SD_SOURCE_FAILED,std::memory_order_release);
     return false;
   }
-  CpmImportDiag::mark(CpmImportDiag::IMPORT_COMPLETE);
   return true;
-}
-inline void traceBdos(uint8_t step,uint16_t record) {
-  using namespace CpmFileWriteService;
-  using namespace CpmImportDiag;
-  switch(step) {
-    case TRACE_SEARCH:mark(BDOS_SEARCH,record);break;
-    case TRACE_MAKE:mark(BDOS_MAKE,record);break;
-    case TRACE_SOURCE_READ:mark(SOURCE_READ,record);break;
-    case TRACE_WRITE:mark(BDOS_WRITE,record);break;
-    case TRACE_CLOSE:mark(BDOS_CLOSE,record);break;
-    case TRACE_VERIFY_OPEN:mark(VERIFY_OPEN,record);break;
-    case TRACE_VERIFY_READ:mark(VERIFY_READ,record);break;
-    case TRACE_VERIFY_CLOSE:mark(VERIFY_CLOSE,record);break;
-  }
 }
 inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
                     bool &needReset,void (*yieldCpu)()=nullptr) {
@@ -199,7 +180,6 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
   Session session;
   // Ensure the complete, valid 128-byte-aligned SD source was scanned
   // before calling even a single mutating native CP/M BDOS function.
-  CpmImportDiag::mark(CpmImportDiag::SOURCE_BEGIN);
   if(!begin(sourceName,session)) {
     gate.importSourceIssue.store(session.sourceIssue,std::memory_order_release);
     gate.fileError.store(CpmSafePoint::FILE_SD_SOURCE_FAILED,
@@ -208,12 +188,11 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
   }
   gate.importTotalRecords.store(session.records,std::memory_order_release);
   gate.importExpectedCrc.store(session.expectedCrc,std::memory_order_release);
-  CpmImportDiag::mark(CpmImportDiag::SOURCE_READY);
 
   CpmFileWriteService::Outcome outcome;
   const bool wrote=CpmFileWriteService::execute(
      bridge,destFcb,destDrive,session.records,session.expectedCrc,
-     &read,&session,outcome,needReset,yieldCpu,&gate,&traceBdos);
+     &read,&session,outcome,needReset,yieldCpu,&gate);
   gate.importPartialPossible.store(outcome.partialPossible,
                                    std::memory_order_release);
   gate.importSourceIssue.store(session.sourceIssue,std::memory_order_release);
@@ -222,7 +201,6 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
     abort(session.token);
     return false;
   }
-  CpmImportDiag::mark(CpmImportDiag::SOURCE_RELEASE);
   if(!finish(session.token)) {
     // CP/M readback succeeded; do NOT reissue MAKE or retry writes.
     // Any ambiguity here is limited to closing the read-only SD session.
@@ -233,7 +211,6 @@ inline bool execute(Z80Bridge *bridge,CpmSafePoint::Gate &gate,
     abort(session.token);
     return false;
   }
-  CpmImportDiag::mark(CpmImportDiag::IMPORT_COMPLETE);
   return true;
 }
 } // namespace CpmSdImport
