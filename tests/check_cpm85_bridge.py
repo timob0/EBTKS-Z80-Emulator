@@ -126,3 +126,16 @@ assert "lastTransferPhase" in control
 assert "gate.exportRecords.load(" in control
 assert "gate.exportCrc.load(" in control
 print("PASS: B2d HP transfer phase, gate reservation and atomic pre-start cancellation")
+
+# B2d literal SD import filename is independent of the CP/M drive
+# and preserved through the CPU gate to the Teensy importer.
+ctrl=(root/"ESP32_Z80_Emulator/cpm85_drive_control.h").read_text()
+imp=(root/"ESP32_Z80_Emulator/ebtks_cpm_sd_import.h").read_text()
+assert "safeTransferSource(sdSource)" in ctrl
+assert "strlcpy(transfer->sdSource,sdSource" in ctrl
+assert "transfer->sourceDrive,false,true,transfer->sdSource" in ctrl
+assert "requestedSourceLiteral[72]" in gate
+assert "literalSource=nullptr" in gate
+assert '"begin_literal"' in imp
+assert "requestedSourceLiteral[i].load(" in imp
+print("PASS: B2d literal Teensy SD filenames, no legacy A: drive remap")
