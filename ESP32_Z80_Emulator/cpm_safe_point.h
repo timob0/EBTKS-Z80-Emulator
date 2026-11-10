@@ -511,6 +511,18 @@ public:
     return false;
   }
 
+  // Reserve atomically against concurrent HTTP requests. Never steal an
+  // accepted WAIT/RUNNING operation from the native CCP service.
+  bool reserveForHp() {
+    if(requestBusy.test_and_set(std::memory_order_acquire))return false;
+    const uint8_t current=result.load(std::memory_order_acquire);
+    const bool ok=!hpTransferReserved.load(std::memory_order_acquire) &&
+                  current!=WAIT_EMPTY_LINE && current!=RUNNING;
+    if(ok)hpTransferReserved.store(true,std::memory_order_release);
+    requestBusy.clear(std::memory_order_release);
+    return ok;
+  }
+
   // Safe for the HP mailbox timeout handler: a request which has NOT
   // entered BDOS may be cancelled, but an actively running BDOS call is
   // never interrupted. Also stops any later blank line from triggering it.
