@@ -4,6 +4,7 @@
 #include "cpm_catalog_format.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <new>
 #include <string.h>
 
 // HP/CPM management over the already-running cpm_keys poll. Only this
@@ -395,9 +396,7 @@ inline void catalog(const char *arg) {
      if(!gate || !RUN || !gate->compatible.load(std::memory_order_acquire)) {
        setResult(false,"NATIVE CP/M IS NOT RUNNING");return;
      }
-     if(gate->result.load(std::memory_order_acquire)==CpmSafePoint::RUNNING ||
-        gate->result.load(std::memory_order_acquire)==CpmSafePoint::WAIT_EMPTY_LINE ||
-        gate->hpTransferReserved.exchange(true,std::memory_order_acq_rel)) {
+     if(!gate->reserveForHp()) {
        setResult(false,"CP/M SERVICE ALREADY IN USE");return;
      }
      if(!transfer)transfer=new(std::nothrow) Transfer;
