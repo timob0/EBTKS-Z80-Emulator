@@ -176,6 +176,9 @@ public:
   std::atomic<uint8_t> mode{UNKNOWN};
   std::atomic<uint8_t> result{NEVER};
   std::atomic<bool> compatible{false};
+  // B2d HP transfer owns the gate until a terminal outcome or safe cancel.
+  // Other request sources cannot replace its result while BASIC polls.
+  std::atomic<bool> hpTransferReserved{false};
   std::atomic<uint8_t> operation{PROBE};
   // 0=current drive, 1..16=explicit A:..P: FCB drive selector.
   std::atomic<uint8_t> requestedDrive{0};
@@ -431,8 +434,12 @@ public:
   bool request(Operation requested=PROBE,uint8_t drive=0,
                const uint8_t* fcbName=nullptr,uint16_t record=0,
                const uint8_t* sourceName=nullptr,uint8_t sourceDrive=0,
-               bool recoverOrphan=false) {
+               bool recoverOrphan=false,bool fromHpTransfer=false) {
     if(requestBusy.test_and_set(std::memory_order_acquire))return false;
+    if(hpTransferReserved.load(std::memory_order_acquire) && !fromHpTransfer) {
+      requestBusy.clear(std::memory_order_release);
+      return false;
+    }
     const uint32_t generation=inputGeneration.load(std::memory_order_acquire);
     if(!compatible.load(std::memory_order_acquire) ||
        mode.load(std::memory_order_acquire)!=CCP_INPUT) {
