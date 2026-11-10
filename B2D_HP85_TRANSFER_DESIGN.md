@@ -1,3 +1,18 @@
+## 2026-11-10 — Physical hardware export/import round trip
+
+User confirmed on actual HP-85 / EBTKS / ESP32 / native CP/M hardware:
+1. `F:MODEM.COM` exported from CP/M to Teensy SD by `CPEXPORT`.
+2. The exported file was imported back into CP/M as `A:MODEM.COM` by `CPIMPORT`.
+3. The resulting `A:MODEM.COM` program **ran successfully**.
+
+This is a successful functional executable round trip across both transfer directions and two CP/M drives, strong practical evidence of preserved file integrity. An independently measured byte comparison, CRC values and transfer record counts were **not supplied**; do not claim they were separately verified.
+
+Previous user tests also confirmed: read-only B: refused an import with an error, new A:TEST.COM imported successfully, F: import succeeded, and repeating a destination name on F: was correctly refused (no overwrite).
+
+Outstanding hardware test: CP/M-busy wait, C=Continue / A=Abort, cancellation before native CCP safe-point activation, and no delayed write upon return to prompt. No main-branch merge approval.
+
+---
+
 ## 2026-11-10 — User physical-hardware CPIMPORT regression results
 
 User exercised the B2d HP BASIC `CPIMPORT` command on actual HP-85/EBTKS/CP/M hardware:
