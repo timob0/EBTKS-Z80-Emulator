@@ -359,16 +359,16 @@ inline void catalog(const char *arg) {
    }
    char msg[224];
    if(t.phase==Transfer::PASSED) {
-     snprintf(msg,sizeof(msg),"%s PASSED\\n%u RECORDS %lu BYTES\\nCRC16 %u",
+     snprintf(msg,sizeof(msg),"%s PASSED\n%u RECORDS %lu BYTES\nCRC16 %u",
        t.operation==9?"CPEXPORT":"CPIMPORT",(unsigned)t.records,
        (unsigned long)t.records*128UL,(unsigned)t.crc);
      setResult(true,msg);
    } else {
-     snprintf(msg,sizeof(msg),"%s FAILED\\n%s / %s%s",
+     snprintf(msg,sizeof(msg),"%s FAILED\n%s / %s%s",
        t.operation==9?"CPEXPORT":"CPIMPORT",
        CpmSafePoint::fileErrorText(t.error),
        CpmSafePoint::sourceIssueText(t.sourceIssue),
-       t.partial?"\\nPOSSIBLE PARTIAL CP/M FILE":"");
+       t.partial?"\nPOSSIBLE PARTIAL CP/M FILE":"");
      setResult(false,msg);
    }
  }
