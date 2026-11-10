@@ -79,17 +79,11 @@ void portOut(uint8_t p, uint8_t v) {
       if (sdfound == true) {
         switch (v) {
           case 1: {
-            const bool trace=CpmImportDiag::tracingNativeImport();
-            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_READ_ENTER);
             diskRead();
-            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_READ_RETURN);
             pIn[DCMD]=0;break;
           }
           case 2: {
-            const bool trace=CpmImportDiag::tracingNativeImport();
-            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_WRITE_ENTER);
             diskWrite();
-            if(trace)CpmImportDiag::mark(CpmImportDiag::DISK_WRITE_RETURN);
             pIn[DCMD]=0;break;
           }
           case 4: SDfileOpen();       pIn[DCMD] = 0; break;
@@ -253,10 +247,6 @@ void CPUTask(void *) {
         ok=CpmServiceProbe::execute(&ebtksCpuBridge);
       }
       if(gate)gate->complete(ok);
-      if(gate && (gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD ||
-                  gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD))
-        CpmImportDiag::finish(resetNeeded?CpmImportDiag::Z80_RESET_REQUESTED:
-                              ok?CpmImportDiag::PASSED:CpmImportDiag::FAILED);
       PC=Z80_PC(ebtksCpuBridge.cpu);
       if(resetNeeded) {
         // The outer loop will rebootstrap the Z80 and Gate::reset() will
