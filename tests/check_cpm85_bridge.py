@@ -145,3 +145,16 @@ assert "mode==CpmSafePoint::BUSY || mode==CpmSafePoint::PROBE_RUNNING" in ctrl
 assert 'lastTransferPhase=\'B\'' in ctrl
 assert 'CP/M RUNNING PROGRAM - RETURN TO A>' in ctrl
 print("PASS: known-busy phase is reported promptly without authorizing BDOS")
+
+# B2d export rename: CP/M 8.3 source is parsed independently from
+# optional SD-relative destination. Import still uses literal SD source.
+exp=(root/"ESP32_Z80_Emulator/ebtks_cpm_sd_export.h").read_text()
+assert "valid=CpmFileReadService::parseName(cpmName,dstDrive,dst) &&" in ctrl
+assert "safeTransferSource(sep+1)" in ctrl
+assert "if(!sep)valid=CpmFileReadService::parseName(args,dstDrive,dst);" in ctrl
+assert "transfer->filename,0,nullptr,0,false,true," in ctrl
+assert "transfer->sdSource):" in ctrl
+assert 'cmd["cpm_export"]["sd_name"]=literalDestination;' in exp
+assert "requestedSourceLiteral[i].load(" in exp
+assert "requested==EXPORT_SD || requested==IMPORT_SD ||" in gate
+print("PASS: optional CPEXPORT destination keeps CP/M FCB and SD-path validators separate")
