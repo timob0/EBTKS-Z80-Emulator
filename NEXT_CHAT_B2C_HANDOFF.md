@@ -1,3 +1,23 @@
+# Update 2026-11-10 — B2c diagnostic cleanup source changes committed
+
+The earlier "NEXT B2c cleanup" instructions below were acted upon on
+ESP32 `feature/cpm-file-transfer-b2c` only. Removed temporary RTC
+trace header/hooks, BDOS per-stage callback and `/api/cpm/service/diag`;
+rewrote `tests/check_b2c_diagnostics.py` as production-safety assertions.
+Kept validated **8192-byte** Z80 CPU task stack, read-only SD source
+preflight, source release/name-guarded recovery, error codes,
+partial-file reporting and independent BDOS readback. No Teensy or
+Option ROM changes. Static source audit of edited paths passed.
+
+**NEXT IMMEDIATE GATE:** run native Z80 tests, Python static checks,
+both ESP32 PlatformIO builds and TFT DRAM budget. These builds/tests
+have NOT yet been observed passing and no cleaned firmware has been
+flashed. Do not merge into `main` without user approval. The tested
+physical image remains ESP32 `5cc28cca44adb9e5a4305799e603eccfb4fd6e2b`.
+After cleaned build acceptance, proceed to B2d BASIC commands.
+
+---
+
 # SIMON85 / CP/M integration — START HERE for next chat (2026-11-10)
 
 > **Status: B2b EXPORT and B2c IMPORT passed on real HP-85 hardware.
