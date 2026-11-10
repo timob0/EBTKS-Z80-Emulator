@@ -1,3 +1,30 @@
+## 2026-11-10: B2c runtime diagnostic cleanup committed (build gates pending)
+
+The ESP32 `feature/cpm-file-transfer-b2c` branch now removes
+`cpm_import_diag.h`, RTC boot/disk/BDOS trace instrumentation,
+`CpmFileWriteService::TraceCallback`, and
+`GET /api/cpm/service/diag`. Its static diagnostic test is rewritten
+to enforce production safety properties; the existing CI test command
+is unchanged. The offline ELF stack-frame analyzer is retained.
+
+**Retained intentionally:** physically validated 8192-byte Z80 CPU
+task stack, safe-point preflight via `/api/cpm/service/source`,
+source-name-guarded recovery, read-only SD release, reason-specific
+source errors, sticky reset/partial warnings, BDOS CREATE-NEW,
+CRC and independent readback. Teensy code/protocol is unchanged.
+No HP Option ROM or `main` change.
+
+GitHub source inspection after the edits confirmed the stack value,
+retained preflight/error/readback symbols, updated execute signature
+and no RTC trace references in the edited runtime files. **No compiler,
+native-suite, CI, ELF/DRAM-budget or hardware results are claimed here.**
+Run native suite, B2c static regression and both PlatformIO targets
+plus static DRAM guard. Preserve the accepted firmware and backups;
+then perform at most one controlled cleaned-firmware regression flash
+before requesting permission for any `main` merge.
+
+---
+
 ## 2026-11-10: Native CP/M file confirmation — B2c functionally accepted
 
 After the successful B2c import, user independently checked the
