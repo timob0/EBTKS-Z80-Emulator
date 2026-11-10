@@ -281,6 +281,7 @@ inline void catalog(const char *arg) {
  struct Transfer {
    enum Phase : uint8_t { WAIT_CCP, WAIT_EMPTY, ACTIVE, PASSED, FAILED, CANCELLED };
    uint16_t id=0;
+   uint32_t lastClientMs=0;
    Phase phase=WAIT_CCP;
    uint8_t operation=0,drive=0,sourceDrive=0;
    uint8_t filename[11]{},source[11]{};
@@ -406,6 +407,7 @@ inline void catalog(const char *arg) {
      }
      *transfer=Transfer{};
      transfer->id=seq;transfer->operation=op;
+     transfer->lastClientMs=millis();
      transfer->drive=dstDrive;transfer->sourceDrive=srcDrive;
      memcpy(transfer->filename,dst,11);
      memcpy(transfer->source,src,11);
@@ -417,9 +419,11 @@ inline void catalog(const char *arg) {
      setResult(false,"UNKNOWN TRANSFER TRANSACTION");return;
    }
    if(op==11) {
+     transfer->lastClientMs=millis();
      transferPoll();transferReply();return;
    }
    if(op==12) {
+     transfer->lastClientMs=millis();
      if(transferTerminal(transfer->phase)) {transferReply();return;}
      if(transfer->phase==Transfer::WAIT_CCP) {
        transfer->phase=Transfer::CANCELLED;
@@ -441,6 +445,27 @@ inline void catalog(const char *arg) {
    setResult(false,"INVALID TRANSFER CONTROL OP");
  }
 
+// Revisit the outstanding gate from the existing cpm_keys poll loop.
+ // A lost HP BASIC connection may not leave a request armed forever.
+ // Expiry can only cancel a request that has not begun guest BDOS.
+ inline void transferWatchdog() {
+   if(!transfer || transferTerminal(transfer->phase))return;
+   CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+   if((uint32_t)(millis()-transfer->lastClientMs)>60000UL) {
+     if(transfer->phase==Transfer::WAIT_CCP) {
+       transfer->phase=Transfer::CANCELLED;
+       if(gate)gate->hpTransferReserved.store(false,std::memory_order_release);
+       return;
+     }
+     if(transfer->phase==Transfer::WAIT_EMPTY && gate &&
+        gate->cancelPending()) {
+       transfer->phase=Transfer::CANCELLED;
+       gate->hpTransferReserved.store(false,std::memory_order_release);
+       return;
+     }
+   }
+   transferPoll();
+ }
 inline void execute(uint8_t op,const char *args) {
   char msg[112]={};
   uint8_t drive=0;
@@ -509,6 +534,7 @@ inline void receiveCommand(JsonVariantConst command) {
   pendingAck=true;
 }
 inline void appendAck(JsonObject request) {
+  transferWatchdog();
   if(!pendingAck)return;
   JsonObject ack=request["ack"].to<JsonObject>();
   ack["seq"]=lastSequence;
