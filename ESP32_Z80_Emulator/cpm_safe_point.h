@@ -417,10 +417,11 @@ public:
     if(pc==kCcpPrompt) {
       insideVerifiedCcpPrompt=true;
       mode.store(BUSY,std::memory_order_release);
+      uint8_t waiting=WAIT_EMPTY_LINE;
       if(blankInputReturned &&
-         result.load(std::memory_order_acquire)==WAIT_EMPTY_LINE) {
+         result.compare_exchange_strong(waiting,RUNNING,
+                                        std::memory_order_acq_rel)) {
         blankInputReturned=false;
-        result.store(RUNNING,std::memory_order_release);
         if(operation.load(std::memory_order_acquire)!=PROBE)
           checkpoint.store(BDOS_ENTER,std::memory_order_release);
         mode.store(PROBE_RUNNING,std::memory_order_release);
