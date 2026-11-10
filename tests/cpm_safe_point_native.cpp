@@ -278,8 +278,55 @@ static void testBdosFailureForensicsSurviveZ80ColdRestart() {
   assert(f.gate.lastDirectoryReset.load());
 }
 
+
+static void testHpTransferOwnershipAndCancelStartRace() {
+  Fixture f;
+  assert(f.gate.reserveForHp());
+  assert(!f.gate.reserveForHp()); // never steal the same transfer
+  f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem);
+  f.gate.fetch(CpmSafePoint::kCcpConsoleInput,f.mem);
+  assert(!f.gate.request(CpmSafePoint::EXPORT_SD,1,nullptr));
+  const uint8_t name[11]={'S','T','A','T',' ',' ',' ',' ','C','O','M'};
+  assert(f.gate.request(CpmSafePoint::EXPORT_SD,1,name,0,
+                        nullptr,0,false,true));
+  assert(f.gate.result.load()==CpmSafePoint::WAIT_EMPTY_LINE);
+  f.gate.observeLineCount(0);
+  f.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
+  assert(f.gate.takeAutomaticReturn());
+  f.mem[CpmSafePoint::kCcpInputLength]=0;
+  f.gate.fetch(CpmSafePoint::kCcpInputReturn,f.mem);
+  f.gate.fetch(CpmSafePoint::kCcpCommand,f.mem);
+  assert(f.gate.cancelPending());
+  // Even a previously prepared synthetic CR cannot execute BDOS after
+  // the timeout cancellation has atomically won the WAIT -> RUNNING CAS.
+  assert(!f.gate.fetch(CpmSafePoint::kCcpPrompt,f.mem));
+  assert(f.gate.result.load()==CpmSafePoint::INPUT_NOT_EMPTY);
+  f.gate.hpTransferReserved.store(false);
+  assert(!f.gate.cancelPending());
+
+  Fixture running;
+  running.gate.fetch(CpmSafePoint::kCcpPrompt,running.mem);
+  running.gate.fetch(CpmSafePoint::kCcpConsoleInput,running.mem);
+  assert(running.gate.reserveForHp());
+  assert(running.gate.request(CpmSafePoint::EXPORT_SD,1,name,0,
+                              nullptr,0,false,true));
+  running.gate.observeLineCount(0);
+  running.gate.observeFetchedOpcode(CpmSafePoint::kBiosConinPollA);
+  assert(running.gate.takeAutomaticReturn());
+  running.mem[CpmSafePoint::kCcpInputLength]=0;
+  running.gate.fetch(CpmSafePoint::kCcpInputReturn,running.mem);
+  running.gate.fetch(CpmSafePoint::kCcpCommand,running.mem);
+  assert(running.gate.fetch(CpmSafePoint::kCcpPrompt,running.mem));
+  assert(running.gate.result.load()==CpmSafePoint::RUNNING);
+  assert(!running.gate.cancelPending()); // active BDOS cannot be aborted
+  running.gate.complete(true);
+  assert(running.gate.result.load()==CpmSafePoint::PASSED);
+  running.gate.hpTransferReserved.store(false);
+}
+
 int main(){
   testRejectAbsentAndBusy();
+  testHpTransferOwnershipAndCancelStartRace();
   testRejectWrongCcpOrMissingNative();
   testRealZ80TrapExecuteAndRestore();
   testDirectoryAutoReturnOnlyAtEmptyNativeLine();
