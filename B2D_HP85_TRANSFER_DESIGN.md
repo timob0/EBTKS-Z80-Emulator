@@ -1,3 +1,66 @@
+## 2026-11-10 — Busy prompt hardware failure, B2d v0.05b correction
+
+User hardware observation:
+- CPIMPORT busy wait took approximately **30 seconds** to show the C/A prompt.
+- Pressing **A** did NOT cause the command to abort; HP RESET was used.
+- Later, after CP/M returned to its prompt, retry of CPIMPORT initially
+  reported `TRANSFER CANCELLED BEFORE BDOS START` after several seconds,
+  followed by a successful further retry.
+
+Do NOT interpret that stale cancellation report as proof that HP RESET
+properly cancelled the requested transfer. The original transfer likely
+remained owned by Teensy/ESP32 until a later status poll or the server's
+60-second pre-start watchdog cancelled it. This was a serious usability and
+state clarity defect.
+
+The **root cause on HP** is likely KEYHIT being a single pending system
+service slot: the earlier v0.05a prompt compared KEYHIT values, but while
+the binary BASIC statement is running SVCWRD can retain a pending key and
+KEYHIT need not change upon another keypress. System keyboard controller
+documentation confirms KEYSTS read bit 1 indicates key pressed and KEYCOD
+reads the raw key code. v0.05b switches to physical release/press detection
+using the previously hardware-proven PRINTER85 KEYSTS LRB/JEV pattern,
+then KEYCOD, without installing a new CHIDLE/KYIDLE hook.
+
+v0.05b also:
+- Adjusts the uncalibrated wait counter from 100 to 40 polls, nominal
+  target ~12 seconds assuming ~30 s for 100 hardware polls; measure in
+  hardware rather than claiming an exact 10-second timeout.
+- Adds BASIC `CPXSTAT` for querying the original transaction after RESET,
+  and `CPABORT` for an explicit remotely acknowledged pre-start
+  cancellation of that same transaction. If BDOS has already started,
+  `CPABORT` **does not stop or undo it**.
+- Teensy rejects a second CPIMPORT/CPEXPORT START while a transfer remains
+  owned with an explicit `PREVIOUS TRANSFER UNRESOLVED` error, instead
+  of silently ignoring it and allowing a confusing query of an old ID.
+- Preserves the original transfer ID across local HP mailbox timeout;
+  a delayed or lost ACK is not grounds for retransmitting the write.
+
+Next hardware sequence, **without any CP/M file write**, only after matched
+firmware and CPM85 v0.05b assembly/CI:
+1. With CP/M running a deliberately busy, non-writing program,
+   `CPIMPORT "A_STAT.COM","F:ABRTST.COM"` (verify destination absent).
+   Wait for prompt and press A. Expect `TRANSFER CANCELLED BEFORE BDOS START`
+   promptly, and HP BASIC returns.
+2. Return to native CP/M prompt; confirm F:ABRTST.COM was **not created**.
+   Use `CPXSTAT` to display terminal state if needed.
+3. Separately test `C` at the busy prompt and confirm it continues the
+   **same** transfer without duplication. To avoid a write in this stage,
+   use an intentionally nonexistent SD source filename.
+4. To test interrupted BASIC state, while CP/M busy, interrupt the HP
+   transfer with RESET. **Do not immediately retry CPIMPORT**; use
+   `CPXSTAT` followed by `CPABORT` if still pending. A clear
+   terminal/aborted message should precede any new START.
+5. If A still does not register, do not proceed with transfer writes;
+   log key behavior and revert to accepted working B2d import/export
+   build. No `main` merge yet.
+
+Hardware acceptance of the C/A path remains **pending** until user
+confirms. Previous successful import/export round trip is unaffected
+by the revised HP prompt logic.
+
+---
+
 ## 2026-11-10 — Physical hardware export/import round trip
 
 User confirmed on actual HP-85 / EBTKS / ESP32 / native CP/M hardware:
