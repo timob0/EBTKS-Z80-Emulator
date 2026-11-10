@@ -344,7 +344,8 @@ inline void catalog(const char *arg) {
    if(transfer->phase==Transfer::WAIT_CCP) {
      const bool accepted=transfer->operation==9?
        gate->request(CpmSafePoint::EXPORT_SD,transfer->drive,
-                     transfer->filename,0,nullptr,0,false,true):
+                     transfer->filename,0,nullptr,0,false,true,
+                     transfer->sdSource):
        gate->request(CpmSafePoint::IMPORT_SD,transfer->drive,
                      transfer->filename,0,transfer->source,
                      transfer->sourceDrive,false,true,transfer->sdSource);
@@ -436,8 +437,20 @@ inline void catalog(const char *arg) {
      uint8_t dstDrive=0,srcDrive=0,dst[11]{},src[11]{};
      char sdSource[72]{};
      bool valid=false;
-     if(op==9) valid=CpmFileReadService::parseName(args,dstDrive,dst);
-     else {
+     if(op==9) {
+       // The first operand always names a genuine CP/M drive + 8.3
+       // source. Optional second is a literal Teensy SD filename/path.
+       const char *sep=args?strchr(args,'|'):nullptr;
+       if(!sep)valid=CpmFileReadService::parseName(args,dstDrive,dst);
+       else if(sep!=args && (size_t)(sep-args)<=14 &&
+               strlen(sep+1)<sizeof(sdSource)) {
+         char cpmName[16]{};
+         memcpy(cpmName,args,(size_t)(sep-args));
+         valid=CpmFileReadService::parseName(cpmName,dstDrive,dst) &&
+               safeTransferSource(sep+1);
+         if(valid)strlcpy(sdSource,sep+1,sizeof(sdSource));
+       }
+     } else {
        const char *sep=args?strchr(args,'|'):nullptr;
        if(sep && sep!=args && (size_t)(sep-args)<sizeof(sdSource) &&
           strlen(sep+1)<=14) {
@@ -450,7 +463,7 @@ inline void catalog(const char *arg) {
          srcDrive=1;
        }
      }
-     if(!valid){setResult(false,"INVALID SD SOURCE PATH OR CP/M 8.3 DESTINATION");return;}
+     if(!valid){setResult(false,"INVALID CP/M 8.3 NAME OR SD RELATIVE PATH");return;}
      if(!gate || !RUN || !gate->compatible.load(std::memory_order_acquire)) {
        setResult(false,"NATIVE CP/M IS NOT RUNNING");return;
      }
