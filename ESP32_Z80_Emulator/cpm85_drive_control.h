@@ -13,6 +13,8 @@
 namespace Cpm85DriveControl {
 static bool pendingAck=false, haveLast=false;
 static uint16_t lastSequence=0;
+static uint8_t lastOperation=0;
+static char lastTransferPhase='E'; // W=CCP wait, P=armed, R=BDOS, S/F/X terminal, E=invalid
 static bool lastOk=false;
 static constexpr size_t kTextMax=680;
 static char *lastText=nullptr; // lazily allocated, outside static TFT DRAM
@@ -344,27 +346,34 @@ inline void catalog(const char *arg) {
    transferSnapshot(*gate);
  }
  inline void transferReply() {
+   lastTransferPhase='E';
    if(!transfer){setResult(false,"TRANSFER NOT STARTED");return;}
    const Transfer &t=*transfer;
    if(t.phase==Transfer::WAIT_CCP) {
+     lastTransferPhase='W';
      setResult(true,"WAITING FOR CP/M A> (NOT STARTED)");return;
    }
    if(t.phase==Transfer::WAIT_EMPTY) {
+     lastTransferPhase='P';
      setResult(true,"WAITING FOR VERIFIED BLANK CCP RETURN");return;
    }
    if(t.phase==Transfer::ACTIVE) {
+     lastTransferPhase='R';
      setResult(true,"TRANSFER RUNNING - DO NOT ABORT");return;
    }
    if(t.phase==Transfer::CANCELLED) {
+     lastTransferPhase='X';
      setResult(true,"TRANSFER CANCELLED BEFORE BDOS START");return;
    }
    char msg[224];
    if(t.phase==Transfer::PASSED) {
+     lastTransferPhase='S';
      snprintf(msg,sizeof(msg),"%s PASSED\n%u RECORDS %lu BYTES\nCRC16 %u",
        t.operation==9?"CPEXPORT":"CPIMPORT",(unsigned)t.records,
        (unsigned long)t.records*128UL,(unsigned)t.crc);
      setResult(true,msg);
    } else {
+     lastTransferPhase='F';
      snprintf(msg,sizeof(msg),"%s FAILED\n%s / %s%s",
        t.operation==9?"CPEXPORT":"CPIMPORT",
        CpmSafePoint::fileErrorText(t.error),
@@ -438,6 +447,7 @@ inline void catalog(const char *arg) {
      // A losing CAS means BDOS may already be in progress. NEVER cancel it.
      transferPoll();
      if(transfer && transfer->phase==Transfer::ACTIVE) {
+       lastTransferPhase='R';
        setResult(false,"ALREADY STARTED - WAIT FOR COMPLETION");return;
      }
      transferReply();return;
@@ -523,6 +533,8 @@ inline void receiveCommand(JsonVariantConst command) {
   // particular CPRESET must not run twice.
   if(!haveLast || lastSequence!=(uint16_t)seq) {
     lastSequence=(uint16_t)seq;
+    lastOperation=(uint8_t)op;
+    lastTransferPhase='E';
     haveLast=true;
     const char *args=command["args"] | "";
     const int txn=command["txn"] | -1;
@@ -540,7 +552,10 @@ inline void appendAck(JsonObject request) {
   ack["seq"]=lastSequence;
   ack["ok"]=lastOk;
   ack["text"]=lastText?lastText:"CPM85 MEMORY LOW";
-  if(transfer)ack["txn"]=transfer->id;
+  if(lastOperation>=9) {
+    ack["phase"]=String(lastTransferPhase);
+    if(transfer)ack["txn"]=transfer->id;
+  }
 }
 inline void ackPollCompleted() {pendingAck=false;}
 } // namespace Cpm85DriveControl
