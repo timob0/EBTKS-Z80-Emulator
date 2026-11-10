@@ -1,3 +1,22 @@
+## 2026-11-10 — HP-85 CP/M console regression confirmed
+
+User confirmed on physical hardware that **K8 exits the HP-85 CP/M
+console back to HP BASIC**, and issuing `CPM` reconnects successfully
+to the **same continuously running CP/M session**. This closes the
+previously outstanding K8/console re-entry check following the
+cleaned B2c firmware flash. Existing `DIR` and `IMPTST.COM`
+checks also passed. No additional import/flash needed for this
+confirmation.
+
+Outstanding, if strict full regression sign-off is required:
+separate active TFT/Web terminal functional report and explicit
+native-suite/TFT DRAM output have not been provided in this chat.
+No `main` merge approval has been granted. Next development target:
+B2d blocking BASIC `CPEXPORT`/`CPIMPORT` with CP/M idle
+safe-point wait and pre-start abort semantics.
+
+---
+
 ## 2026-11-10 — Cleaned B2c firmware physical regression update
 
 User reports cleaned ESP32 `esp32dev-tft` firmware built successfully,
