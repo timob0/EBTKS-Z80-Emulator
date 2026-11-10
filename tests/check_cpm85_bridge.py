@@ -139,3 +139,9 @@ assert "literalSource=nullptr" in gate
 assert '"begin_literal"' in imp
 assert "requestedSourceLiteral[i].load(" in imp
 print("PASS: B2d literal Teensy SD filenames, no legacy A: drive remap")
+
+# B2d: verified running program must be distinguished from unknown CCP state.
+assert "mode==CpmSafePoint::BUSY || mode==CpmSafePoint::PROBE_RUNNING" in ctrl
+assert 'lastTransferPhase=\'B\'' in ctrl
+assert 'CP/M RUNNING PROGRAM - RETURN TO A>' in ctrl
+print("PASS: known-busy phase is reported promptly without authorizing BDOS")
