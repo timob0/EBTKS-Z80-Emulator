@@ -438,7 +438,8 @@ public:
   bool request(Operation requested=PROBE,uint8_t drive=0,
                const uint8_t* fcbName=nullptr,uint16_t record=0,
                const uint8_t* sourceName=nullptr,uint8_t sourceDrive=0,
-               bool recoverOrphan=false,bool fromHpTransfer=false) {
+               bool recoverOrphan=false,bool fromHpTransfer=false,
+               const char *literalSource=nullptr) {
     if(requestBusy.test_and_set(std::memory_order_acquire))return false;
     if(hpTransferReserved.load(std::memory_order_acquire) && !fromHpTransfer) {
       requestBusy.clear(std::memory_order_release);
@@ -469,8 +470,18 @@ public:
       return false;
     }
     requestedDrive.store(drive,std::memory_order_release);
-    if(requested==IMPORT_SD || requested==PREFLIGHT_SD)
-      requestedSourceLiteral[0].store(0,std::memory_order_release);
+    if(requested==IMPORT_SD || requested==PREFLIGHT_SD) {
+      // Populate complete literal before WAIT_EMPTY_LINE becomes visible.
+      // B2c HTTP requests pass nullptr and keep the original A:NAME map.
+      const size_t n=literalSource?strnlen(literalSource,72):0;
+      if(n>=72) {
+        requestBusy.clear(std::memory_order_release);
+        return false;
+      }
+      for(size_t i=0;i<=n;++i)
+        requestedSourceLiteral[i].store(i<n?literalSource[i]:0,
+                                        std::memory_order_relaxed);
+    }
     if(requested==READ_RECORD || requested==EXPORT_SD ||
        requested==IMPORT_SD || requested==PREFLIGHT_SD) {
       for(unsigned i=0;i<11;++i)
