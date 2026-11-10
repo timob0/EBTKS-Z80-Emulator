@@ -66,7 +66,7 @@ admitted=re.search(r'if\s*\(\s*op\s*<\s*1\s*\|\|\s*op\s*>\s*(\d+)\s*\|\|',contro
 assert admitted, "missing command validator"
 max_op=int(admitted.group(1))
 dispatched=[int(op) for op in re.findall(r'if\s*\(\s*op\s*==\s*(\d+)\s*\)',control)]
-assert dispatched and max_op==max(dispatched)==7, (max_op,dispatched)
+assert dispatched and max_op==max(dispatched)==12, (max_op,dispatched)
 assert 'setResult(false,"INVALID CP/M REQUEST")' in control
 assert 'request["cpm_image"]["op"] = "begin"' in control
 assert 'statusReq["cpm_image"]["op"] = "status"' in control
@@ -111,3 +111,18 @@ for prefix in expected_lines:
     )
     assert (chr(92)+"n") not in matched[0], (prefix,matched)
 print("PASS: HP CPDCAT sends real ASCII LF in header, entries and footers")
+
+# B2d: private HP transfer transaction ownership and safe wait/cancel.
+gate=(root/"ESP32_Z80_Emulator/cpm_safe_point.h").read_text()
+assert "bool reserveForHp()" in gate
+assert "bool fromHpTransfer=false" in gate
+assert "result.compare_exchange_strong(waiting,RUNNING" in gate
+assert "gate->reserveForHp()" in control
+assert "inline void transferWatchdog()" in control
+assert "gate->cancelPending()" in control
+assert "WAITING FOR CP/M A>" in control
+assert "ALREADY STARTED - WAIT FOR COMPLETION" in control
+assert "lastTransferPhase" in control
+assert "gate.exportRecords.load(" in control
+assert "gate.exportCrc.load(" in control
+print("PASS: B2d HP transfer phase, gate reservation and atomic pre-start cancellation")
