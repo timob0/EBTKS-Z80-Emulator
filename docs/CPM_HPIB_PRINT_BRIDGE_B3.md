@@ -1,3 +1,38 @@
+## 2026-11-11 — B3a foreground keyboard experiment implementation (ROM only)
+
+Implemented `CPLOOP` as an **EXPERIMENTAL** non-printer diagnostic command
+in `timob0/HP85-Option-Roms` on this same feature branch.
+CPM85 `CPVER` now reports **0.07a LOOP PROBE**. The new command:
+- runs in ordinary HP BASIC foreground (not from CHIDLE);
+- verifies no other hook owns CHIDLE, leaves hook bytes untouched;
+- marks Teensy keyboard input active on existing 0342 HP port;
+- polls physical HP key-down status (177402) and raw keycode (177403);
+- forwards one key event per press through the already-proven 0341 port;
+- consumes K8 locally and sets keyboard attach=0, then returns to BASIC;
+- uses a bounded delay and an *approximate* safety watchdog to return
+  automatically after 16384 poll cycles, even if K8 detection fails;
+- does **not** yet implement HP-IB output, printer queue, online/offline
+  status, K7, CPPRT or modification of the existing stable `CPM` command.
+
+Assembly, CAPLIF packaging, static keyword ABI and the pocket guide tests
+are run in the Option ROM GitHub Actions on the feature branch; hardware
+test of the foreground polling behavior is still REQUIRED before proceeding.
+
+**ROM-only hardware test:** pull only the HP85-Option-Roms feature branch,
+assemble/load 0.07a CP/M binary, verify `CPVER`, run `CPLOOP` with
+work saved and CP/M already available, type some keys at the CP/M prompt,
+press K8 and verify HP BASIC returns, then run the proven `CPM` mode
+to make sure no regressions. Auto-exit is a safety net, not a
+guaranteed wall-clock timeout. Keep the prior 0.06d LOADBIN around as
+a rollback.
+
+**No ESP32 or Teensy changes or flashes are required** for B3a at this
+checkpoint. Do not merge until user acceptance. Subsequent stage adds
+virtual printer FIFO/status and host HP-IB printer output to the
+validated foreground loop.
+
+---
+
 ## 2026-11-11 — Virtual printer readiness and operator control (confirmed direction)
 
 **Requirements from the user:** CP/M virtual printer starts **OFFLINE**;
