@@ -1,3 +1,28 @@
+## 2026-11-11 — v0.07c HP-85 lockup: REVERTED (do not test)
+
+User built and loaded the v0.07c foreground diagnostics after the CAPASM
+relative-branch fix. **CPLOOP froze the physical HP-85 and could not exit
+on K8. HP RESET was required.** Assembly success did not imply runtime
+safety. The specific cause has NOT been established; v0.07c added repeated
+KEYHIT reads, more register/state tracking and a jump relay, so these
+must be isolated before attributing the freeze.
+
+**Action:** In HP85-Option-Roms on `feature/cpm-hpib-print-bridge`, restored
+`src/cpm85.asm`, its two regression tests and the CPM85 pocket guide
+from previously hardware-tested v0.07b commit
+`89320f801431c66635427c8b5c412dc2919c7e06`.
+The reverted v0.07b experimental CPLOOP exits on K8 but fails to forward
+ordinary keys: CPCOUNT=1 and CPLAST=153 (decimal) regardless of input.
+The original `CPM` keyboard handler remains functional. Production main
+continues to contain the hardware-accepted v0.06d code.
+
+**Do not load or retry v0.07c.** If currently loaded, restore known-good
+0.06d. No ESP32 or Teensy firmware changes were made. Printer features
+are not implemented yet. Next investigate an alternative service model
+that retains the proven CHIDLE keyboard path, rather than risk expanding
+the foreground keyboard scanner again without HP hardware evidence.
+
+---
 ## 2026-11-11 — v0.07b physical result and v0.07c raw keyboard sampling
 
 User tested CPM85 v0.07b `CPLOOP` with different keys. In every
