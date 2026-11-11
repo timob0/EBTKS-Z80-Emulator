@@ -266,4 +266,4 @@ Detailed references:
 - [Modem](CPM_WIFI_MODEM.md)
 - [Memory audit](ESP32_MEMORY_AUDIT.md)
 - [USB recovery](ESP32_RECOVERY_USB.md)
-- [Getting started](GETTING_STARTED.md)
+- [Getting started](../GETTING_STARTED.md)
