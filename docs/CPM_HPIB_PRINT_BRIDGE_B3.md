@@ -1,3 +1,46 @@
+## 2026-11-11 — v0.07b physical result and v0.07c raw keyboard sampling
+
+User tested CPM85 v0.07b `CPLOOP` with different keys. In every
+trial `PRINT CPCOUNT` gave **1** and `PRINT CPLAST` gave
+**153 decimal** (octal 0231), **not** K8 (K8=octal 0207 = decimal 135).
+The last recorded value matches a backspace-code mapping, but the
+meaning of KEYCOD under foreground execution is still unknown.
+
+One possible explanation: CPLOOP sees a single depressed-key edge,
+then the KEYSTS bit-1 low/release condition is never sampled. The K8
+exit works because K8 is detected *before* the down-edge gate.
+Another: hardware KEYCOD is raw hardware scanning, not the decoded
+KEYHIT code expected by the Teensy/ESP32 translation path.
+
+In `timob0/HP85-Option-Roms` B3 branch, **v0.07c LOOP PROBE** now
+samples all three registers on **every foreground loop iteration**
+(including the exit iteration), tracking the state and transitions:
+- `CPCOUNT`: initial/key-down edges accepted by probe, modulo 256;
+- `CPLAST`: raw KEYCOD at last accepted key-down edge (does not include K8);
+- `CPKSTS`: last raw KEYSTS byte;
+- `CPKCOD`: last raw KEYCOD byte (may include K8);
+- `CPKHIT`: last BASIC-decoded KEYHIT byte;
+- `CPKREL`: released-to-no-bit1 transitions after accepted key-down;
+- `CPKCHG`: KEYHIT value changes between sampled iterations;
+- `CPKTRN`: any raw KEYSTS byte changes between sampled iterations.
+
+All counters are 8-bit modulo 256 and initialize on each `CPLOOP`.
+Because `CPKSTS`, `CPKCOD` and `CPKHIT` are last samples,
+their values may describe K8 exit rather than the preceding ordinary
+key; counters are essential to interpretation.
+
+**Hardware test:** load CPM85 v0.07c, `CPVER` verifies version,
+run `CPLOOP`, press A and release, B and release, K8 to exit.
+Then `PRINT CPCOUNT,CPLAST,CPKSTS,CPKCOD,CPKHIT,CPKREL,CPKCHG,CPKTRN`.
+Repeat once with only A then K8 if useful. Confirm that the existing
+`CPM` command still works. Observe whether CPLOOP times out
+automatically. Do not change Teensy or ESP32 firmware yet.
+
+B3 printing, CPPRT, online/offline and K7 are still not implemented.
+Do not merge into main until hardware acceptance.
+
+---
+
 ## 2026-11-11 — First physical CPLOOP regression and next diagnostic
 
 User built/loaded CPM85 v0.07a on real HP-85:
