@@ -4,6 +4,7 @@
 #include "cpm_catalog_format.h"
 #include <ctype.h>
 #include <stdio.h>
+#include <new>
 #include <string.h>
 
 // HP/CPM management over the already-running cpm_keys poll. Only this
@@ -12,6 +13,8 @@
 namespace Cpm85DriveControl {
 static bool pendingAck=false, haveLast=false;
 static uint16_t lastSequence=0;
+static uint8_t lastOperation=0;
+static char lastTransferPhase='E'; // W=CCP wait, P=armed, R=BDOS, S/F/X terminal, E=invalid
 static bool lastOk=false;
 static constexpr size_t kTextMax=680;
 static char *lastText=nullptr; // lazily allocated, outside static TFT DRAM
@@ -273,6 +276,268 @@ inline void catalog(const char *arg) {
   lastOk=true;
 }
 
+
+ // B2d: An HP BASIC transfer is a single owned, repeatably queryable
+ // transaction. The controller runs only on the existing cpm_keys poll worker.
+ // BDOS and Teensy SD data still execute exclusively on the pinned CPU task.
+ struct Transfer {
+   enum Phase : uint8_t { WAIT_CCP, WAIT_EMPTY, ACTIVE, PASSED, FAILED, CANCELLED };
+   uint16_t id=0;
+   uint32_t lastClientMs=0;
+   Phase phase=WAIT_CCP;
+   uint8_t operation=0,drive=0,sourceDrive=0;
+   uint8_t filename[11]{},source[11]{};
+   char sdSource[72]{};
+   uint8_t error=0,sourceIssue=0;
+   uint16_t records=0,crc=0xFFFF;
+   bool partial=false;
+ };
+ static Transfer *transfer=nullptr; // allocated lazily; TFT static DRAM guard
+ inline bool transferTerminal(Transfer::Phase p) {
+   return p==Transfer::PASSED||p==Transfer::FAILED||p==Transfer::CANCELLED;
+ }
+ inline void transferSnapshot(CpmSafePoint::Gate &gate) {
+   Transfer &t=*transfer;
+   const uint8_t result=gate.result.load(std::memory_order_acquire);
+   if(result==CpmSafePoint::WAIT_EMPTY_LINE) {t.phase=Transfer::WAIT_EMPTY;return;}
+   if(result==CpmSafePoint::RUNNING) {t.phase=Transfer::ACTIVE;return;}
+   if(result==CpmSafePoint::PASSED || result==CpmSafePoint::FAILED ||
+      result==CpmSafePoint::INPUT_NOT_EMPTY || result==CpmSafePoint::INVALIDATED ||
+      result==CpmSafePoint::NEVER) {
+     t.phase=result==CpmSafePoint::PASSED?Transfer::PASSED:Transfer::FAILED;
+     t.error=gate.fileError.load(std::memory_order_acquire);
+     t.sourceIssue=gate.importSourceIssue.load(std::memory_order_acquire);
+     t.partial=gate.importPartialPossible.load(std::memory_order_acquire) ||
+       (t.operation==10 && t.phase==Transfer::ACTIVE &&
+        (result==CpmSafePoint::NEVER || result==CpmSafePoint::INVALIDATED));
+     // Both B2b export and B2c import publish actual transferred record
+     // counts and accumulated CRC through these progress atomics. The
+     // importTotalRecords/ExpectedCrc fields are source preflight totals,
+     // not evidence that a failed write finished those records.
+     t.records=gate.exportRecords.load(std::memory_order_acquire);
+     t.crc=gate.exportCrc.load(std::memory_order_acquire);
+     if(result==CpmSafePoint::NEVER)
+       t.error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
+     gate.hpTransferReserved.store(false,std::memory_order_release);
+   }
+ }
+ inline void transferPoll() {
+   if(!transfer || transferTerminal(transfer->phase))return;
+   CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+   if(!gate || !RUN || !gate->compatible.load(std::memory_order_acquire)) {
+     // If an active BDOS call remains marked RUNNING, we cannot safely
+     // declare completion or release ownership merely due to a guest flag.
+     if(gate && gate->result.load(std::memory_order_acquire)==CpmSafePoint::RUNNING) {
+       transfer->phase=Transfer::ACTIVE;
+       return;
+     }
+     transfer->phase=Transfer::FAILED;
+     transfer->error=CpmSafePoint::FILE_NOT_RUNNING;
+     if(gate) {
+       // Never release a potentially active service merely because the
+       // guest reset; the gate reset path must first clear its RUNNING state.
+       if(gate->result.load(std::memory_order_acquire)!=CpmSafePoint::RUNNING)
+         gate->hpTransferReserved.store(false,std::memory_order_release);
+     }
+     return;
+   }
+   if(transfer->phase==Transfer::WAIT_CCP) {
+     const bool accepted=transfer->operation==9?
+       gate->request(CpmSafePoint::EXPORT_SD,transfer->drive,
+                     transfer->filename,0,nullptr,0,false,true,
+                     transfer->sdSource):
+       gate->request(CpmSafePoint::IMPORT_SD,transfer->drive,
+                     transfer->filename,0,transfer->source,
+                     transfer->sourceDrive,false,true,transfer->sdSource);
+     if(accepted)transfer->phase=Transfer::WAIT_EMPTY;
+     return;
+   }
+   if(gate->operation.load(std::memory_order_acquire)!=
+        (transfer->operation==9?CpmSafePoint::EXPORT_SD:CpmSafePoint::IMPORT_SD)) {
+     transfer->phase=Transfer::FAILED;
+     transfer->error=CpmSafePoint::FILE_BDOS_INTERRUPTED;
+     return; // keep reservation: unexpected gate replacement needs inspection
+   }
+   transferSnapshot(*gate);
+ }
+ inline void transferReply() {
+   lastTransferPhase='E';
+   if(!transfer){setResult(false,"TRANSFER NOT STARTED");return;}
+   const Transfer &t=*transfer;
+   if(t.phase==Transfer::WAIT_CCP) {
+     // A native CCP fetch marks BUSY when an application is running.
+     // This is only advisory for HP UI: it NEVER authorizes BDOS or
+     // changes the request. UNKNOWN stays a bounded ordinary wait.
+     CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+     const uint8_t mode=gate?gate->mode.load(std::memory_order_acquire):
+                             CpmSafePoint::UNKNOWN;
+     if(mode==CpmSafePoint::BUSY || mode==CpmSafePoint::PROBE_RUNNING) {
+       lastTransferPhase='B';
+       setResult(true,"CP/M RUNNING PROGRAM - RETURN TO A>");return;
+     }
+     lastTransferPhase='W';
+     setResult(true,"WAITING FOR CP/M A> (NOT STARTED)");return;
+   }
+   if(t.phase==Transfer::WAIT_EMPTY) {
+     lastTransferPhase='P';
+     setResult(true,"WAITING FOR VERIFIED BLANK CCP RETURN");return;
+   }
+   if(t.phase==Transfer::ACTIVE) {
+     lastTransferPhase='R';
+     setResult(true,"TRANSFER RUNNING - DO NOT ABORT");return;
+   }
+   if(t.phase==Transfer::CANCELLED) {
+     lastTransferPhase='X';
+     setResult(true,"TRANSFER CANCELLED BEFORE BDOS START");return;
+   }
+   char msg[224];
+   if(t.phase==Transfer::PASSED) {
+     lastTransferPhase='S';
+     snprintf(msg,sizeof(msg),"%s PASSED\n%u RECORDS %lu BYTES\nCRC16 %u",
+       t.operation==9?"CPEXPORT":"CPIMPORT",(unsigned)t.records,
+       (unsigned long)t.records*128UL,(unsigned)t.crc);
+     setResult(true,msg);
+   } else {
+     lastTransferPhase='F';
+     snprintf(msg,sizeof(msg),"%s FAILED\n%s / %s%s",
+       t.operation==9?"CPEXPORT":"CPIMPORT",
+       CpmSafePoint::fileErrorText(t.error),
+       CpmSafePoint::sourceIssueText(t.sourceIssue),
+       t.partial?"\nPOSSIBLE PARTIAL CP/M FILE":"");
+     setResult(false,msg);
+   }
+ }
+ // Transfer source names describe files on Teensy SD, not CP/M FCBs.
+ // Keep the entire path under /cpm/transfers; no absolute paths,
+ // backslashes, drive letters, parent components or hidden dot segments.
+ inline bool safeTransferSource(const char *name) {
+   if(!name)return false;
+   const size_t n=strnlen(name,72);
+   if(n<1 || n>=72 || name[0]=='/' || name[n-1]=='/')return false;
+   size_t part=0;
+   for(size_t i=0;i<n;++i) {
+     const unsigned char ch=(unsigned char)name[i];
+     if(ch=='/') {
+       if(part==0)return false;
+       part=0;continue;
+     }
+     if(!(isalnum(ch) || ch=='_' || ch=='-' || ch=='.'))return false;
+     if(part==0 && ch=='.')return false;
+     ++part;
+   }
+   return part>0;
+ }
+ inline void transferCommand(uint8_t op,const char *args,uint16_t seq,
+                             uint16_t txn) {
+   CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+   if(op==9 || op==10) {
+     if(transfer && !transferTerminal(transfer->phase)) {
+       setResult(false,"ANOTHER HP TRANSFER IS ACTIVE");return;
+     }
+     uint8_t dstDrive=0,srcDrive=0,dst[11]{},src[11]{};
+     char sdSource[72]{};
+     bool valid=false;
+     if(op==9) {
+       // The first operand always names a genuine CP/M drive + 8.3
+       // source. Optional second is a literal Teensy SD filename/path.
+       const char *sep=args?strchr(args,'|'):nullptr;
+       if(!sep)valid=CpmFileReadService::parseName(args,dstDrive,dst);
+       else if(sep!=args && (size_t)(sep-args)<=14 &&
+               strlen(sep+1)<sizeof(sdSource)) {
+         char cpmName[16]{};
+         memcpy(cpmName,args,(size_t)(sep-args));
+         valid=CpmFileReadService::parseName(cpmName,dstDrive,dst) &&
+               safeTransferSource(sep+1);
+         if(valid)strlcpy(sdSource,sep+1,sizeof(sdSource));
+       }
+     } else {
+       const char *sep=args?strchr(args,'|'):nullptr;
+       if(sep && sep!=args && (size_t)(sep-args)<sizeof(sdSource) &&
+          strlen(sep+1)<=14) {
+         memcpy(sdSource,args,(size_t)(sep-args));
+         valid=safeTransferSource(sdSource) &&
+               CpmFileReadService::parseName(sep+1,dstDrive,dst);
+         // B2c native gate still needs a nonnull source FCB pointer,
+         // but the B2d literal path supersedes it for this transaction.
+         for(unsigned i=0;i<sizeof(src);++i)src[i]=' ';
+         srcDrive=1;
+       }
+     }
+     if(!valid){setResult(false,"INVALID CP/M 8.3 NAME OR SD RELATIVE PATH");return;}
+     if(!gate || !RUN || !gate->compatible.load(std::memory_order_acquire)) {
+       setResult(false,"NATIVE CP/M IS NOT RUNNING");return;
+     }
+     if(!gate->reserveForHp()) {
+       setResult(false,"CP/M SERVICE ALREADY IN USE");return;
+     }
+     if(!transfer)transfer=new(std::nothrow) Transfer;
+     if(!transfer) {
+       gate->hpTransferReserved.store(false,std::memory_order_release);
+       setResult(false,"LOW MEMORY FOR TRANSFER CONTROL");return;
+     }
+     *transfer=Transfer{};
+     transfer->id=seq;transfer->operation=op;
+     transfer->lastClientMs=millis();
+     transfer->drive=dstDrive;transfer->sourceDrive=srcDrive;
+     memcpy(transfer->filename,dst,11);
+     memcpy(transfer->source,src,11);
+     strlcpy(transfer->sdSource,sdSource,sizeof(transfer->sdSource));
+     transferPoll();
+     transferReply();
+     return;
+   }
+   if(!transfer || txn!=transfer->id) {
+     setResult(false,"UNKNOWN TRANSFER TRANSACTION");return;
+   }
+   if(op==11) {
+     transfer->lastClientMs=millis();
+     transferPoll();transferReply();return;
+   }
+   if(op==12) {
+     transfer->lastClientMs=millis();
+     if(transferTerminal(transfer->phase)) {transferReply();return;}
+     if(transfer->phase==Transfer::WAIT_CCP) {
+       transfer->phase=Transfer::CANCELLED;
+       if(gate)gate->hpTransferReserved.store(false,std::memory_order_release);
+       transferReply();return;
+     }
+     if(gate && gate->cancelPending()) {
+       transfer->phase=Transfer::CANCELLED;
+       gate->hpTransferReserved.store(false,std::memory_order_release);
+       transferReply();return;
+     }
+     // A losing CAS means BDOS may already be in progress. NEVER cancel it.
+     transferPoll();
+     if(transfer && transfer->phase==Transfer::ACTIVE) {
+       lastTransferPhase='R';
+       setResult(false,"ALREADY STARTED - WAIT FOR COMPLETION");return;
+     }
+     transferReply();return;
+   }
+   setResult(false,"INVALID TRANSFER CONTROL OP");
+ }
+
+// Revisit the outstanding gate from the existing cpm_keys poll loop.
+ // A lost HP BASIC connection may not leave a request armed forever.
+ // Expiry can only cancel a request that has not begun guest BDOS.
+ inline void transferWatchdog() {
+   if(!transfer || transferTerminal(transfer->phase))return;
+   CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+   if((uint32_t)(millis()-transfer->lastClientMs)>60000UL) {
+     if(transfer->phase==Transfer::WAIT_CCP) {
+       transfer->phase=Transfer::CANCELLED;
+       if(gate)gate->hpTransferReserved.store(false,std::memory_order_release);
+       return;
+     }
+     if(transfer->phase==Transfer::WAIT_EMPTY && gate &&
+        gate->cancelPending()) {
+       transfer->phase=Transfer::CANCELLED;
+       gate->hpTransferReserved.store(false,std::memory_order_release);
+       return;
+     }
+   }
+   transferPoll();
+ }
 inline void execute(uint8_t op,const char *args) {
   char msg[112]={};
   uint8_t drive=0;
@@ -330,20 +595,29 @@ inline void receiveCommand(JsonVariantConst command) {
   // particular CPRESET must not run twice.
   if(!haveLast || lastSequence!=(uint16_t)seq) {
     lastSequence=(uint16_t)seq;
+    lastOperation=(uint8_t)op;
+    lastTransferPhase='E';
     haveLast=true;
     const char *args=command["args"] | "";
-    // Teensy opcode 7 is the bounded read-only CPDCAT directory service.
-    if(op<1||op>7||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
+    const int txn=command["txn"] | -1;
+    if(op<1||op>12||strlen(args)>91)setResult(false,"INVALID CP/M REQUEST");
+    else if(op>=9)transferCommand((uint8_t)op,args,(uint16_t)seq,
+                                 txn>=0&&txn<=65535?(uint16_t)txn:0);
     else execute((uint8_t)op,args);
   }
   pendingAck=true;
 }
 inline void appendAck(JsonObject request) {
+  transferWatchdog();
   if(!pendingAck)return;
   JsonObject ack=request["ack"].to<JsonObject>();
   ack["seq"]=lastSequence;
   ack["ok"]=lastOk;
   ack["text"]=lastText?lastText:"CPM85 MEMORY LOW";
+  if(lastOperation>=9) {
+    ack["phase"]=String(lastTransferPhase);
+    if(transfer)ack["txn"]=transfer->id;
+  }
 }
 inline void ackPollCompleted() {pendingAck=false;}
 } // namespace Cpm85DriveControl

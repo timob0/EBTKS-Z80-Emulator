@@ -259,6 +259,11 @@ assert "setTimeout(connect,1000)" not in web_terminal
 pio = (ROOT.parent / "platformio.ini").read_text(encoding="utf-8")
 revision = (ROOT.parent / "tools/pio_git_revision.py").read_text(encoding="utf-8")
 assert "pre:tools/pio_git_revision.py" in pio
+# AsyncTCP 3.3.2 ships with a 16KiB default TCP event-task stack.
+# Conservatively reserve 8KiB, measure the actual free stack in OTA callbacks.
+assert "-DCONFIG_ASYNC_TCP_STACK_SIZE=8192" in pio
+assert "uxTaskGetStackHighWaterMark(nullptr)" in web
+assert "async_stack_unused=%u" in web
 assert "pre:tools/pio_gzip_pages.py" in pio
 assert 'git("rev-parse", "--verify", "HEAD")' in revision
 assert "EBTKS_BUILD_GIT_COMMIT" in revision
@@ -268,5 +273,24 @@ assert 'v["git_commit"]=EBTKS_BUILD_GIT_COMMIT' in web
 assert 'v["git_dirty"]' not in web
 assert (ROOT.parent / "tests/check_build_revision.py").is_file()
 print("PASS: known-good boot/network paths; only compile-time Git SHA added")
+
+# OTA regression (B2b exposed an older incomplete-session problem):
+# interrupted HTTP uploads must not leave UpdateClass running; only successful
+# begin may be followed by writes, and user-visible diagnostics identify where
+# an initial transfer stopped. No new permanent TFT DRAM buffers.
+assert "static EbtksOtaSession* ebtksOtaSession=nullptr;" in web
+assert "new(std::nothrow) EbtksOtaSession{request,0,0}" in web
+assert "request->onDisconnect([request]()" in web
+assert 'ebtksOtaTrace("client disconnected; aborting"' in web
+assert "if(Update.isRunning()) Update.abort();" in web
+assert "if(!limit || !Update.begin(limit))" in web
+assert "if(!s || s->owner!=request || s->state!=0) return;" in web
+assert "if(written!=len)" in web
+assert 'ebtksOtaTrace("progress",s->received);' in web
+assert 'ebtksOtaTrace("verified",s->received);' in web
+assert "esp_ota_get_next_update_partition(nullptr)" in web
+assert "Update.end(true)" in web
+assert "ebtksRestartRequired=true;" in web
+print("PASS: OTA upload owner/disconnect cleanup and bounded progress tracing")
 
 print("PASS: Web, modem, heap capability inventory, shared Telnet, IRAM32 SPI cache, SPI safeguards")

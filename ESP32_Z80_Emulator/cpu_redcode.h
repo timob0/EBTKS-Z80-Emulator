@@ -7,6 +7,9 @@
 #include "z80_bridge.h"
 #include "cpm_service_probe.h"
 #include "cpm_directory_service.h"
+#include "cpm_file_read_service.h"
+#include "ebtks_cpm_sd_export.h"
+#include "ebtks_cpm_sd_import.h"
 #include <new>  // tiny standard-heap allocation, not 32-bit/EXEC IRAM
 
 static Z80Bridge ebtksCpuBridge;
@@ -75,8 +78,14 @@ void portOut(uint8_t p, uint8_t v) {
       pIn[p] = v;
       if (sdfound == true) {
         switch (v) {
-          case 1: diskRead();         pIn[DCMD] = 0; break;
-          case 2: diskWrite();        pIn[DCMD] = 0; break;
+          case 1: {
+            diskRead();
+            pIn[DCMD]=0;break;
+          }
+          case 2: {
+            diskWrite();
+            pIn[DCMD]=0;break;
+          }
           case 4: SDfileOpen();       pIn[DCMD] = 0; break;
           case 5: SDfileRead();       pIn[DCMD] = 0; break;
           case 6: SDprintDir();       pIn[DCMD] = 0; break;
@@ -207,6 +216,33 @@ void CPUTask(void *) {
                                          [](){taskYIELD();});
         gate->directoryError.store(snapshot.error,std::memory_order_release);
         gate->publishDirectory(snapshot);
+      } else if(gate &&
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD) {
+        uint8_t filename[11];
+        for(unsigned i=0;i<11;++i)
+          filename[i]=gate->requestedFile[i].load(std::memory_order_relaxed);
+        CpmSafePoint::FileRecord record;
+        ok=CpmFileReadService::execute(&ebtksCpuBridge,filename,
+              gate->requestedDrive.load(std::memory_order_acquire),
+              gate->requestedRecord.load(std::memory_order_relaxed),
+              record,resetNeeded,[](){taskYIELD();});
+        gate->fileError.store(record.error,std::memory_order_release);
+        gate->publishFile(record);
+      } else if(gate &&
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD) {
+        // One verified CCP checkpoint, multiple read-only B2a calls, and
+        // exclusive Teensy SD staging. Never touches raw mounted sectors.
+        ok=CpmSdExport::execute(&ebtksCpuBridge,*gate,resetNeeded,
+                                [](){taskYIELD();});
+      } else if(gate &&
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD) {
+        ok=CpmSdImport::execute(&ebtksCpuBridge,*gate,resetNeeded,
+                                [](){taskYIELD();});
+      } else if(gate &&
+                gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD) {
+        // Only Teensy UART/SD read and a clean read-only session release.
+        // No guest BDOS operations or mounted CP/M disk changes.
+        ok=CpmSdImport::preflight(*gate);
       } else {
         ok=CpmServiceProbe::execute(&ebtksCpuBridge);
       }
@@ -215,9 +251,17 @@ void CPUTask(void *) {
       if(resetNeeded) {
         // The outer loop will rebootstrap the Z80 and Gate::reset() will
         // clear the live outcome. Preserve a sticky, read-only postmortem.
-        if(gate)gate->lastDirectoryReset.store(true,std::memory_order_release);
+        if(gate) {
+          if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::DIRECTORY)
+            gate->lastDirectoryReset.store(true,std::memory_order_release);
+          if(gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD ||
+             (gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD ||
+              (gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD ||
+               gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD)))
+            gate->lastFileReset.store(true,std::memory_order_release);
+        }
         // Never resume the CCP after an interrupted BDOS call.
-        Serial.println("CP/M directory service failed after BDOS entry; requesting Z80 reset");
+        Serial.println("CP/M BDOS service interrupted; requesting Z80-only reset");
         RUN=false;
       }
     } else if(reason==Z80_BRIDGE_TRAP || reason==Z80_BRIDGE_HALT) {

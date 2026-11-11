@@ -9,6 +9,8 @@
 #include <ArduinoJson.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
+#include <esp_ota_ops.h>
+#include <new>
 #include "ebtks_build_revision.h" // generated at firmware build
 #include "ebtks_firmware_options.h"
 #include "ebtks_static_pages.h"
@@ -20,6 +22,26 @@ AsyncWebSocket ebtksWebSocket("/ws");
 DNSServer ebtksDns;
 
 volatile bool ebtksRestartRequired = false;
+
+// Runtime-allocated only while uploading: the TFT firmware has <200 bytes
+// of spare static DRAM. Never retain an abandoned UpdateClass session.
+struct EbtksOtaSession {
+  AsyncWebServerRequest* owner;
+  size_t received;
+  uint8_t state; // 0 receiving, 1 failed, 2 verified
+};
+static EbtksOtaSession* ebtksOtaSession=nullptr;
+
+inline void ebtksOtaTrace(const char* phase,size_t received) {
+  // Called from the AsyncTCP event task: its stack low-water mark is
+  // a practical guard before reducing the default 16 KiB reservation.
+  const uint32_t asyncStackUnused=(uint32_t)uxTaskGetStackHighWaterMark(nullptr);
+  Serial.printf("OTA %s bytes=%u heap=%u free8=%u largest8=%u async_stack_unused=%u\n",
+    phase,(unsigned)received,(unsigned)ESP.getFreeHeap(),
+    (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
+    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+    (unsigned)asyncStackUnused);
+}
 
 struct EBTKSBrowserRequest {
   char text[512];
@@ -340,6 +362,354 @@ inline bool ebtksWebBegin()
       r->send(200,"application/json",body);
     });
 
+  // Stage B2a, read-only CP/M single-record diagnostic. NEVER access
+  // guest memory or call BDOS from an AsyncTCP callback. Accept only a
+  // strict A:..P: 8.3 name; user area is the current CP/M user.
+  // E.g. POST /api/cpm/service/file?name=A%3ASTAT.COM&record=0
+  ebtksServer.on("/api/cpm/service/file",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("name") || !r->hasParam("record")) {
+        r->send(400,"application/json","{\"error\":\"name_and_record_required\"}");
+        return;
+      }
+      const String spec=r->getParam("name")->value();
+      const String index=r->getParam("record")->value();
+      uint8_t drive=0, fcb[11]{};
+      if(!CpmFileReadService::parseName(spec.c_str(),drive,fcb) ||
+         index.length()==0 || index.length()>2) {
+        r->send(400,"application/json","{\"error\":\"invalid_8_3_or_record\"}");
+        return;
+      }
+      uint16_t record=0;
+      for(size_t i=0;i<index.length();++i) {
+        if(index[i]<'0' || index[i]>'9') {
+          r->send(400,"application/json","{\"error\":\"invalid_record\"}");
+          return;
+        }
+        record=uint16_t(record*10+index[i]-'0');
+      }
+      if(record>CpmFileReadService::kMaxRecord) {
+        r->send(400,"application/json","{\"error\":\"record_limit_63\"}");
+        return;
+      }
+      CpmSafePoint::Gate* gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+           gate->request(CpmSafePoint::READ_RECORD,drive,fcb,record);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["supported"]=supported;
+      v["operation"]="file_read";
+      v["name"]=spec;
+      v["record"]=record;
+      v["state"]=CpmSafePoint::resultText(gate?
+          gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+          "Automatic empty CCP return; read runs only at verified D382 boundary":
+          "CCP not ready, running application, incompatible image, or request pending";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/file",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate* gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+          gate->operation.load(std::memory_order_acquire)==CpmSafePoint::READ_RECORD;
+      const uint8_t state=gate?gate->result.load(std::memory_order_acquire):
+          CpmSafePoint::NEVER;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correct?"file_read":"none";
+      v["state"]=correct?CpmSafePoint::resultText(state):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(
+          gate?gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["file_error"]=CpmSafePoint::fileErrorText(
+          gate?gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["record_max"]=CpmFileReadService::kMaxRecord;
+      v["last_file_state"]=CpmSafePoint::resultText(gate?
+          gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
+          gate->lastFileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["last_file_checkpoint"]=CpmSafePoint::checkpointText(gate?
+          gate->lastFileCheckpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["last_file_forced_z80_reset"]=gate &&
+          gate->lastFileReset.load(std::memory_order_acquire);
+      if(correct && state==CpmSafePoint::PASSED) {
+        CpmSafePoint::FileRecord data;
+        if(!gate->copyFile(data)) {
+          r->send(503,"application/json","{\"error\":\"file_snapshot_busy\"}");
+          return;
+        }
+        v["record"]=data.record;
+        v["has_data"]=data.hasData;
+        v["eof"]=data.eof;
+        v["length"]=data.hasData?128:0;
+        if(data.hasData) {
+          // Hex is lossless: 0x00, 0x1A and 0xE5 are NOT filtered.
+          char hex[257];
+          static const char digits[]="0123456789ABCDEF";
+          for(unsigned i=0;i<128;++i) {
+            hex[i*2]=digits[data.data[i]>>4];
+            hex[i*2+1]=digits[data.data[i]&15];
+          }
+          hex[256]='\0';
+          v["encoding"]="hex";
+          v["crc16_ccitt_false"]=data.crc16;
+          v["data"]=hex;
+        }
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
+  // Stage B2b: opt-in, trusted-LAN-only CP/M -> Teensy SD export.
+  // HTTP only arms the safe-point request; the pinned Z80 task executes it.
+  // Teensy confines output to exclusive files below /cpm/transfers.
+  ebtksServer.on("/api/cpm/service/export",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("name")) {
+        r->send(400,"application/json","{\"error\":\"name_required\"}");
+        return;
+      }
+      const String spec=r->getParam("name")->value();
+      uint8_t drive=0,fcb[11]{};
+      if(!CpmFileReadService::parseName(spec.c_str(),drive,fcb)) {
+        r->send(400,"application/json","{\"error\":\"invalid_8_3_source\"}");
+        return;
+      }
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+        gate->request(CpmSafePoint::EXPORT_SD,drive,fcb,0);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["operation"]="sd_export";
+      v["source"]=spec;
+      v["state"]=CpmSafePoint::resultText(gate?
+        gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+        "Automatic empty Return; files only under /cpm/transfers on Teensy":
+        "CCP not idle, another request active, or unsupported native CP/M";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/export",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+        gate->operation.load(std::memory_order_acquire)==CpmSafePoint::EXPORT_SD;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correct?"sd_export":"not_requested";
+      v["state"]=correct?CpmSafePoint::resultText(
+        gate->result.load(std::memory_order_acquire)):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(gate?
+        gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["records"]=correct?gate->exportRecords.load(std::memory_order_acquire):0;
+      v["bytes"]=uint32_t(correct?gate->exportRecords.load(std::memory_order_acquire):0)*128U;
+      v["crc16_ccitt_false"]=correct?gate->exportCrc.load(std::memory_order_acquire):0xFFFF;
+      v["last_file_state"]=CpmSafePoint::resultText(gate?
+        gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->lastFileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["last_file_forced_z80_reset"]=gate &&
+        gate->lastFileReset.load(std::memory_order_acquire);
+      if(correct) {
+        const uint8_t drive=gate->requestedDrive.load(std::memory_order_acquire);
+        if(drive>=1 && drive<=16) {
+          String target="/cpm/transfers/";
+          target+=char('A'+drive-1);target+='_';
+          for(unsigned i=0;i<8;++i) {
+            const char ch=(char)gate->requestedFile[i].load(std::memory_order_relaxed);
+            if(ch!=' ')target+=ch;
+          }
+          bool ext=false;
+          for(unsigned i=8;i<11;++i)
+            if(gate->requestedFile[i].load(std::memory_order_relaxed)!=' ')ext=true;
+          if(ext) {
+            target+='.';
+            for(unsigned i=8;i<11;++i) {
+              const char ch=(char)gate->requestedFile[i].load(std::memory_order_relaxed);
+              if(ch!=' ')target+=ch;
+            }
+          }
+          v["destination"]=target;
+        }
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
+  // Stage B2c diagnostic: read-only Teensy source preflight.
+  // Uses the pinned CPU task's verified CCP checkpoint, but calls NO BDOS
+  // functions and never modifies a CP/M disk image.
+  ebtksServer.on("/api/cpm/service/source",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("name")) {
+        r->send(400,"application/json","{\"error\":\"name_required\"}");
+        return;
+      }
+      const String spec=r->getParam("name")->value();
+      uint8_t drive=0,fcb[11]{};
+      if(!CpmFileReadService::parseName(spec.c_str(),drive,fcb)) {
+        r->send(400,"application/json","{\"error\":\"invalid_source_name\"}");
+        return;
+      }
+      bool recover=false;
+      if(r->hasParam("recover")) {
+        if(r->getParam("recover")->value()!="READ_ONLY_SESSION") {
+          r->send(400,"application/json","{\"error\":\"recover_requires_READ_ONLY_SESSION\"}");
+          return;
+        }
+        recover=true;
+      }
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool accepted=(bool)RUN && gate &&
+        gate->request(CpmSafePoint::PREFLIGHT_SD,0,nullptr,0,fcb,drive,recover);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["operation"]="sd_source_preflight";
+      v["source"]=spec;
+      v["recover_requested"]=recover;
+      v["state"]=CpmSafePoint::resultText(gate?
+        gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+        "Automatic blank CCP Return; Teensy SD read only; no CP/M file BDOS":
+        "Native CCP not idle, another service running, or unsupported CP/M";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/source",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+        gate->operation.load(std::memory_order_acquire)==CpmSafePoint::PREFLIGHT_SD;
+      JsonDocument v;
+      v["operation"]=correct?"sd_source_preflight":"not_requested";
+      v["state"]=correct?CpmSafePoint::resultText(
+        gate->result.load(std::memory_order_acquire)):"not_requested";
+      v["source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->importSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      v["file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["expected_records"]=correct?
+        gate->importTotalRecords.load(std::memory_order_acquire):0;
+      v["expected_crc16_ccitt_false"]=correct?
+        gate->importExpectedCrc.load(std::memory_order_acquire):0xFFFF;
+      v["last_source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->lastImportSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+  // B2c - write to a NEW native CP/M name, from a published Teensy
+  // /cpm/transfers file only. An explicit confirmation string is mandatory.
+  // This HTTP callback only arms the native CCP safe point; never calls BDOS.
+  ebtksServer.on("/api/cpm/service/import",HTTP_POST,
+    [](AsyncWebServerRequest *r) {
+      if(!r->hasParam("source") || !r->hasParam("name")) {
+        r->send(400,"application/json","{\"error\":\"source_and_name_required\"}");
+        return;
+      }
+      if(!r->hasParam("confirm") ||
+         r->getParam("confirm")->value()!="CREATE_NEW") {
+        r->send(428,"application/json","{\"error\":\"confirm_CREATE_NEW_required\"}");
+        return;
+      }
+      const String source=r->getParam("source")->value();
+      const String target=r->getParam("name")->value();
+      uint8_t srcDrive=0,dstDrive=0,srcFcb[11]{},dstFcb[11]{};
+      if(!CpmFileReadService::parseName(source.c_str(),srcDrive,srcFcb) ||
+         !CpmFileReadService::parseName(target.c_str(),dstDrive,dstFcb)) {
+        r->send(400,"application/json","{\"error\":\"invalid_source_or_target_8_3\"}");
+        return;
+      }
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool supported=gate && gate->compatible.load(std::memory_order_acquire);
+      const bool accepted=(bool)RUN && supported &&
+        gate->request(CpmSafePoint::IMPORT_SD,dstDrive,dstFcb,0,srcFcb,srcDrive);
+      JsonDocument v;
+      v["accepted"]=accepted;
+      v["operation"]="sd_import";
+      v["source"]=source;
+      v["target"]=target;
+      v["state"]=CpmSafePoint::resultText(gate?
+        gate->result.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["instruction"]=accepted?
+        "Import runs at verified native CCP; CP/M MAKE only if target absent":
+        "CCP not idle, another request active, or unsupported native CP/M";
+      String body;serializeJson(v,body);
+      r->send(accepted?202:409,"application/json",body);
+    });
+  ebtksServer.on("/api/cpm/service/import",HTTP_GET,
+    [](AsyncWebServerRequest *r) {
+      CpmSafePoint::Gate *gate=cpmSafeGatePtr();
+      const bool correct=gate &&
+        gate->operation.load(std::memory_order_acquire)==CpmSafePoint::IMPORT_SD;
+      JsonDocument v;
+      v["supported"]=gate && gate->compatible.load(std::memory_order_acquire);
+      v["operation"]=correct?"sd_import":"not_requested";
+      v["state"]=correct?CpmSafePoint::resultText(
+        gate->result.load(std::memory_order_acquire)):"not_requested";
+      v["checkpoint"]=CpmSafePoint::checkpointText(gate?
+        gate->checkpoint.load(std::memory_order_acquire):CpmSafePoint::IDLE);
+      v["file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->fileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["records"]=correct?gate->exportRecords.load(std::memory_order_acquire):0;
+      v["bytes"]=uint32_t(correct?
+        gate->exportRecords.load(std::memory_order_acquire):0)*128U;
+      v["crc16_ccitt_false"]=correct?
+        gate->exportCrc.load(std::memory_order_acquire):0xFFFF;
+      v["expected_records"]=correct?
+        gate->importTotalRecords.load(std::memory_order_acquire):0;
+      v["expected_crc16_ccitt_false"]=correct?
+        gate->importExpectedCrc.load(std::memory_order_acquire):0xFFFF;
+      v["partial_cpm_file_possible"]=correct &&
+        gate->importPartialPossible.load(std::memory_order_acquire);
+      v["last_import_partial_possible"]=gate &&
+        gate->lastImportPartialPossible.load(std::memory_order_acquire);
+      v["source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->importSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      v["last_source_error"]=CpmSafePoint::sourceIssueText(gate?
+        gate->lastImportSourceIssue.load(std::memory_order_acquire):CpmSafePoint::SRC_NONE);
+      v["last_file_state"]=CpmSafePoint::resultText(gate?
+        gate->lastFileResult.load(std::memory_order_acquire):CpmSafePoint::NEVER);
+      v["last_file_error"]=CpmSafePoint::fileErrorText(gate?
+        gate->lastFileError.load(std::memory_order_acquire):CpmSafePoint::FILE_OK);
+      v["last_file_forced_z80_reset"]=gate &&
+        gate->lastFileReset.load(std::memory_order_acquire);
+      if(correct) {
+        const auto addName=[&](const char *field,
+             const std::atomic<uint8_t> name[11],uint8_t drive) {
+          if(drive<1 || drive>16)return;
+          String spec;spec.reserve(16);
+          spec+=char('A'+drive-1);spec+=':';
+          for(unsigned i=0;i<8;++i) {
+            const char ch=(char)name[i].load(std::memory_order_relaxed);
+            if(ch!=' ')spec+=ch;
+          }
+          bool ext=false;
+          for(unsigned i=8;i<11;++i)
+            if(name[i].load(std::memory_order_relaxed)!=' ')ext=true;
+          if(ext) {
+            spec+='.';
+            for(unsigned i=8;i<11;++i) {
+              const char ch=(char)name[i].load(std::memory_order_relaxed);
+              if(ch!=' ')spec+=ch;
+            }
+          }
+          v[field]=spec;
+        };
+        addName("source",gate->requestedSourceFile,
+                gate->requestedSourceDrive.load(std::memory_order_acquire));
+        addName("target",gate->requestedFile,
+                gate->requestedDrive.load(std::memory_order_acquire));
+      }
+      String body;serializeJson(v,body);
+      r->send(200,"application/json",body);
+    });
+
   // RAM-only liveness and reset forensics, no SPI/UART/SD work.
   // Read BEFORE and AFTER enabling 4MHz read-ahead from Media Manager.
   // If the ESP resets, its next boot retains the hardware reset reason.
@@ -437,28 +807,114 @@ inline bool ebtksWebBegin()
     });
   ebtksServer.on("/updater", HTTP_GET, ebtksServeUpdater);
 
+  // The old implementation kept UpdateClass alive after client disconnect.
+  // Update.begin() then silently returned false ("No Error"), and writes
+  // continued into that old session until it reported "Not Enough Space".
+  // Keep all OTA state request-owned and reclaim it on every disconnect.
   ebtksServer.on(
     "/updater", HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if (Update.hasError()) {
-        request->send(500, "text/plain", "Firmware update failed. Please check the file and retry.");
+      EbtksOtaSession* s=ebtksOtaSession;
+      if(!s || s->owner!=request) {
+        request->send(s?409:503,"text/plain",
+                      s?"Another firmware upload is active":
+                        "Firmware upload was not initialized");
         return;
       }
-      request->send(200, "text/plain", "Firmware updated successfully. EBTKS will reboot shortly.");
+      const bool verified=s->state==2;
+      delete s;
+      ebtksOtaSession=nullptr;
+      if(!verified) {
+        if(Update.isRunning()) Update.abort();
+        request->send(500,"text/plain",
+                      "Firmware update failed; see /z80debug for details.");
+        return;
+      }
+      request->send(200,"text/plain",
+                    "Firmware updated successfully. EBTKS will reboot shortly.");
     },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if (!index) {
-        Serial.printf("OTA Update Start: %s\n", filename.c_str());
-        if (!Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000)) Update.printError(Serial);
+    [](AsyncWebServerRequest *request,String filename,size_t index,
+       uint8_t *data,size_t len,bool final) {
+      if(index==0) {
+        if(ebtksOtaSession) {
+          Serial.println("OTA refused: another upload is active");
+          return;
+        }
+        // Defensive recovery for a previously orphaned UpdateClass session.
+        if(Update.isRunning()) {
+          Serial.printf("OTA stale session aborted at %u bytes\n",
+                        (unsigned)Update.progress());
+          Update.abort();
+        }
+        EbtksOtaSession* s=new(std::nothrow) EbtksOtaSession{request,0,0};
+        if(!s) {
+          Serial.println("OTA unable to allocate upload session");
+          return;
+        }
+        ebtksOtaSession=s;
+        request->onDisconnect([request](){
+          EbtksOtaSession* current=ebtksOtaSession;
+          if(!current || current->owner!=request) return;
+          if(Update.isRunning()) {
+            ebtksOtaTrace("client disconnected; aborting",current->received);
+            Update.abort();
+          } else if(current->state!=2) {
+            ebtksOtaTrace("client disconnected (no active Update)",current->received);
+          }
+          delete current;
+          ebtksOtaSession=nullptr;
+        });
+
+        const esp_partition_t* partition=esp_ota_get_next_update_partition(nullptr);
+        const size_t available=ESP.getFreeSketchSpace();
+        const size_t limit=available>0x1000U?
+                            ((available-0x1000U)&~size_t(0xFFFU)):0;
+        Serial.printf(
+          "OTA start: %s target=%s offset=0x%06x slot=%u "
+          "limit=%u http_content_length=%u\n",
+          filename.c_str(),partition?partition->label:"none",
+          (unsigned)(partition?partition->address:0),
+          (unsigned)available,(unsigned)limit,
+          (unsigned)request->contentLength());
+        ebtksOtaTrace("begin",0);
+        if(!limit || !Update.begin(limit)) {
+          Serial.printf("OTA begin failed: %s running=%u\n",
+                        Update.errorString(),(unsigned)Update.isRunning());
+          s->state=1;
+          if(Update.isRunning()) Update.abort();
+          return;
+        }
       }
-      if (!Update.hasError() && len) {
-        if (Update.write(data, len) != len) Update.printError(Serial);
+
+      EbtksOtaSession* s=ebtksOtaSession;
+      if(!s || s->owner!=request || s->state!=0) return;
+      if(len) {
+        const size_t written=Update.write(data,len);
+        if(written!=len) {
+          Serial.printf("OTA write failed at=%u chunk=%u wrote=%u: %s\n",
+                        (unsigned)index,(unsigned)len,(unsigned)written,
+                        Update.errorString());
+          ebtksOtaTrace("write failed",s->received);
+          s->state=1;
+          if(Update.isRunning()) Update.abort();
+          return;
+        }
+        s->received=index+len;
+        // Bounded telemetry: roughly 20 lines for a 1.2 MiB image.
+        if((index>>16)!=(s->received>>16))
+          ebtksOtaTrace("progress",s->received);
       }
-      if (final) {
-        if (Update.end(true)) {
-          Serial.printf("OTA Update Success: %u bytes\n", (unsigned)(index + len));
-          ebtksRestartRequired = true;
-        } else Update.printError(Serial);
+      if(final) {
+        if(Update.end(true)) {
+          s->state=2;
+          ebtksOtaTrace("verified",s->received);
+          ebtksRestartRequired=true;
+        } else {
+          Serial.printf("OTA finalize failed: %s\n",Update.errorString());
+          ebtksOtaTrace("finalize failed",s->received);
+          s->state=1;
+          if(Update.isRunning()) Update.abort();
+        }
       }
     }
   );

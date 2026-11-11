@@ -66,7 +66,7 @@ admitted=re.search(r'if\s*\(\s*op\s*<\s*1\s*\|\|\s*op\s*>\s*(\d+)\s*\|\|',contro
 assert admitted, "missing command validator"
 max_op=int(admitted.group(1))
 dispatched=[int(op) for op in re.findall(r'if\s*\(\s*op\s*==\s*(\d+)\s*\)',control)]
-assert dispatched and max_op==max(dispatched)==7, (max_op,dispatched)
+assert dispatched and max_op==max(dispatched)==12, (max_op,dispatched)
 assert 'setResult(false,"INVALID CP/M REQUEST")' in control
 assert 'request["cpm_image"]["op"] = "begin"' in control
 assert 'statusReq["cpm_image"]["op"] = "status"' in control
@@ -111,3 +111,50 @@ for prefix in expected_lines:
     )
     assert (chr(92)+"n") not in matched[0], (prefix,matched)
 print("PASS: HP CPDCAT sends real ASCII LF in header, entries and footers")
+
+# B2d: private HP transfer transaction ownership and safe wait/cancel.
+gate=(root/"ESP32_Z80_Emulator/cpm_safe_point.h").read_text()
+assert "bool reserveForHp()" in gate
+assert "bool fromHpTransfer=false" in gate
+assert "result.compare_exchange_strong(waiting,RUNNING" in gate
+assert "gate->reserveForHp()" in control
+assert "inline void transferWatchdog()" in control
+assert "gate->cancelPending()" in control
+assert "WAITING FOR CP/M A>" in control
+assert "ALREADY STARTED - WAIT FOR COMPLETION" in control
+assert "lastTransferPhase" in control
+assert "gate.exportRecords.load(" in control
+assert "gate.exportCrc.load(" in control
+print("PASS: B2d HP transfer phase, gate reservation and atomic pre-start cancellation")
+
+# B2d literal SD import filename is independent of the CP/M drive
+# and preserved through the CPU gate to the Teensy importer.
+ctrl=(root/"ESP32_Z80_Emulator/cpm85_drive_control.h").read_text()
+imp=(root/"ESP32_Z80_Emulator/ebtks_cpm_sd_import.h").read_text()
+assert "safeTransferSource(sdSource)" in ctrl
+assert "strlcpy(transfer->sdSource,sdSource" in ctrl
+assert "transfer->sourceDrive,false,true,transfer->sdSource" in ctrl
+assert "requestedSourceLiteral[72]" in gate
+assert "literalSource=nullptr" in gate
+assert '"begin_literal"' in imp
+assert "requestedSourceLiteral[i].load(" in imp
+print("PASS: B2d literal Teensy SD filenames, no legacy A: drive remap")
+
+# B2d: verified running program must be distinguished from unknown CCP state.
+assert "mode==CpmSafePoint::BUSY || mode==CpmSafePoint::PROBE_RUNNING" in ctrl
+assert 'lastTransferPhase=\'B\'' in ctrl
+assert 'CP/M RUNNING PROGRAM - RETURN TO A>' in ctrl
+print("PASS: known-busy phase is reported promptly without authorizing BDOS")
+
+# B2d export rename: CP/M 8.3 source is parsed independently from
+# optional SD-relative destination. Import still uses literal SD source.
+exp=(root/"ESP32_Z80_Emulator/ebtks_cpm_sd_export.h").read_text()
+assert "valid=CpmFileReadService::parseName(cpmName,dstDrive,dst) &&" in ctrl
+assert "safeTransferSource(sep+1)" in ctrl
+assert "if(!sep)valid=CpmFileReadService::parseName(args,dstDrive,dst);" in ctrl
+assert "transfer->filename,0,nullptr,0,false,true," in ctrl
+assert "transfer->sdSource):" in ctrl
+assert 'cmd["cpm_export"]["sd_name"]=literalDestination;' in exp
+assert "requestedSourceLiteral[i].load(" in exp
+assert "requested==EXPORT_SD || requested==IMPORT_SD ||" in gate
+print("PASS: optional CPEXPORT destination keeps CP/M FCB and SD-path validators separate")

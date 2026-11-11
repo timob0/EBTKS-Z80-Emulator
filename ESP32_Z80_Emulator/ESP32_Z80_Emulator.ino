@@ -34,6 +34,7 @@
 // after the existing Wi-Fi stack is up and from the existing CPU worker.
 // No new permanent DRAM/BSS is consumed on the constrained ST7796 build.
 #include "cpm_safe_point.h"
+#include "cpm_file_read_service.h" // read-only B2a name parser/record schema for web
 CpmSafePoint::Gate *cpmSafeGatePtr();
 #include "telnet.h" // Telnet listener/poll functions used by ebtks_web.h
 #include "ebtks_web.h"
@@ -92,7 +93,17 @@ void setup() {
   EbtksMemory::capture(EbtksMemory::STORAGE_READY);
 
   RUN=false;
-  xTaskCreatePinnedToCore(CPUTask,"CPUTask",4096,NULL,4,&Task1,1);
+  // B2c stack budget: the compiled MAKE -> disk-write serialization path
+  // has >=3216 bytes of simultaneously active function frames, excluding
+  // deeper library and Z80 instruction-handler calls. The previous 4096-byte
+  // task suffered ESP_RST_PANIC inside MAKE. The 8192-byte allocation
+  // passed physical B2c import, leaving 3840 bytes at peak watermark.
+  // This is runtime heap, not static TFT DRAM. Retain the compile-time
+  // override for engineering tests; do not reduce the production default.
+#ifndef EBTKS_Z80_CPU_TASK_STACK_BYTES
+#define EBTKS_Z80_CPU_TASK_STACK_BYTES 8192
+#endif
+  xTaskCreatePinnedToCore(CPUTask,"CPUTask",EBTKS_Z80_CPU_TASK_STACK_BYTES,NULL,4,&Task1,1);
   while(!cpu_t) vTaskDelay(10);
 
 #if EBTKS_TELNET_ENABLE && !EBTKS_TELNET_SHARED_WORKER
