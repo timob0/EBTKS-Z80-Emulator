@@ -1,5 +1,7 @@
 # EBTKS Z80 / CP/M integration — current project links
 
+**Documentation:** [Getting started](GETTING_STARTED.md) · [Engineering documentation index](docs/INDEX.md). The hardware-accepted B2d CP/M file-transfer milestone was merged into `main` on 11 November 2026. Earlier baseline notes below are retained as historical context.
+
 **Current mainline baseline — 23 October 2026:** ESP32 [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8) merged the **memory-optimized, hardware-tested full CP/M bundle** into `main` (merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`). A local macOS rebuild, flash and quick hardware test passed for the final TFT target. Earlier physical testing confirmed two MODEM/BBS cycles, modem memory reclamation, Media Manager recovery, Web Terminal ANSI/CP437, `DIR` and Multiplan. There are exactly **two official ESP32 targets**, `esp32dev` (headless) and `esp32dev-tft` (adds ST7796), with **Telnet off by default**; add `-DEBTKS_TELNET_ENABLE=1` to opt in. Both include the early-IRAM SPI read cache, gzip pages and browser terminal. Read [FIRMWARE_VARIANTS.md](docs/FIRMWARE_VARIANTS.md), [NEXT_CHAT_QUICKSTART.md](docs/NEXT_CHAT_QUICKSTART.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](docs/NEXT_CHAT_STAGE_A_CHECKPOINT.md).
 
 The prior 21 October / PR #6 details and older experimental notes below are retained as project history; PR #8 supersedes them for current ESP32 build instructions. The Teensy and HP Option ROM repositories were **not modified** by PR #8; the user-managed `recovery` remains untouched.
