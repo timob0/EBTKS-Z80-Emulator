@@ -1,3 +1,44 @@
+## 2026-11-11 — First physical CPLOOP regression and next diagnostic
+
+User built/loaded CPM85 v0.07a on real HP-85:
+- `CPLOOP` **does not forward ordinary keyboard entries to CP/M**.
+- K8 **does** cleanly exit back to HP BASIC from foreground loop.
+- Unchanged original `CPM` command still forwards keys normally.
+
+This establishes foreground exit/key polling is possible but NOT that
+ordinary key event delivery works. Source inspection: the proven `CPM`
+CHIDLE hook reads `KEYHIT` at 0100671 octal, whereas the foreground
+`CPLOOP` reads physical depressed-key register `KEYCOD` at 0177403
+octal. The ESP32 `Cpm85Keymap` expects `KEYHIT` codes. It is an
+**unverified hypothesis** that the raw hardware `KEYCOD` is distinct
+from the BASIC-decoded `KEYHIT` for ordinary keys; the next test
+must measure raw observed values rather than assume the mapping.
+
+The HP85 repo now contains CPM85 **v0.07b** diagnostic draft:
+- Leaves proven `CPM` unchanged;
+- `CPLOOP` zeroes `KCOUNT`/`KLAST` upon start, then records
+  non-K8 physical key-down edges and last `KEYCOD` value into
+  those existing fields. After K8 exit, `PRINT CPCOUNT` and
+  `PRINT CPLAST` report observation results (CPCOUNT wraps at 256).
+- Still forwards observed raw codes, *without changing their mapping*,
+  so the result can distinguish no events from wrong codes.
+- Retains bounded automatic exit (iteration counter), not a guaranteed
+  timing limit.
+- Updates CPM85 user pocket guide and command/ABI CI.
+
+**Next user test**: build/load feature branch 0.07b ROM only;
+`CPVER` must report 0.07b; run `CPLOOP`, press individually
+A/B/C then K8, `PRINT CPCOUNT` and `PRINT CPLAST`. Optionally run
+another iteration pressing just A then K8 to learn raw A code; compare
+the same keys in the proven `CPM` route. Do not infer from these
+counters that Teensy received or ESP32 translated the key; they
+measure HP foreground detections, not end-to-end transport.
+
+No Teensy or ESP32 firmware edits; no printer bridge implemented in
+this diagnostic revision. Do not merge or replace proven `CPM`.
+
+---
+
 ## 2026-11-11 — B3a foreground keyboard experiment implementation (ROM only)
 
 Implemented `CPLOOP` as an **EXPERIMENTAL** non-printer diagnostic command
