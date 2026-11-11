@@ -1,6 +1,6 @@
 # EBTKS Z80 / CP/M integration — current project links
 
-**Current mainline baseline — 23 October 2026:** ESP32 [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8) merged the **memory-optimized, hardware-tested full CP/M bundle** into `main` (merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`). A local macOS rebuild, flash and quick hardware test passed for the final TFT target. Earlier physical testing confirmed two MODEM/BBS cycles, modem memory reclamation, Media Manager recovery, Web Terminal ANSI/CP437, `DIR` and Multiplan. There are exactly **two official ESP32 targets**, `esp32dev` (headless) and `esp32dev-tft` (adds ST7796), with **Telnet off by default**; add `-DEBTKS_TELNET_ENABLE=1` to opt in. Both include the early-IRAM SPI read cache, gzip pages and browser terminal. Read [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md), [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](NEXT_CHAT_STAGE_A_CHECKPOINT.md).
+**Current mainline baseline — 23 October 2026:** ESP32 [PR #8](https://github.com/timob0/EBTKS-Z80-Emulator/pull/8) merged the **memory-optimized, hardware-tested full CP/M bundle** into `main` (merge commit `025a519d318370bb8d3961b3286bdd5993dd808c`). A local macOS rebuild, flash and quick hardware test passed for the final TFT target. Earlier physical testing confirmed two MODEM/BBS cycles, modem memory reclamation, Media Manager recovery, Web Terminal ANSI/CP437, `DIR` and Multiplan. There are exactly **two official ESP32 targets**, `esp32dev` (headless) and `esp32dev-tft` (adds ST7796), with **Telnet off by default**; add `-DEBTKS_TELNET_ENABLE=1` to opt in. Both include the early-IRAM SPI read cache, gzip pages and browser terminal. Read [FIRMWARE_VARIANTS.md](docs/FIRMWARE_VARIANTS.md), [NEXT_CHAT_QUICKSTART.md](docs/NEXT_CHAT_QUICKSTART.md) and [NEXT_CHAT_STAGE_A_CHECKPOINT.md](docs/NEXT_CHAT_STAGE_A_CHECKPOINT.md).
 
 The prior 21 October / PR #6 details and older experimental notes below are retained as project history; PR #8 supersedes them for current ESP32 build instructions. The Teensy and HP Option ROM repositories were **not modified** by PR #8; the user-managed `recovery` remains untouched.
 
@@ -18,24 +18,24 @@ Both include the original `/ws`, `/crt`, `/cpmmedia`, Web Terminal,
 MODEM, gzip pages, OTA and early IRAM SPI disk read-ahead. Advanced users
 can opt into inbound Telnet by adding
 `-DEBTKS_TELNET_ENABLE=1` to the chosen build flags. No separate
-Telnet build flavor is maintained. See [FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md)
+Telnet build flavor is maintained. See [FIRMWARE_VARIANTS.md](docs/FIRMWARE_VARIANTS.md)
 for flags, memory caveats, local build and test instructions. Upload the
 matching `.pio/build/<environment>/firmware.bin` through the ESP32 browser
 updater.
 
 **New user?** Follow the [Getting started guide](GETTING_STARTED.md) for the Teensy/ESP32 flashing sequence, SD-card layout, 8 MiB disk and HP 82900 LIF images, and a web UI walkthrough.
 
-**CN3 SPI and TFT:** [CN3 SPI wiring notes](CN3_SPI_PROPOSAL.md) include historical schematic assumptions. The Teensy-master/ESP32-slave CP/M disk link has been hardware-validated, and the independent ST7796 TFT on ESP32 VSPI has also been hardware-tested. TFT GPIO14/23/13/33/19 assignments and signal/power precautions are documented in [TFT_BRINGUP_PLAN.md](TFT_BRINGUP_PLAN.md).
+**CN3 SPI and TFT:** [CN3 SPI wiring notes](docs/CN3_SPI_PROPOSAL.md) include historical schematic assumptions. The Teensy-master/ESP32-slave CP/M disk link has been hardware-validated, and the independent ST7796 TFT on ESP32 VSPI has also been hardware-tested. TFT GPIO14/23/13/33/19 assignments and signal/power precautions are documented in [TFT_BRINGUP_PLAN.md](docs/TFT_BRINGUP_PLAN.md).
 
 > **Current verified baseline (2026-10-19):** ESP32 [`main`](https://github.com/timob0/EBTKS-Z80-Emulator/tree/main) includes the user-tested portable redcode/Z80 CPU replacement and Media Manager/SPI improvements ([PR #3](https://github.com/timob0/EBTKS-Z80-Emulator/pull/3)), **plus the user-hardware-tested ST7796 CP/M ANSI/VT100/CP437 terminal** ([merged PR #4](https://github.com/timob0/EBTKS-Z80-Emulator/pull/4)). Turbo Pascal's ANSI colors and DEC graphics match Telnet on the TFT, and Multiplan shows inverse text/cursor highlighting. Two firmware build targets (above) are CI validated; both retain Web UI/Telnet. Teensy [`main`](https://github.com/timob0/ebtks-alt-firmware/tree/main) remains unchanged and previously hardware-tested.
 >
 > **Current functionality:** CP/M, Multiplan, Zork1, Turbo Pascal and TINST; web terminal, remote HP display, disk mounts and browser OTA; default-on 4 MHz CRC-framed 16-sector SPI read-ahead with UART fallback, **UART-only writes**, and dot-prefixed SD metadata hidden from Media Manager. The SD File Service Test browser page and Media Manager transport control panel were retired; useful SPI diagnostic endpoints remain. PlatformIO pinned to `espressif32@7.1.3`. Separate CPU library is LGPL-3.0-or-later; verify binary distribution obligations before external releases.
 >
-> **Branch policy:** **Do not create any new feature or fix branch without first obtaining explicit user approval.** The supported release branch is `main` in both repositories. [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md) is the living authoritative status. The next candidate task is Teensy-local creation of an empty 8 MiB CP/M image (discuss/approve before editing Teensy); accelerating whole-image web transfers is not a priority.
+> **Branch policy:** **Do not create any new feature or fix branch without first obtaining explicit user approval.** The supported release branch is `main` in both repositories. [NEXT_CHAT_HANDOFF.md](docs/NEXT_CHAT_HANDOFF.md) is the living authoritative status. The next candidate task is Teensy-local creation of an empty 8 MiB CP/M image (discuss/approve before editing Teensy); accelerating whole-image web transfers is not a priority.
 >
 > The standalone emulator README below is historical and may describe different hardware.
 
-**For new development conversations:** Read [NEXT_CHAT_QUICKSTART.md](NEXT_CHAT_QUICKSTART.md) **first**, then the top of [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md); check repository branches and request explicit user approval before any new development branch.
+**For new development conversations:** Read [NEXT_CHAT_QUICKSTART.md](docs/NEXT_CHAT_QUICKSTART.md) **first**, then the top of [NEXT_CHAT_HANDOFF.md](docs/NEXT_CHAT_HANDOFF.md); check repository branches and request explicit user approval before any new development branch.
 
 ---
 

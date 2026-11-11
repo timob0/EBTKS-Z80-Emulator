@@ -6,7 +6,7 @@ This guide is for owners of an **EBTKS v3.x board with its original Teensy 4.1 a
 
 The HP-85 keeps running independently. The Teensy continues servicing the HP computer and owns the SD card; the ESP32 runs Z80/CP/M, serves the browser terminal and Media Manager, and can optionally offer Telnet when compiled with the Telnet switch. No extra ESP32 SD card, Z80 processor, display or serial terminal is needed.
 
-**This is a practical guide to the tested integrated build, not the historical standalone ESP32 emulator described farther down in the original README.** For technical design and regression notes see [PROJECT_STATUS.md](PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md).
+**This is a practical guide to the tested integrated build, not the historical standalone ESP32 emulator described farther down in the original README.** For technical design and regression notes see [PROJECT_STATUS.md](docs/PROJECT_STATUS.md) and [NEXT_CHAT_HANDOFF.md](docs/NEXT_CHAT_HANDOFF.md).
 
 ## 1. What you need
 
@@ -210,7 +210,7 @@ in both standard firmware builds. To enable it, compile either target with
 `telnet <EBTKS-IP> 23` and a VT100 terminal. Telnet shares the same CP/M
 console and opening it does not reset CP/M, but concurrent Telnet+BBS
 connections can exhaust scarce ESP32 memory. See
-[FIRMWARE_VARIANTS.md](FIRMWARE_VARIANTS.md) for the options and cautions.
+[FIRMWARE_VARIANTS.md](docs/FIRMWARE_VARIANTS.md) for the options and cautions.
 
 ## 5. First-boot walkthrough
 
@@ -266,4 +266,4 @@ Normal program exits may print `CP/M warm boot: restored D000-E5FF (count=N)` wi
 - The planned 4-inch SPI TFT / touchscreen is **not yet part of this firmware**.
 - The ESP32 updater is for application-only OTA on a **previously provisioned ESP32**, not a blank factory image.
 
-For details and current development status, see [PROJECT_STATUS.md](PROJECT_STATUS.md), [NEXT_CHAT_HANDOFF.md](NEXT_CHAT_HANDOFF.md), and the historical milestone documents, taking care to prefer the current source when they disagree.
+For details and current development status, see [PROJECT_STATUS.md](docs/PROJECT_STATUS.md), [NEXT_CHAT_HANDOFF.md](docs/NEXT_CHAT_HANDOFF.md), and the historical milestone documents, taking care to prefer the current source when they disagree.

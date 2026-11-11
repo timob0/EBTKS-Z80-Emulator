@@ -6,9 +6,9 @@
 
 This is the optional bulk-data link for speeding up CP/M SD operations. The Teensy 4.1 would be the **SPI0 master** and initiate each transfer when its HP bus work permits; the ESP32-WROOM-32D would be an **SPI2/HSPI slave**. The existing ESP↔Teensy UART1 (GPIO3/GPIO1, 115200 baud) continues carrying JSON commands/status and must **not** be repurposed. The Teensy's microSD socket uses its own SDIO interface, not these SPI0 pins.
 
-![Five proposed jumper connections between CN3 Teensy and ESP32 nets, and CS pull-up](docs/CN3_SPI_JUMPERS.svg)
+![Five proposed jumper connections between CN3 Teensy and ESP32 nets, and CS pull-up](CN3_SPI_JUMPERS.svg)
 
-[Open full-size, editable wiring diagram](docs/CN3_SPI_JUMPERS.svg)
+[Open full-size, editable wiring diagram](CN3_SPI_JUMPERS.svg)
 
 ## Five CN3-to-CN3 signal jumpers
 
