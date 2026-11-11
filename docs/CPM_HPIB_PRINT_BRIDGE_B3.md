@@ -1,3 +1,78 @@
+## 2026-11-11 — Virtual printer readiness and operator control (confirmed direction)
+
+**Requirements from the user:** CP/M virtual printer starts **OFFLINE**;
+`CPPRT 701` configures its destination but must not enable it.
+Entering the integrated `CPM` console session with a configured destination
+enables the virtual printer automatically. Leaving with K8, or an
+unexpected HP-85 disconnect/reset, takes the virtual printer **OFFLINE**.
+Provide a local HP-85 function key to toggle ONLINE/OFFLINE without leaving
+the interactive CP/M console (proposed **K7**, pending hardware keycode and
+key-label conflict checks). A temporary offline switch must be useful for
+paper changes or runaway jobs.
+
+CP/M BIOS `listst` currently always returns 0xFF, so replace it with real
+virtual-printer status when redirect mode is selected: `0xFF` only if printer
+session ONLINE, no transport fault and sufficient queue capacity; return
+`0x00` when OFFLINE, faulted or queue full. When redirect mode is
+*disabled/unconfigured*, choose explicit compatibility behavior, not
+accidental duplication to the UART.
+
+CP/M BIOS `list` has no return code: if OFFLINE or full, it **must not
+accept-and-discard** a byte. A synchronous direct `LIST` caller may wait
+for readiness (using cooperative Z80 I/O status polling), even if it does
+not test `LISTST`. The separate physical HP-85 loop must remain responsive
+to K7/K8 while guest CP/M is waiting; toggling ONLINE must let it proceed.
+Do not turn a slow/blocked printer into a tight uncontrolled CPU spin.
+
+Recommended state model:
+- **UNCONFIGURED/OFFLINE**: after CP/M boot, no valid `CPPRT` target;
+- **CONFIGURED/OFFLINE**: `CPPRT 701` completed, but `CPM` not attached;
+- **ONLINE**: integrated `CPM` session active and printer toggled on;
+- **PAUSED/OFFLINE**: local function key toggled offline during `CPM`;
+- **FAULT/OFFLINE**: HP-IB failure, lost host/heartbeat, or reset.
+A separately sampled queue-capacity condition temporarily makes
+`LISTST` not-ready without changing the user-visible ONLINE state.
+Hardware HP-IB listener readiness may not be directly detectable;
+`ONLINE` means the bridge can accept data, not guaranteed paper/ink state.
+
+**When K7 switches OFFLINE:** immediately stop sending new HP-IB data and
+advertise not-ready to CP/M; retain accepted bytes in FIFO (and remember
+which bytes were acknowledged) so they can be resumed by toggling ONLINE.
+No discard, replay or auto-formfeed. K8 disconnect sets OFFLINE; preserve
+an explicit policy for pending buffered data across sessions before the
+first hardware test (either retain and resume with clear accounting or
+explicitly report undrained data). If a runaway CP/M job must be cancelled,
+a separate deliberate flush/cancel UI can be considered later; toggling
+offline is **pause**, not cancel.
+
+Safety: ONLINE/OFFLINE control messages must be out-of-band, not mixed into
+the raw printer byte stream. Session state and host-presence watchdogs
+should default to OFFLINE on missed heartbeat, RESET and transport restart.
+Verify timing of offlining during a partly sent HP-IB chunk; bounded chunks
+cannot be preempted byte-for-byte, so choose a small maximum chunk and
+clearly limit pause latency. Do not insert slow HP-IB I/O in `CHIDLE`;
+the integrated `CPM` foreground loop must be validated separately.
+
+Hardware regression targets:
+1. Boot to A> with no CPPRT/CPM: LISTST not-ready, no printer output.
+2. CPPRT 701 alone: still not-ready.
+3. CPM starts: ready, raw binary LIST prints; keyboard remains responsive.
+4. K7 offline: LISTST goes not-ready, pending FIFO remains intact, no
+   additional printer bytes beyond bounded already-in-flight chunk.
+5. K7 online: printing resumes in original order, no missing/duplicate bytes.
+6. K8 exit: virtual printer not-ready, HP BASIC responsive, CP/M continues.
+7. Unexpected HP reset/link loss: fails closed to not-ready with no stale
+   online state.
+8. Offline LIST call that skips LISTST blocks/retries safely and unblocks on
+   the online transition.
+9. Test printer-disconnected/HP-IB errors, queue-full flow control and
+   repeated toggles while printing.
+
+The key assignment **K7 is proposed**, not yet confirmed by HP keycode
+instrumentation or user testing; K8 remains reserved for console exit.
+
+---
+
 # B3 — CP/M LST: → HP-85 HP-IB printer bridge (design and acceptance plan)
 
 Status: **design-only proposal, not implemented**, 2026-11-11.
